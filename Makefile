@@ -47,22 +47,13 @@ endif
 
 OBJS=$(patsubst %.c,%.o,$(wildcard src/*.c) bonsai/klib/kthread.o) $(patsubst %.cpp,%.o,$(wildcard src/*.cpp)) bonsai/klib/kstring.o clhash.o
 DOBJS=$(patsubst %.c,%.do,$(wildcard src/*.c) bonsai/klib/kthread.o) $(patsubst %.cpp,%.do,$(wildcard src/*.cpp)) bonsai/klib/kstring.o clhash.o
-ZOBJS=$(patsubst %.c,%.zo,$(wildcard src/*.c) bonsai/klib/kthread.o) $(patsubst %.cpp,%.zo,$(wildcard src/*.cpp)) bonsai/klib/kstring.o clhash.o
-
-TEST_OBJS=$(patsubst %.cpp,%.o,$(wildcard test/*.cpp))
-ZTEST_OBJS=$(patsubst %.cpp,%.zo,$(wildcard test/*.cpp))
-
-EXEC_OBJS=$(patsubst %.cpp,%.o,$(wildcard bin/*.cpp))
-ZW_OBJS=$(patsubst %.c,%.o,$(wildcard ../zstd/zlibWrapper/*.c)) libzstd.a
-
-EX=$(patsubst src/%.cpp,%,$(wildcard src/*.cpp))
-
 
 ZSTD_INCLUDE_DIRS=bonsai/zstd/zlibWrapper bonsai/zstd/lib/common bonsai/zstd/lib
 ZSTD_INCLUDE=$(patsubst %,-I%,$(ZSTD_INCLUDE_DIRS))
 ZFLAGS=-DZWRAP_USE_ZSTD=1
 ZCOMPILE_FLAGS= $(ZFLAGS) -lzstd
-ALL_ZOBJS=$(ZOBJS) $(ZW_OBJS)
+ZW_OBJS=$(patsubst %.c,%.o,$(wildcard bonsai/zstd/zlibWrapper/*.c)) libzstd.a
+ALL_ZOBJS=$(ZOBJS) $(ZW_OBJS) bonsai/bonsai/clhash.o bonsai/klib/kthread.o
 INCLUDE=-Ibonsai/clhash/include -I.  -Ibonsai/libpopcnt -Iinclude -Ibonsai/circularqueue $(ZSTD_INCLUDE) $(INCPLUS) -Ibonsai/hll/vec -Ibonsai/pdqsort -Ibonsai -Ibonsai/bonsai/include/
 
 
@@ -95,6 +86,9 @@ test/%.zo: test/%.cpp
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -DNDEBUG -c $< -o $@ $(LIB)
 
+%.o: %.c
+	$(CC) $(CFLAGS) $(INCLUDE) $(LD) -DNDEBUG -c $< -o $@ $(LIB)
+
 %.do: %.cpp
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c $< -o $@ $(LIB)
 
@@ -104,8 +98,10 @@ test/%.zo: test/%.cpp
 %_s: src/%.cpp libzstd.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(OBJ) -static-libstdc++ -static-libgcc -DNDEBUG $< -o $@ $(LIB)
 
-#%_z: src/%.cpp $(ALL_ZOBJS)
-#	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+zobj: $(ALL_ZOBJS)
+
+%_z: src/%.cpp $(ALL_ZOBJS)
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 #
 #%_sz: src/%.cpp $(ALL_ZOBJS)
 #	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -static-libstdc++ -static-libgcc -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
