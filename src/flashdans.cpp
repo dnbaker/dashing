@@ -369,6 +369,7 @@ int setdist_main(int argc, char *argv[]) {
     int wsz(-1), k(31), use_scientific(false), co;
     bool canon(true), emit_jaccard(true);
     unsigned bufsize(1 << 18);
+    int nt(1);
     std::string spacing, paths_file;
     FILE *ofp(stdout), *pairofp(stdout);
     omp_set_num_threads(1);
@@ -376,7 +377,7 @@ int setdist_main(int argc, char *argv[]) {
         switch(co) {
             case 'B': std::stringstream(optarg) << bufsize; break;
             case 'k': k = std::atoi(optarg); break;
-            case 'p': omp_set_num_threads(std::atoi(optarg)); break;
+            case 'p': omp_set_num_threads((nt = std::atoi(optarg))); break;
             case 's': spacing = optarg; break;
             case 'C': canon = false; break;
             case 'w': wsz = std::atoi(optarg); break;
@@ -393,8 +394,10 @@ int setdist_main(int argc, char *argv[]) {
     Spacer sp(k, wsz, sv);
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
                                                        : std::vector<std::string>(argv + optind, argv + argc));
+    KSeqBufferHolder h(nt);
     std::vector<khash_t(all) *> hashes;
     while(hashes.size() < inpaths.size()) hashes.emplace_back((khash_t(all) *)calloc(sizeof(khash_t(all)), 1));
+    for(auto hash: hashes) kh_resize(all, hash, 1 << 20); // Try to reduce the number of allocations.
     const size_t nhashes(hashes.size());
     if(wsz < sp.c_) wsz = sp.c_;
     if(inpaths.size() == 0) {
@@ -403,9 +406,7 @@ int setdist_main(int argc, char *argv[]) {
     }
     #pragma omp parallel for
     for(size_t i = 0; i < nhashes; ++i) {
-        const char *path(inpaths[i].data());
-        khash_t(all) *hash(hashes[i]);
-        fill_set_genome<score::Lex>(path, sp, hash, i, nullptr, canon);
+        fill_set_genome<score::Lex>(inpaths[i].data(), sp, hashes[i], i, nullptr, canon, h.data() + omp_get_thread_num());
     }
     LOG_DEBUG("Filled genomes. Now analyzing data.\n");
     ks::string str;
