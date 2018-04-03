@@ -19,7 +19,7 @@ void main_usage(char **argv) {
 void dist_usage(const char *arg) {
     std::fprintf(stderr, "Usage: %s <opts> [genomes if not provided from a file with -F]\n"
                          "Flags:\n"
-                         "-h/-?: Usage\n"
+                         "-h/-?\tUsage\n"
                          "-k\tSet kmer size [31]\n"
                          "-p\tSet number of threads [1]\n"
                          "-s\tadd a spacer of the format <int>x<int>,<int>x<int>,"
@@ -27,9 +27,9 @@ void dist_usage(const char *arg) {
                          "between bases repeated the second integer number of times\n"
                          "-w\tSet window size [max(size of spaced kmer, [parameter])]\n"
                          "-S\tSet sketch size [16, for 2**16 bytes each]\n"
-                         "-c:\tCache sketches/use cached sketches\n"
-                         "-H:\tTreat provided paths as pre-made sketches.\n"
-                         "-C:\tDo not canonicalize. [Default: canonicalize]\n"
+                         "-c\tCache sketches/use cached sketches\n"
+                         "-H\tTreat provided paths as pre-made sketches.\n"
+                         "-C\tDo not canonicalize. [Default: canonicalize]\n"
                          "-P\tSet prefix for sketch file locations [empty]\n"
                          "-x\tSet suffix in sketch file names [empty]\n"
                          "-o\tOutput for genome size estimates [stdout]\n"
@@ -57,9 +57,13 @@ void sketch_usage(const char *arg) {
                          "-b:\tBatch size [16 genomes]\n"
                          "-c:\tCache sketches/use cached sketches\n"
                          "-C:\tDo not canonicalize. [Default: canonicalize]\n"
+                         "-L:\tDo not clamp estimates below expected variance to 0. [Default: clamp]\n"
                          "-P\tSet prefix for sketch file locations [empty]\n"
                          "-x\tSet suffix in sketch file names [empty]\n"
-                         "-E\tUse Flajolet, not Ertl, quantitation method for hll. [Default: Ertl]\n"
+                         "-E\tUse Flajolet with inclusion/exclusion quantitation method for hll. [Default: Ertl Joint MLE]\n"
+                         "-I\tUse Ertl improved estimator with inclusion/exclusion quantitation method for hll. This has low error but introduces bias. [Default: Ertl Joint MLE]\n"
+                         "-J\tUse Ertl MLE with inclusion/exclusion quantitation method for hll [Default: Ertl Joint MLE, which is *different* and probably better.].\n"
+                         "-z\tWrite gzip compressed. (Or zstd-compressed, if compiled with zlibWrapper.\n"
                 , arg);
     std::exit(EXIT_FAILURE);
 }
@@ -233,14 +237,12 @@ void dist_loop(const int pairfi, std::vector<hll::hll_t> &hlls, const std::vecto
         std::vector<FType> &dists = dps[i & 1];
         if(emit_jaccard) {
             #pragma omp parallel for schedule(dynamic)
-            for(size_t j = i + 1; j < hlls.size(); ++j) {
+            for(size_t j = i + 1; j < hlls.size(); ++j)
                 dists[j - i - 1] = jaccard_index(hlls[j], h1);
-            }
         } else {
             #pragma omp parallel for schedule(dynamic)
-            for(size_t j = i + 1; j < hlls.size(); ++j) {
+            for(size_t j = i + 1; j < hlls.size(); ++j)
                 dists[j - i - 1] = dist_index(jaccard_index(hlls[j], h1), ksinv);
-            }
         }
         h1.free();
         LOG_DEBUG("Finished chunk %zu of %zu\n", i + 1, hlls.size());
@@ -316,9 +318,8 @@ int dist_main(int argc, char *argv[]) {
         for(size_t i = 0; i < hlls.size(); ++i) {
             const std::string &path(inpaths[i]);
             static const std::string suf = ".gz";
-            if(presketched_only) {
-                hlls[i].read(path);
-            } else {
+            if(presketched_only) hlls[i].read(path);
+            else {
                 const std::string fpath(hll_fname(path.data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix));
                 if(cache_sketch && isfile(fpath)) {
                     LOG_DEBUG("Sketch found at %s with size %zu, %u\n", fpath.data(), size_t(1ull << sketch_size), sketch_size);
@@ -366,7 +367,7 @@ int dist_main(int argc, char *argv[]) {
 
 int setdist_main(int argc, char *argv[]) {
     int wsz(-1), k(31), use_scientific(false), co;
-    bool canon(true);
+    bool canon(true), emit_jaccard(true);
     unsigned bufsize(1 << 18);
     std::string spacing, paths_file;
     FILE *ofp(stdout), *pairofp(stdout);
@@ -383,6 +384,7 @@ int setdist_main(int argc, char *argv[]) {
             case 'o': ofp = fopen(optarg, "w"); break;
             case 'O': pairofp = fopen(optarg, "w"); break;
             case 'e': use_scientific = true; break;
+            case 'J': emit_jaccard = false; break;
             case 'h': case '?': dist_usage(*argv);
         }
     }
@@ -400,7 +402,7 @@ int setdist_main(int argc, char *argv[]) {
         dist_usage(*argv);
     }
     #pragma omp parallel for
-    for(size_t i = 0; i < hashes.size(); ++i) {
+    for(size_t i = 0; i < nhashes; ++i) {
         const char *path(inpaths[i].data());
         khash_t(all) *hash(hashes[i]);
         fill_set_genome<score::Lex>(path, sp, hash, i, nullptr, canon);
@@ -410,7 +412,7 @@ int setdist_main(int argc, char *argv[]) {
     str.sprintf("#Path\tSize (est.)\n");
     {
         const int fn(fileno(ofp));
-        for(size_t i(0); i < hashes.size(); ++i) {
+        for(size_t i(0); i < nhashes; ++i) {
             str.sprintf("%s\t%zu\n", inpaths[i].data(), kh_size(hashes[i]));
             if(str.size() > 1 << 17) str.write(fn), str.clear();
         }
@@ -426,18 +428,23 @@ int setdist_main(int argc, char *argv[]) {
     str.write(fileno(pairofp)); str.free();
     setvbuf(pairofp, rdbuf.data(), _IOLBF, rdbuf.size());
     const char *const fmt(use_scientific ? "\t%e": "\t%f");
-    for(size_t i = 0; i < hashes.size(); ++i) {
+    const double ksinv = 1./static_cast<double>(k);
+    for(size_t i = 0; i < nhashes; ++i) {
         auto &h1(hashes[i]);
         size_t j;
-        #pragma omp parallel for
-        for(j = i + 1; j < hashes.size(); ++j)
-            dists[j - i - 1] = jaccard_index(hashes[j], h1);
-        for(j = 0; j < i + 1; ++j) fputc('\t', pairofp), fputc('-', pairofp);
-        for(j = 0; j < hashes.size() - i - 1; ++j)
-            fprintf(pairofp, fmt, dists[j]);
+
+        if(emit_jaccard) {
+            #pragma omp parallel for
+            for(j = i + 1; j < nhashes; ++j) dists[j - i - 1] = jaccard_index(hashes[j], h1);
+        } else {
+            #pragma omp parallel for
+            for(j = i + 1; j < nhashes; ++j) dists[j - i - 1] = dist_index(jaccard_index(hashes[j], h1), ksinv);
+        }
+
+        for(j = 0; j < i + 1; fputc('\t', pairofp), fputc('-', pairofp), ++j);
+        for(j = 0; j < nhashes - i - 1; fprintf(pairofp, fmt, dists[j++]));
         fputc('\n', pairofp);
         khash_destroy(h1), h1 = nullptr;
-        // Delete data as soon as we don't need it.
     }
     return EXIT_SUCCESS;
 }
@@ -490,5 +497,9 @@ int main(int argc, char *argv[]) {
     else if(std::strcmp(argv[1], "dist") == 0) return dist_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "setdist") == 0) return setdist_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "hll") == 0) return hll_main(argc - 1, argv + 1);
-    else throw std::runtime_error(std::string("Invalid subcommand ") + argv[1] + " provided.");
+    else {
+        for(const char *const *p(argv + 1); *p; ++p)
+            if(std::string(*p) == "-h" || std::string(*p) == "--help") main_usage(argv);
+        throw std::runtime_error(std::string("Invalid subcommand ") + argv[1] + " provided.");
+    }
 }

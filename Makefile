@@ -110,7 +110,7 @@ zobj: $(ALL_ZOBJS)
 #	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(DOBJS) $< -o $@ $(LIB)
 
 clean:
-	echo 'This needs to be written!'
+	rm -f flashdans libzstd.a flashdans_z
 
 mostlyclean:
 	rm -f $(ZOBJS) $(ZTEST_OBJS) $(ZW_OBJS) $(OBJS) $(DEX) $(ZEX) $(EX) $(TEST_OBJS) $(DOBJS) unit lib/*o src/*o
