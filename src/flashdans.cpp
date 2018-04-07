@@ -99,7 +99,7 @@ namespace detail {
 
 struct kt_sketch_helper {
     std::vector<hll::hll_t>  &hlls_; // HyperLogLog scratch space
-    std::vector<kseq_t>     &kseqs_;
+    KSeqBufferHolder        &kseqs_;
     const int bs_, sketch_size_, kmer_size_, window_size_, csz_;
     const spvec_t sv_;
     std::vector<std::vector<std::string>> &ssvec_; // scratch string vector
@@ -172,8 +172,8 @@ int sketch_main(int argc, char *argv[]) {
         for(const auto &el: inpaths) ivecs.emplace_back(std::vector<std::string>{el});
     }
     std::vector<hll::hll_t> hlls;
-    std::vector<kseq_t>    kseqs;
-    while(hlls.size() < (unsigned)nthreads) hlls.emplace_back(sketch_size, estim, jestim, 1, clamp), kseqs.emplace_back(kseq_init_stack());
+    KSeqBufferHolder kseqs(nthreads);
+    while(hlls.size() < (unsigned)nthreads) hlls.emplace_back(sketch_size, estim, jestim, 1, clamp);
     for(auto &hll: hlls) hll.set_clamp(clamp);
     assert(hlls[0].size() == ((1ull << sketch_size)));
     if(wsz < sp.c_) wsz = sp.c_;
@@ -184,9 +184,6 @@ int sketch_main(int argc, char *argv[]) {
     if(ivecs.size() / (unsigned)(nthreads) > (unsigned)bs) bs = (ivecs.size() / (nthreads) / 2);
     detail::kt_sketch_helper helper {hlls, kseqs, bs, sketch_size, k, wsz, (int)sp.c_, sv, ivecs, suffix, prefix, spacing, skip_cached, canon, estim, write_to_dev_null, write_gz};
     kt_for(nthreads, detail::kt_for_helper, &helper, ivecs.size() / bs + (ivecs.size() % bs != 0));
-    for(auto &kseq: kseqs) {
-        kseq_destroy_stack(kseq);
-    }
     LOG_DEBUG("Finished sketching\n");
     return EXIT_SUCCESS;
 }
