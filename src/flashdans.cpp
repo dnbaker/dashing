@@ -257,11 +257,13 @@ void dist_loop(const int pairfi, std::vector<hll::hll_t> &hlls, const std::vecto
     if(!write_binary) str.write(pairfi), str.clear();
 }
 
+namespace {
 enum CompReading: unsigned {
     UNCOMPRESSED,
     GZ,
     AUTODETECT
 };
+}
 
 int dist_main(int argc, char *argv[]) {
     int wsz(-1), k(31), sketch_size(16), use_scientific(false), co, cache_sketch(false), nthreads(1);
@@ -269,7 +271,7 @@ int dist_main(int argc, char *argv[]) {
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE;
     std::string spacing, paths_file, suffix, prefix;
-    CompReading reading_type = UNCOMPRESSED;
+    CompReading reading_type = CompReading::UNCOMPRESSED;
     FILE *ofp(stdout), *pairofp(stdout);
     omp_set_num_threads(1);
     while((co = getopt(argc, argv, "P:x:F:c:p:o:s:w:O:S:k:azfJICbMEeHh?")) >= 0) {
@@ -501,6 +503,6 @@ int main(int argc, char *argv[]) {
     else {
         for(const char *const *p(argv + 1); *p; ++p)
             if(std::string(*p) == "-h" || std::string(*p) == "--help") main_usage(argv);
-        throw std::runtime_error(std::string("Invalid subcommand ") + argv[1] + " provided.");
+        RUNTIME_ERROR(std::string("Invalid subcommand ") + argv[1] + " provided.");
     }
 }

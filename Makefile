@@ -62,12 +62,10 @@ EX=$(patsubst src/%.cpp,%,$(wildcard src/*.cpp))
 all: $(EX)
 
 update:
-	for i in circularqueue clhash cppitertools hll klib kraken kspp libpopcnt linear pdqsort tinythreadpp zstd; \
-        do cd ../$$i && git checkout master && git pull && cd ../bonsai; \
-    done
+	cd bonsai && git checkout master && git pull && make update && cd ..
 
 libzstd.a:
-	cd bonsai/bonsai && make libzstd.a && cp libzstd.a ../../
+	+cd bonsai/bonsai && make libzstd.a && cp libzstd.a ../../
 
 bonsai/klib/kstring.o:
 	cd bonsai/bonsai && make ../klib/kstring.o && cd ../.. && \
