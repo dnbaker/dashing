@@ -6,13 +6,14 @@
 #include "bonsai/bonsai/include/bitmap.h"
 #include "bonsai/bonsai/include/setcmp.h"
 #include "filtered_hll/filterhll.h"
+#include "distmat/distmat.h"
 #include <sstream>
 
 
 namespace bns {
 
 void main_usage(char **argv) {
-    std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options. [Subcommands: sketch, dist, setdist, hll.]\n",
+    std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options. [Subcommands: sketch, dist, setdist, hll, printbinary.]\n",
                  *argv, *argv);
     std::exit(EXIT_FAILURE);
 }
@@ -353,6 +354,7 @@ int dist_main(int argc, char *argv[]) {
     hll::JointEstimationMethod jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE;
     std::string spacing, paths_file, suffix, prefix;
     CompReading reading_type = CompReading::UNCOMPRESSED;
+    std::string pairofp_labels;
     FILE *ofp(stdout), *pairofp(stdout);
     omp_set_num_threads(1);
     while((co = getopt(argc, argv, "P:x:F:c:p:o:s:w:O:S:k:azfJICbMEeHh?")) >= 0) {
@@ -367,7 +369,7 @@ int dist_main(int argc, char *argv[]) {
             case 'I': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
             case 'm': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
             case 'J': emit_jaccard = false; break;
-            case 'O': pairofp = fopen(optarg, "wb"); if(pairofp == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
+            case 'O': pairofp = fopen(optarg, "wb"); pairofp_labels = std::string(optarg) + ".labels"; if(pairofp == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
             case 'P': prefix = optarg; break;
             case 'S': sketch_size = std::atoi(optarg); break;
             case 'W': cache_sketch = true;  break;
@@ -432,6 +434,8 @@ int dist_main(int argc, char *argv[]) {
     if(ofp != stdout) std::fclose(ofp);
     str.clear();
     if(write_binary) {
+        const char *name = emit_float ? dm::MAGIC_NUMBER<float>().name(): dm::MAGIC_NUMBER<double>().name();
+        std::fwrite(name, std::strlen(name + 1), 1, pairofp);
         const size_t hs(hlls.size());
         std::fwrite(&hs, sizeof(hs), 1, pairofp);
     } else {
@@ -444,7 +448,45 @@ int dist_main(int argc, char *argv[]) {
         dist_loop<float>(fileno(pairofp), hlls, inpaths, k, use_scientific, emit_jaccard, write_binary);
     else
         dist_loop<double>(fileno(pairofp), hlls, inpaths, k, use_scientific, emit_jaccard, write_binary);
+    if(write_binary) {
+        if(pairofp_labels.empty()) pairofp_labels = "unspecified";
+        std::FILE *fp = std::fopen(pairofp_labels.data(), "wb");
+        if(fp == nullptr) RUNTIME_ERROR(std::string("Could not open file at ") + pairofp_labels);
+        for(const auto &path: inpaths) std::fwrite(path.data(), path.size(), 1, fp), std::fputc('\n', fp);
+        std::fclose(fp);
+    }
     if(pairofp != stdout) std::fclose(pairofp);
+    return EXIT_SUCCESS;
+}
+
+int print_binary_main(int argc, char *argv[]) {
+    int c;
+    bool use_float = false, use_scientific = false;
+    std::string outpath;
+    for(char **p(argv); *p; ++p) if(std::strcmp(*p, "-h") && std::strcmp(*p, "--help") == 0) goto usage;
+    if(argc == 1) {
+        usage:
+        std::fprintf(stderr, "%s <path to binary file> [- to read from stdin]\n", *argv);
+    }
+    while((c = getopt(argc, argv, ":o:sfh?")) >= 0) {
+        switch(c) {
+            case 'o': outpath = optarg; break;
+            case 'f': use_float = true; break;
+            case 's': use_scientific = true; break;
+        }
+    }
+    std::FILE *fp;
+    if(outpath.empty()) outpath = "/dev/stdout";
+    if(use_float) {
+        dm::DistanceMatrix<float> mat(argv[optind]);
+        if((fp = std::fopen(outpath.data(), "wb")) == nullptr) RUNTIME_ERROR(ks::sprintf("Could not open file at %s", outpath.data()).data());
+        mat.printf(fp, use_scientific);
+    } else {
+        dm::DistanceMatrix<double> mat(argv[optind]);
+        if((fp = std::fopen(outpath.data(), "wb")) == nullptr) RUNTIME_ERROR(ks::sprintf("Could not open file at %s", outpath.data()).data());
+        mat.printf(fp, use_scientific);
+    }
+    std::fclose(fp);
     return EXIT_SUCCESS;
 }
 
@@ -581,6 +623,7 @@ int main(int argc, char *argv[]) {
     else if(std::strcmp(argv[1], "dist") == 0) return dist_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "setdist") == 0) return setdist_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "hll") == 0) return hll_main(argc - 1, argv + 1);
+    else if(std::strcmp(argv[1], "printbinary") == 0) return print_binary_main(argc - 1, argv + 1);
     else {
         for(const char *const *p(argv + 1); *p; ++p)
             if(std::string(*p) == "-h" || std::string(*p) == "--help") main_usage(argv);
