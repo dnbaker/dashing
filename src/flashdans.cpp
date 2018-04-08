@@ -5,8 +5,9 @@
 #include "bonsai/bonsai/include/database.h"
 #include "bonsai/bonsai/include/bitmap.h"
 #include "bonsai/bonsai/include/setcmp.h"
-//#include "klib/kthread.h"
+#include "filtered_hll/filterhll.h"
 #include <sstream>
+
 
 namespace bns {
 
@@ -97,9 +98,10 @@ std::string hll_fname(const char *path, size_t sketch_p, int wsz, int k, int csz
 
 namespace detail {
 
+template<typename SketchType>
 struct kt_sketch_helper {
-    std::vector<hll::hll_t>  &hlls_; // HyperLogLog scratch space
-    KSeqBufferHolder        &kseqs_;
+    std::vector<SketchType>  &sketches_; // HyperLogLog scratch space
+    KSeqBufferHolder            &kseqs_;
     const int bs_, sketch_size_, kmer_size_, window_size_, csz_;
     const spvec_t sv_;
     std::vector<std::vector<std::string>> &ssvec_; // scratch string vector
@@ -111,53 +113,98 @@ struct kt_sketch_helper {
     const hll::EstimationMethod estim_;
     const bool write_to_dev_null_;
     const bool write_gz_;
+    const std::vector<unsigned>      &counts_; // The count values required by the file at this path.
+    const std::vector<unsigned> &bloom_sizes_; // Sizes for bloom filters.
+    const std::vector<bool>      &use_filter_;
 };
 
+template<typename SketchType>
+void resize_bloom(SketchType &s, unsigned count, unsigned bfsz);
+template<>
+void resize_bloom<hll::hll_t>(hll::hll_t &s, unsigned count, unsigned bfsz) {}
+template<>
+void resize_bloom<fhll::fhll_t>(fhll::fhll_t &s, unsigned count, unsigned bfsz) {
+    s.set_threshold(count);
+    s.resize_bloom(bfsz);
+}
+
+template<typename SketchType>
 void kt_for_helper(void  *data_, long index, int tid) {
-    kt_sketch_helper &helper(*(kt_sketch_helper *)data_);
-    hll::hll_t &hll(helper.hlls_[tid]);
+    kt_sketch_helper<SketchType> &helper(*(kt_sketch_helper<SketchType> *)data_);
+    auto &sketch(helper.sketches_[tid]);
     std::string fname;
     for(size_t i(helper.bs_ * index); i < std::min((uint64_t)(helper.bs_ * (index + 1)), (uint64_t)(helper.ssvec_.size())); ++i) {
         std::vector<std::string> &scratch_stringvec(helper.ssvec_[i]);
         fname = hll_fname(scratch_stringvec[0].data(), helper.sketch_size_, helper.window_size_, helper.kmer_size_, helper.csz_, helper.spacing_, helper.suffix_, helper.prefix_);
         if(helper.write_gz_) fname += ".gz";
         if(helper.skip_cached_ && isfile(fname)) continue;
-        fill_hll(hll, scratch_stringvec, helper.kmer_size_, helper.window_size_, helper.sv_, helper.canon_, nullptr, 1, helper.sketch_size_, &helper.kseqs_[tid]); // Avoid allocation fights.
-        hll.set_estim(helper.estim_);
+        if(helper.use_filter_[i]) {
+            resize_bloom(sketch, helper.counts_[i], helper.bloom_sizes_[i]);
+            fill_sketch(sketch, scratch_stringvec, helper.kmer_size_, helper.window_size_, helper.sv_, helper.canon_, nullptr, 1, helper.sketch_size_, &helper.kseqs_[tid]); // Avoid allocation fights.
+        } else {
+            fill_sketch(get_hll(sketch), scratch_stringvec, helper.kmer_size_, helper.window_size_, helper.sv_, helper.canon_, nullptr, 1, helper.sketch_size_, &helper.kseqs_[tid]); // Avoid allocation fights.
+        }
+        auto &hll = get_hll(sketch);
         hll.write(helper.write_to_dev_null_ ? "/dev/null": fname.data(), helper.write_gz_);
-        hll.clear();
+        sketch.clear();
     }
 }
 
 }
 
+enum sketching_method {
+    EXACT = 0,
+    CBF   = 1,
+    BY_FNAME = 2
+};
+
+
+unsigned fsz2count(uint64_t fsz) {
+    // This should be adapted according to the error rate of the pcbf
+    if(fsz < 300ull << 20) return 1;
+    if(fsz < 500ull << 20) return 3;
+    if(fsz < 1ull << 30)  return 10;
+    if(fsz < 3ull << 30)  return 20;
+    return static_cast<unsigned>(std::pow(2., std::log(fsz >> 30)) * 10.);
+    // This likely does not account for compression.
+}
+
 // Main functions
 int sketch_main(int argc, char *argv[]) {
-    int wsz(-1), k(31), sketch_size(16), skip_cached(false), co, nthreads(1), bs(16);
+    int wsz(-1), k(31), sketch_size(16), skip_cached(false), co, nthreads(1), bs(16), threshold(-1), nblooms(-1), bloom_sketch_size(-1), nhashes(4);
     bool canon(true), write_to_dev_null(false), write_gz(false), clamp(true);
+    sketching_method sm = EXACT;
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE;
     std::string spacing, paths_file, suffix, prefix;
-    while((co = getopt(argc, argv, "P:F:c:p:x:s:S:k:w:jLzEDIcCeh?")) >= 0) {
+    uint64_t seedseedseed = 0x1337;
+    while((co = getopt(argc, argv, "n:P:F:c:p:x:R:s:S:k:w:m:H:BfjLzEDIcCeh?")) >= 0) {
         switch(co) {
-            case 'L': clamp = false; break;
             case 'b': bs = std::atoi(optarg); break;
-            case 'k': k = std::atoi(optarg); break;
-            case 'x': suffix = optarg; break;
-            case 'p': nthreads = std::atoi(optarg); break;
-            case 'P': prefix = optarg; break;
-            case 's': spacing = optarg; break;
+            case 'B': sm = CBF; break;
+            case 'C': canon = false; break;
+            case 'c': skip_cached = true; break;
+            case 'D': write_to_dev_null = true; break;
             case 'E': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
+            case 'F': paths_file = optarg; break;
+            case 'f': sm = BY_FNAME; break;
+            case 'h': case '?': sketch_usage(*argv); break;
+            case 'H': nhashes = std::atoi(optarg); break;
             case 'I': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
             case 'J': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
+            case 'k': k = std::atoi(optarg); break;
+            case 'L': clamp = false; break;
+            case 'm': bloom_sketch_size = std::atoi(optarg); break;
+            case 'n': threshold = std::atoi(optarg); break;
+            case 'N': nblooms = std::atoi(optarg); break;
+            case 'p': nthreads = std::atoi(optarg); break;
+            case 'P': prefix = optarg; break;
+            case 'R': seedseedseed = std::strtoull(optarg, nullptr, 10); break;
             case 'S': sketch_size = std::atoi(optarg); break;
+            case 's': spacing = optarg; break;
             case 'w': wsz = std::atoi(optarg); break;
-            case 'c': skip_cached = true; break;
-            case 'F': paths_file = optarg; break;
-            case 'C': canon = false; break;
-            case 'D': write_to_dev_null = true; break;
+            case 'x': suffix = optarg; break;
             case 'z': write_gz = true; break;
-            case 'h': case '?': sketch_usage(*argv);
         }
     }
     LOG_DEBUG("Sketch size: %i\n", sketch_size);
@@ -166,24 +213,61 @@ int sketch_main(int argc, char *argv[]) {
     spvec_t sv(parse_spacing(spacing.data(), k));
     Spacer sp(k, wsz, sv);
     std::vector<std::vector<std::string>> ivecs;
+    std::vector<unsigned> counts, bloom_filter_sizes;
+    std::vector<bool> use_filter;
+    using circ::roundup;
     {
         std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
                                                            : std::vector<std::string>(argv + optind, argv + argc));
-        for(const auto &el: inpaths) ivecs.emplace_back(std::vector<std::string>{el});
+        uint64_t tmp, fsz_max = 0;
+        for(const auto &path: inpaths) {
+            tmp = filesize(path.data());
+            fsz_max = std::max(static_cast<uint64_t>(tmp), fsz_max);
+            counts.emplace_back(fsz2count(tmp));
+            bloom_filter_sizes.emplace_back(std::max(static_cast<int>(std::log2(roundup(tmp))) - 3, 16));
+            ivecs.emplace_back(std::vector<std::string>{path});
+        }
+        if(threshold < 0 || bloom_sketch_size < 0) {
+            if(threshold < 0) threshold = fsz2count(fsz_max);
+            if(bloom_sketch_size < 0) {
+                bloom_sketch_size = std::max(static_cast<int>(std::log2(roundup(fsz_max))) - 3, 16);
+                LOG_INFO("Unset sketch size. Setting to log2(# bits in the largest file) [%i]\n", bloom_sketch_size);
+            }
+        }
+        if(sm == CBF) use_filter = std::vector<bool>(inpaths.size(), true);
+        else if(sm == BY_FNAME) {
+            const std::string fq1 = "fastq", fq2 = "fq";
+            for(const auto &path: inpaths) use_filter.emplace_back(path.find(fq1) != std::string::npos || path.find(fq2) != std::string::npos);
+        }
     }
-    std::vector<hll::hll_t> hlls;
+    if(sm == EXACT) {
+        std::vector<unsigned> tmp; std::swap(tmp, counts);
+    }
+    if(nblooms < std::log2(roundup(threshold)) + 1) {
+        nblooms = std::log2(roundup(threshold)) + 1;
+        LOG_WARNING("Number of blooms is too small to represent the required count. Resizing to %i\n", nblooms);
+    }
     KSeqBufferHolder kseqs(nthreads);
-    while(hlls.size() < (unsigned)nthreads) hlls.emplace_back(sketch_size, estim, jestim, 1, clamp);
-    for(auto &hll: hlls) hll.set_clamp(clamp);
-    assert(hlls[0].size() == ((1ull << sketch_size)));
     if(wsz < sp.c_) wsz = sp.c_;
     if(ivecs.size() == 0) {
         std::fprintf(stderr, "No paths. See usage.\n");
         sketch_usage(*argv);
     }
+    std::vector<hll::hll_t> hlls;
+    std::vector<fhll::fhll_t> fhlls;
+    if(sm == EXACT) {
+        while(hlls.size() < (unsigned)nthreads) hlls.emplace_back(sketch_size, estim, jestim, 1, clamp);
+    } else {
+        while(fhlls.size() < (unsigned)nthreads) fhlls.emplace_back(sketch_size, nblooms, bloom_sketch_size, nhashes, seedseedseed, threshold, estim, jestim, clamp);
+    }
     if(ivecs.size() / (unsigned)(nthreads) > (unsigned)bs) bs = (ivecs.size() / (nthreads) / 2);
-    detail::kt_sketch_helper helper {hlls, kseqs, bs, sketch_size, k, wsz, (int)sp.c_, sv, ivecs, suffix, prefix, spacing, skip_cached, canon, estim, write_to_dev_null, write_gz};
-    kt_for(nthreads, detail::kt_for_helper, &helper, ivecs.size() / bs + (ivecs.size() % bs != 0));
+    if(sm == EXACT) {
+        detail::kt_sketch_helper<hll::hll_t> helper {hlls, kseqs, bs, sketch_size, k, wsz, (int)sp.c_, sv, ivecs, suffix, prefix, spacing, skip_cached, canon, estim, write_to_dev_null, write_gz, counts, bloom_filter_sizes, use_filter};
+        kt_for(nthreads, detail::kt_for_helper<hll::hll_t>, &helper, ivecs.size() / bs + (ivecs.size() % bs != 0));
+    } else {
+        detail::kt_sketch_helper<fhll::fhll_t> helper {fhlls, kseqs, bs, sketch_size, k, wsz, (int)sp.c_, sv, ivecs, suffix, prefix, spacing, skip_cached, canon, estim, write_to_dev_null, write_gz, counts, bloom_filter_sizes, use_filter};
+        kt_for(nthreads, detail::kt_for_helper<fhll::fhll_t>, &helper, ivecs.size() / bs + (ivecs.size() % bs != 0));
+    }
     LOG_DEBUG("Finished sketching\n");
     return EXIT_SUCCESS;
 }
@@ -327,7 +411,7 @@ int dist_main(int argc, char *argv[]) {
                     // By reserving 256 character, we make it probably that no allocation is necessary in this section.
                     std::vector<std::string> &scratch_stringvec(scratch_vv[omp_get_thread_num()]);
                     scratch_stringvec[0] = inpaths[i];
-                    fill_hll(hlls[i], scratch_stringvec, k, wsz, sv, canon, nullptr, 1, sketch_size); // Avoid allocation fights.
+                    fill_sketch(hlls[i], scratch_stringvec, k, wsz, sv, canon, nullptr, 1, sketch_size); // Avoid allocation fights.
                     if(cache_sketch) hlls[i].write(fpath, (reading_type == GZ ? 1: reading_type == AUTODETECT ? std::equal(suf.rbegin(), suf.rend(), fpath.rbegin()): false));
                 }
             }
