@@ -1,3 +1,6 @@
 [submodule "bonsai"]
 	path = bonsai
 	url = https://github.com/dnbaker/bonsai
+[submodule "distmat"]
+	path = distmat
+	url = https://github.com/dnbaker/distmat
