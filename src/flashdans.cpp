@@ -36,6 +36,7 @@ void dist_usage(const char *arg) {
                          "-x\tSet suffix in sketch file names [empty]\n"
                          "-o\tOutput for genome size estimates [stdout]\n"
                          "-O\tOutput for genome distance matrix [stdout]\n"
+                         "-L:\tClamp estimates below expected variance to 0. [Default: do not clamp]\n"
                          "-e\tEmit in scientific notation\n"
                          "-f\tReport results as float. (Only important for binary format.) This halves the memory footprint at the cost of precision loss.\n"
                          "-F\tGet paths to genomes from file rather than positional arguments\n"
@@ -59,7 +60,7 @@ void sketch_usage(const char *arg) {
                          "-b:\tBatch size [16 genomes]\n"
                          "-c:\tCache sketches/use cached sketches\n"
                          "-C:\tDo not canonicalize. [Default: canonicalize]\n"
-                         "-L:\tDo not clamp estimates below expected variance to 0. [Default: clamp]\n"
+                         "-L:\tClamp estimates below expected variance to 0. [Default: do not clamp]\n"
                          "-P\tSet prefix for sketch file locations [empty]\n"
                          "-x\tSet suffix in sketch file names [empty]\n"
                          "-E\tUse Flajolet with inclusion/exclusion quantitation method for hll. [Default: Ertl Joint MLE]\n"
@@ -173,7 +174,7 @@ unsigned fsz2count(uint64_t fsz) {
 // Main functions
 int sketch_main(int argc, char *argv[]) {
     int wsz(-1), k(31), sketch_size(16), skip_cached(false), co, nthreads(1), bs(16), threshold(-1), nblooms(-1), bloom_sketch_size(-1), nhashes(4);
-    bool canon(true), write_to_dev_null(false), write_gz(false), clamp(true);
+    bool canon(true), write_to_dev_null(false), write_gz(false), clamp(false);
     sketching_method sm = EXACT;
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE;
@@ -194,7 +195,7 @@ int sketch_main(int argc, char *argv[]) {
             case 'I': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
             case 'J': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
             case 'k': k = std::atoi(optarg); break;
-            case 'L': clamp = false; break;
+            case 'L': clamp = true; break;
             case 'm': bloom_sketch_size = std::atoi(optarg); break;
             case 'n': threshold = std::atoi(optarg); break;
             case 'N': nblooms = std::atoi(optarg); break;
@@ -346,7 +347,7 @@ enum CompReading: unsigned {
 
 int dist_main(int argc, char *argv[]) {
     int wsz(-1), k(31), sketch_size(16), use_scientific(false), co, cache_sketch(false), nthreads(1);
-    bool canon(true), presketched_only(false), write_binary(false), emit_jaccard(true), emit_float(false), clamp(true);
+    bool canon(true), presketched_only(false), write_binary(false), emit_jaccard(true), emit_float(false), clamp(false);
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE;
     std::string spacing, paths_file, suffix, prefix;
@@ -359,7 +360,6 @@ int dist_main(int argc, char *argv[]) {
             case 'a': reading_type = AUTODETECT; break;
             case 'b': write_binary = true; break;
             case 'C': canon = false; break;
-            case 'c': clamp = false; break;
             case 'E': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
             case 'e': use_scientific = true; break;
             case 'f': emit_float = true; break;
@@ -368,7 +368,7 @@ int dist_main(int argc, char *argv[]) {
             case 'I': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
             case 'J': emit_jaccard = false; break;
             case 'k': k = std::atoi(optarg); break;
-            case 'L': clamp = false; break;
+            case 'L': clamp = true; break;
             case 'm': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
             case 'o': ofp = fopen(optarg, "w"); if(ofp == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
             case 'O': pairofp = fopen(optarg, "wb"); pairofp_labels = std::string(optarg) + ".labels"; if(pairofp == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
