@@ -239,10 +239,10 @@ int sketch_main(int argc, char *argv[]) {
         else if(sm == BY_FNAME) {
             const std::string fq1 = "fastq", fq2 = "fq";
             for(const auto &path: inpaths) use_filter.emplace_back(path.find(fq1) != std::string::npos || path.find(fq2) != std::string::npos);
+        } else {
+            use_filter = std::vector<bool>(inpaths.size(), false);
+            std::vector<unsigned> tmp; std::swap(tmp, counts);
         }
-    }
-    if(sm == EXACT) {
-        std::vector<unsigned> tmp; std::swap(tmp, counts);
     }
     if(nblooms < std::log2(roundup(threshold)) + 1) {
         nblooms = std::log2(roundup(threshold)) + 1;
@@ -256,16 +256,13 @@ int sketch_main(int argc, char *argv[]) {
     }
     std::vector<hll::hll_t> hlls;
     std::vector<fhll::fhll_t> fhlls;
-    if(sm == EXACT) {
-        while(hlls.size() < (unsigned)nthreads) hlls.emplace_back(sketch_size, estim, jestim, 1, clamp);
-    } else {
-        while(fhlls.size() < (unsigned)nthreads) fhlls.emplace_back(sketch_size, nblooms, bloom_sketch_size, nhashes, seedseedseed, threshold, estim, jestim, clamp);
-    }
     if(ivecs.size() / (unsigned)(nthreads) > (unsigned)bs) bs = (ivecs.size() / (nthreads) / 2);
     if(sm == EXACT) {
+        while(hlls.size() < (unsigned)nthreads) hlls.emplace_back(sketch_size, estim, jestim, 1, clamp);
         detail::kt_sketch_helper<hll::hll_t> helper {hlls, kseqs, bs, sketch_size, k, wsz, (int)sp.c_, sv, ivecs, suffix, prefix, spacing, skip_cached, canon, estim, write_to_dev_null, write_gz, counts, bloom_filter_sizes, use_filter};
         kt_for(nthreads, detail::kt_for_helper<hll::hll_t>, &helper, ivecs.size() / bs + (ivecs.size() % bs != 0));
     } else {
+        while(fhlls.size() < (unsigned)nthreads) fhlls.emplace_back(sketch_size, nblooms, bloom_sketch_size, nhashes, seedseedseed, threshold, estim, jestim, clamp);
         detail::kt_sketch_helper<fhll::fhll_t> helper {fhlls, kseqs, bs, sketch_size, k, wsz, (int)sp.c_, sv, ivecs, suffix, prefix, spacing, skip_cached, canon, estim, write_to_dev_null, write_gz, counts, bloom_filter_sizes, use_filter};
         kt_for(nthreads, detail::kt_for_helper<fhll::fhll_t>, &helper, ivecs.size() / bs + (ivecs.size() % bs != 0));
     }
