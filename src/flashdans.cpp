@@ -354,31 +354,32 @@ int dist_main(int argc, char *argv[]) {
     std::string pairofp_labels;
     FILE *ofp(stdout), *pairofp(stdout);
     omp_set_num_threads(1);
-    while((co = getopt(argc, argv, "P:x:F:c:p:o:s:w:O:S:k:azfJICbMEeHh?")) >= 0) {
+    while((co = getopt(argc, argv, "P:x:F:c:p:o:s:w:O:S:k:azLfJICbMEeHh?")) >= 0) {
         switch(co) {
-            case 'z': reading_type = GZ; break;
             case 'a': reading_type = AUTODETECT; break;
+            case 'b': write_binary = true; break;
             case 'C': canon = false; break;
             case 'c': clamp = false; break;
             case 'E': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
+            case 'e': use_scientific = true; break;
+            case 'f': emit_float = true; break;
             case 'F': paths_file = optarg; break;
             case 'H': presketched_only = true; break;
             case 'I': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
-            case 'm': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
             case 'J': emit_jaccard = false; break;
+            case 'k': k = std::atoi(optarg); break;
+            case 'L': clamp = false; break;
+            case 'm': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
+            case 'o': ofp = fopen(optarg, "w"); if(ofp == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
             case 'O': pairofp = fopen(optarg, "wb"); pairofp_labels = std::string(optarg) + ".labels"; if(pairofp == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
+            case 'p': nthreads = std::atoi(optarg); break;
             case 'P': prefix = optarg; break;
             case 'S': sketch_size = std::atoi(optarg); break;
-            case 'W': cache_sketch = true;  break;
-            case 'b': write_binary = true; break;
-            case 'e': use_scientific = true; break;
-            case 'f': emit_float = true; break;
-            case 'k': k = std::atoi(optarg); break;
-            case 'o': ofp = fopen(optarg, "w"); if(ofp == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
-            case 'p': nthreads = std::atoi(optarg); break;
             case 's': spacing = optarg; break;
+            case 'W': cache_sketch = true;  break;
             case 'w': wsz = std::atoi(optarg); break;
             case 'x': suffix = optarg; break;
+            case 'z': reading_type = GZ; break;
             case 'h': case '?': dist_usage(*argv);
         }
     }
