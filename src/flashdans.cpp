@@ -284,6 +284,9 @@ size_t submit_emit_dists(const int pairfi, const FType *ptr, u64 hs, size_t inde
        ::write(pairfi, ptr, sizeof(FType) * hs);
     } else {
         const char *const fmt(use_scientific ? "%e\t": "%f\t");
+#if !NDEBUG
+        std::fprintf(stderr, "format is '%s'. use_scientific = %s\n", fmt, use_scientific ? "true": "false");
+#endif
         str += inpaths[index];
         str.putc_('\t');
         {
@@ -306,6 +309,9 @@ FType2 dist_index(FType1 ji, FType2 ksinv) {
 
 template<typename FType, typename=std::enable_if_t<std::is_floating_point_v<FType>>>
 void dist_loop(const int pairfi, std::vector<hll::hll_t> &hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const bool emit_jaccard, bool write_binary, const size_t buffer_flush_size=1ull<<18) {
+#if !NDEBUG
+    std::fprintf(stderr, "value for use_scientific is %s\n", use_scientific ? "t": "f");
+#endif
     std::array<std::vector<FType>, 2> dps;
     dps[0].resize(hlls.size() - 1);
     dps[1].resize(hlls.size() - 2);
@@ -355,6 +361,7 @@ int dist_main(int argc, char *argv[]) {
     std::string pairofp_labels;
     FILE *ofp(stdout), *pairofp(stdout);
     omp_set_num_threads(1);
+    std::fprintf(stderr, "use_scientific, before parsing options, is %s\n", use_scientific ? "true": "false");
     while((co = getopt(argc, argv, "P:x:F:c:p:o:s:w:O:S:k:azLfJICbMEeHh?")) >= 0) {
         switch(co) {
             case 'a': reading_type = AUTODETECT; break;
@@ -383,6 +390,7 @@ int dist_main(int argc, char *argv[]) {
             case 'h': case '?': dist_usage(*argv);
         }
     }
+    std::fprintf(stderr, "use_scientific, after parsing options, is %s\n", use_scientific ? "true": "false");
     spvec_t sv(parse_spacing(spacing.data(), k));
     Spacer sp(k, wsz, sv);
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
@@ -443,9 +451,9 @@ int dist_main(int argc, char *argv[]) {
         str.write(fileno(pairofp)); str.free();
     }
     if(emit_float)
-        dist_loop<float>(fileno(pairofp), hlls, inpaths, k, use_scientific, emit_jaccard, write_binary);
+        dist_loop<float>(fileno(pairofp), hlls, inpaths, use_scientific, k, emit_jaccard, write_binary);
     else
-        dist_loop<double>(fileno(pairofp), hlls, inpaths, k, use_scientific, emit_jaccard, write_binary);
+        dist_loop<double>(fileno(pairofp), hlls, inpaths, use_scientific, k, emit_jaccard, write_binary);
     if(write_binary) {
         if(pairofp_labels.empty()) pairofp_labels = "unspecified";
         std::FILE *fp = std::fopen(pairofp_labels.data(), "wb");
