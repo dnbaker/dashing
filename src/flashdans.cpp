@@ -302,7 +302,7 @@ size_t submit_emit_dists(const int pairfi, const FType *ptr, u64 hs, size_t inde
 
 template<typename FType1, typename FType2,
          typename=std::enable_if_t<std::is_floating_point_v<FType1> && std::is_floating_point_v<FType2>>>
-FType2 dist_index(FType1 ji, FType2 ksinv) {
+std::common_type_t<FType1, FType2> dist_index(FType1 ji, FType2 ksinv) {
     // Adapter from Mash https://github.com/Marbl/Mash
     return ji ? -std::log(2. * ji / (1. + ji)) * ksinv: 1.;
 }
@@ -526,9 +526,9 @@ int setdist_main(int argc, char *argv[]) {
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
                                                        : std::vector<std::string>(argv + optind, argv + argc));
     KSeqBufferHolder h(nt);
-    std::vector<khash_t(all) *> hashes;
-    while(hashes.size() < inpaths.size()) hashes.emplace_back((khash_t(all) *)calloc(sizeof(khash_t(all)), 1));
-    for(auto hash: hashes) kh_resize(all, hash, 1 << 20); // Try to reduce the number of allocations.
+    std::vector<khash_t(all)> hashes;
+    while(hashes.size() < inpaths.size()) hashes.emplace_back(khash_t(all){0, 0, 0, 0, 0, 0, 0});
+    for(auto hash: hashes) kh_resize(all, &hash, 1 << 20); // Try to reduce the number of allocations.
     const size_t nhashes(hashes.size());
     if(wsz < sp.c_) wsz = sp.c_;
     if(inpaths.size() == 0) {
@@ -537,7 +537,7 @@ int setdist_main(int argc, char *argv[]) {
     }
     #pragma omp parallel for
     for(size_t i = 0; i < nhashes; ++i) {
-        fill_set_genome<score::Lex>(inpaths[i].data(), sp, hashes[i], i, nullptr, canon, h.data() + omp_get_thread_num());
+        fill_set_genome<score::Lex>(inpaths[i].data(), sp, &hashes[i], i, nullptr, canon, h.data() + omp_get_thread_num());
     }
     LOG_DEBUG("Filled genomes. Now analyzing data.\n");
     ks::string str;
@@ -545,7 +545,7 @@ int setdist_main(int argc, char *argv[]) {
     {
         const int fn(fileno(ofp));
         for(size_t i(0); i < nhashes; ++i) {
-            str.sprintf("%s\t%zu\n", inpaths[i].data(), kh_size(hashes[i]));
+            str.sprintf("%s\t%zu\n", inpaths[i].data(), kh_size(&hashes[i]));
             if(str.size() > 1 << 17) str.write(fn), str.clear();
         }
         str.write(fn), str.clear();
@@ -562,21 +562,22 @@ int setdist_main(int argc, char *argv[]) {
     const char *const fmt(use_scientific ? "\t%e": "\t%f");
     const double ksinv = 1./static_cast<double>(k);
     for(size_t i = 0; i < nhashes; ++i) {
-        auto &h1(hashes[i]);
+        const khash_t(all) *h1(&hashes[i]);
         size_t j;
-
+#define DO_LOOP(val) for(j = i + 1; j < nhashes; ++j) dists[j - i - 1] = (val)
         if(emit_jaccard) {
             #pragma omp parallel for
-            for(j = i + 1; j < nhashes; ++j) dists[j - i - 1] = jaccard_index(hashes[j], h1);
+            DO_LOOP(jaccard_index(&hashes[j], h1));
         } else {
             #pragma omp parallel for
-            for(j = i + 1; j < nhashes; ++j) dists[j - i - 1] = dist_index(jaccard_index(hashes[j], h1), ksinv);
+            DO_LOOP(dist_index(jaccard_index(&hashes[j], h1), ksinv));
         }
+#undef DO_LOOP
 
         for(j = 0; j < i + 1; fputc('\t', pairofp), fputc('-', pairofp), ++j);
         for(j = 0; j < nhashes - i - 1; fprintf(pairofp, fmt, dists[j++]));
         fputc('\n', pairofp);
-        khash_destroy(h1), h1 = nullptr;
+        std::free(h1->keys); std::free(h1->vals); std::free(h1->flags);
     }
     return EXIT_SUCCESS;
 }
