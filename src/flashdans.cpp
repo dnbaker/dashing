@@ -301,7 +301,7 @@ template<typename FType1, typename FType2,
          typename=std::enable_if_t<std::is_floating_point_v<FType1> && std::is_floating_point_v<FType2>>>
 FType2 dist_index(FType1 ji, FType2 ksinv) {
     // Adapter from Mash https://github.com/Marbl/Mash
-    return -std::log(2. * ji / (1. + ji)) * ksinv;
+    return ji ? -std::log(2. * ji / (1. + ji)) * ksinv: 1.;
 }
 
 template<typename FType, typename=std::enable_if_t<std::is_floating_point_v<FType>>>
