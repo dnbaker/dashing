@@ -5,7 +5,7 @@
 #include "bonsai/bonsai/include/database.h"
 #include "bonsai/bonsai/include/bitmap.h"
 #include "bonsai/bonsai/include/setcmp.h"
-#include "filtered_hll/filterhll.h"
+#include "hll/filterhll.h"
 #include "distmat/distmat.h"
 #include <sstream>
 
