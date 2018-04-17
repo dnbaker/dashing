@@ -22,16 +22,19 @@ dm::DistanceMatrix<float, 1> parse_flashdans_matrix(const std::string &path) {
         ks::split(line.data(), '\t', offsets);
         for(size_t i(1); i < offsets.size(); ++i) {
             if(std::strcmp(line.data() + offsets[i], "-")) {
+                std::fprintf(stderr, "Setting %zu/%zu to %s\n", linenum, i - 1, line.data() + offsets[i]);
                 ret(linenum, i - 1) = std::atof(line.data() + offsets[i]);
             }
         }
+        ++linenum;
     }
     return ret;
 }
 
 std::vector<float> linspace(size_t ndiv) {
     std::vector<float> ret; ret.reserve(ndiv + 1);
-    for(size_t i(0); i < ndiv; ret.emplace_back(static_cast<float>(i) / ndiv));
+    for(size_t i(0); i < ndiv; ret.emplace_back(static_cast<float>(i++) / ndiv));
+    std::fprintf(stderr, "retrning from linsapce\n");
     return ret;
 }
 
@@ -52,20 +55,25 @@ int main(int argc, char *argv[]) {
         }
     }
     auto mat = parse_flashdans_matrix(argv[1]);
+    ndiv = std::min(ndiv, static_cast<unsigned>(mat.size()));
+    std::fprintf(stderr, "Making linear spacing  of size %zu\n", size_t(ndiv));
     auto lins = linspace(ndiv);
+    std::fprintf(stderr, "Making pair_counts of size %zu\n", size_t(ndiv));
     std::vector<size_t> pair_counts(ndiv, static_cast<size_t>(0));
     size_t i(0);
-    while(std::accumulate(std::cbegin(pair_counts), std::cend(pair_counts), static_cast<size_t>(0), [](auto a, auto b) {return a + (b != 0);}) < ndiv) {
+    std::fprintf(stderr, "Starting loop %zu\n", size_t(ndiv));
+    while(std::accumulate(std::cbegin(pair_counts), std::cend(pair_counts), static_cast<size_t>(0), [](auto a, auto b) {return a + (b != 0);}) < ndiv && i < mat.size()) {
+        std::fprintf(stderr, "i: %zu\n", i);
         for(size_t j(0); j < i; ++pair_counts[static_cast<size_t>(ndiv * mat(i, j++))]);
         ++i;
     }
-    std::fprintf(stderr, "[W:%s:%s:%d] Currently not using subset_size (value: %u)\n", __PRETTY_FUNCTION__, __FILE__, __LINE__, subset_size);
+    std::fprintf(stderr, "[W:%s:%s:%d] Currently not using subset_size (value: %u). i: %zu\n", __PRETTY_FUNCTION__, __FILE__, __LINE__, subset_size, i);
     //std::unordered_set<size_t> indices;
     //while(indices.size() < i) indices.push_back(indices.size());
     auto tinymat = dm::DistanceMatrix<float, 1>(i);
     for(size_t j(0); j < i; ++j) {
-        for(size_t k(j + 1); k < i; ++j) {
-            tinymat(i, j) = mat(i, j);
+        for(size_t k(j + 1); k < i; ++k) {
+            tinymat(k, j) = mat(k, j);
         }
     }
     tinymat.printf(stdout);

@@ -103,7 +103,7 @@ zex: $(patsubst %,%_z,$(EX))
 %_z: src/%.cpp $(ALL_ZOBJS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 %_d: src/%.cpp $(ALL_ZOBJS)
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -fsanitize=address -fsanitize=leak -fsanitize=undefined -g $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 #
 #
 #%_sz: src/%.cpp $(ALL_ZOBJS)
