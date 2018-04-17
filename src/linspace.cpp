@@ -17,7 +17,9 @@ dm::DistanceMatrix<float, 1> parse_flashdans_matrix(const std::string &path) {
     std::vector<size_t> offsets;
     ks::split(line.data(), '\t', offsets);
     dm::DistanceMatrix<float, 1> ret(offsets.size() - 1);
+#if !NDEBUG
     std::fprintf(stderr, "Size: %zu\n", offsets.size());
+#endif
     size_t linenum = 0;
     while(std::getline(ifs, line)) {
         offsets.clear();
@@ -28,7 +30,9 @@ dm::DistanceMatrix<float, 1> parse_flashdans_matrix(const std::string &path) {
                 ret(linenum, i - 1) = std::atof(line.data() + offsets[i]);
             }
         }
+#if !NDEBUG
         if(linenum++ % 100 == 0) std::fprintf(stderr, "line number: %zu. Lines left to go: %zu\n", linenum, offsets.size() - 1);
+#endif
     }
     return ret;
 }
@@ -36,7 +40,6 @@ dm::DistanceMatrix<float, 1> parse_flashdans_matrix(const std::string &path) {
 std::vector<float> linspace(size_t ndiv) {
     std::vector<float> ret; ret.reserve(ndiv + 1);
     for(size_t i(0); i < ndiv; ret.emplace_back(static_cast<float>(i++) / ndiv));
-    std::fprintf(stderr, "retrning from linsapce\n");
     return ret;
 }
 
