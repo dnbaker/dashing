@@ -8,10 +8,12 @@
 #include "distmat/distmat.h"
 #include "bonsai/kspp/ks.h"
 
+using namespace std::literals;
+
 dm::DistanceMatrix<float, 1> parse_flashdans_matrix(const std::string &path) {
     std::ifstream ifs(path);
     std::string line;
-    if(!std::getline(ifs, line)) throw "a party!";
+    if(!std::getline(ifs, line)) throw std::runtime_error("Could not read a first line from the file at "s + path);
     std::vector<size_t> offsets;
     ks::split(line.data(), '\t', offsets);
     dm::DistanceMatrix<float, 1> ret(offsets.size() - 1);
@@ -25,6 +27,8 @@ dm::DistanceMatrix<float, 1> parse_flashdans_matrix(const std::string &path) {
                 ret(linenum, i - 1) = std::atof(line.data() + offsets[i]);
             }
         }
+        ++linenum;
+        if(linenum % 100 == 0) std::fprintf(stderr, "line number: %zu. Lines left to go: %zu\n", linenum, offsets.size() - 1);
     }
     return ret;
 }
@@ -36,7 +40,7 @@ std::vector<float> linspace(size_t ndiv) {
 }
 
 void usage(const char *ex) {
-    std::fprintf(stderr, "%s -n <ndiv [default: 40]> -S <subset size [default: 40]> distmat.txt\n", ex);
+    std::fprintf(stderr, "%s -n <ndiv [default: 100]> -S <subset size [default: 40]> distmat.txt\n", ex);
     std::exit(EXIT_FAILURE);
 }
 
@@ -51,7 +55,7 @@ int main(int argc, char *argv[]) {
             case 'h': case '?': usage: usage(*argv);
         }
     }
-    auto mat = parse_flashdans_matrix(argv[1]);
+    auto mat = parse_flashdans_matrix(argv[optind]);
     auto lins = linspace(ndiv);
     std::vector<size_t> pair_counts(ndiv, static_cast<size_t>(0));
     size_t i(0);
