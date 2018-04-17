@@ -361,7 +361,6 @@ int dist_main(int argc, char *argv[]) {
     std::string pairofp_labels;
     FILE *ofp(stdout), *pairofp(stdout);
     omp_set_num_threads(1);
-    std::fprintf(stderr, "use_scientific, before parsing options, is %s\n", use_scientific ? "true": "false");
     while((co = getopt(argc, argv, "P:x:F:c:p:o:s:w:O:S:k:azLfJICbMEeHh?")) >= 0) {
         switch(co) {
             case 'a': reading_type = AUTODETECT; break;
@@ -390,7 +389,6 @@ int dist_main(int argc, char *argv[]) {
             case 'h': case '?': dist_usage(*argv);
         }
     }
-    std::fprintf(stderr, "use_scientific, after parsing options, is %s\n", use_scientific ? "true": "false");
     spvec_t sv(parse_spacing(spacing.data(), k));
     Spacer sp(k, wsz, sv);
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
