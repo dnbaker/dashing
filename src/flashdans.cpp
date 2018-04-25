@@ -470,7 +470,7 @@ int print_binary_main(int argc, char *argv[]) {
     for(char **p(argv); *p; ++p) if(std::strcmp(*p, "-h") && std::strcmp(*p, "--help") == 0) goto usage;
     if(argc == 1) {
         usage:
-        std::fprintf(stderr, "%s <path to binary file> [- to read from stdin]\n", *argv);
+        std::fprintf(stderr, "%s <path to binary file> [- to read from stdin]\n", argv ? static_cast<const char *>(*argv): "flashdans");
     }
     while((c = getopt(argc, argv, ":o:sfh?")) >= 0) {
         switch(c) {

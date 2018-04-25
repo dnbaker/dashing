@@ -5,7 +5,11 @@
 #include "omp.h"
 #include "util.h"
 #include <thread>
-using namespace bns;
+#include <unordered_set>
+#include "bonsai/bonsai/include/logutil.h"
+#include "bonsai/clhash/include/clhash.h"
+using u64 = std::uint64_t;
+//using namespace bns;
 using namespace hll;
 using namespace hll::detail;
 
