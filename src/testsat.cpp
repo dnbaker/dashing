@@ -12,7 +12,7 @@ void usage() {
                          "-r\tAdd a random number size\n"
                          "-s\tAdd a sketch size\n"
                          "-p\tSet number of threads [1]\n"
-                         "-n\tSet number of iterations. [Default: 50]\n"
+                         "-n\tSet number of iterations. [Default: 250]\n"
                          "Purpose: test the saturation of HyperLogLogs, including how often they are within expected bounds at various cardinalities and sketch sizes.\n");
     std::exit(EXIT_FAILURE);
 }
@@ -53,7 +53,7 @@ struct acc {
         return ret;
     }
     void add(double est, unsigned ss) {
-        ests_.push_back(exact_ - est);
+        ests_.push_back(est);
         nwithinbounds_ += std::abs(static_cast<double>(exact_) - est) /* expected error */ < (1.03896 / std::sqrt(1ull << ss) * exact_); /* expected bound */
     }
     void clear() {ests_.clear(); nwithinbounds_ = 0;}
@@ -84,21 +84,22 @@ void func(void *data_, long index, int tid) {
     if(rn > buf.size()) buf.resize(rn);
     for(size_t inum(0); inum < data.niter_; ++inum) {
         size_t i(0);
-        while(i < rn * 8 / gen.BUFSIZE)
-            gen.generate_new_values(), std::memcpy(buf.data() + (i++ * gen.BUFSIZE / 8), gen.buf(), gen.BUFSIZE);
+        while(i < rn * 8 / gen.BUFSIZE) {
+            gen.generate_new_values();
+            std::memcpy(buf.data() + (i++ * gen.BUFSIZE / 8), gen.buf(), gen.BUFSIZE);
+        }
         for(i *= gen.BUFSIZE / 8; i<rn; buf[i++] = gen());
-        for(size_t i(0); i < rn; ++i)
-            for(auto &h: hlls)
-                h.addh(buf[i]);
+        for(size_t i(0); i < rn; ++i) for(auto &h: hlls) h.addh(buf[i]);
         for(size_t i(0); i < hlls.size(); ++i) accumulators[i].add(hlls[i].report(), ss[i]);
+        //for(auto &h: hlls) std::fprintf(stderr, "Estimated %lf with exact %zu\n", h.report(), rn);
         for(auto &h: hlls) h.clear();
-        for(auto &a: accumulators) a.clear();
     }
     auto &ks(data.strings_[tid]);
     for(size_t i(0); i < hlls.size(); ++i)
-        ks.sprintf("%u\t%zu\t%lf\t%lf\t%lf\t%lf\n",
+        ks.sprintf("%u\t%zu\t%lf\t%lf\t%lf\t%lf\t%lf\\n",
                    ss[i], rn, accumulators[i].mean_bias(), accumulators[i].mean_error(),
-                   accumulators[i].mse(), static_cast<double>(accumulators[i].nwithinbounds_) / data.niter_);
+                   accumulators[i].mse(), (1.03896 / std::sqrt(1ull << ss[i]) * rn), static_cast<double>(accumulators[i].nwithinbounds_) / data.niter_);
+    for(auto &a: accumulators) a.clear();
     {
         LockSmith lock(data.m_);
         ks.write(fileno(data.fp_));
@@ -117,7 +118,7 @@ std::vector<unsigned> DEFAULT_SIZES {
 int main(int argc, char *argv[]) {
     if(argc == 1) usage();
     size_t default_buf_size = 1 << 20;
-    size_t niter = 50;
+    size_t niter = 250;
     std::vector<size_t> rnum_sizes;
     std::vector<unsigned> sketch_sizes;
     int c, nthreads(1);
@@ -153,7 +154,7 @@ int main(int argc, char *argv[]) {
     std::fill_n(std::back_inserter(bufs), nthreads, std::vector<uint64_t>(default_buf_size)); 
     std::mutex m;
     kth_t data{rnum_sizes, sketch_sizes, bufs, hlls, kstrings, m, niter, fp};
-    std::fprintf(stderr, "#Sketch size (log2)\tExact size\tMean bias\tMean error\tMean squared error\tFraction within bounds\n");
+    std::fprintf(fp, "#Sketch size (log2)\tExact size\tMean bias\tMean error\tMean squared error\tFraction within bounds\n");
     kt_for(nthreads, &func, (void *)&data, rnum_sizes.size());
     if(fp != stdout) std::fclose(fp);
     return EXIT_SUCCESS;
