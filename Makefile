@@ -62,7 +62,7 @@ EX=$(patsubst src/%.cpp,%,$(wildcard src/*.cpp))
 all: $(EX)
 
 update:
-	cd bonsai && git checkout master && git pull && make update && cd ..
+	git submodule update --init --remote --recursive . && cd bonsai && git checkout master && git pull && make update && cd .. && cd distmat && git checkout master && git pull && cd ..
 
 libzstd.a:
 	+cd bonsai/bonsai && make libzstd.a && cp libzstd.a ../../
