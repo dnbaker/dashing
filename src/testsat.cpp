@@ -96,7 +96,7 @@ void func(void *data_, long index, int tid) {
     }
     auto &ks(data.strings_[tid]);
     for(size_t i(0); i < hlls.size(); ++i)
-        ks.sprintf("%u\t%zu\t%lf\t%lf\t%lf\t%lf\t%lf\\n",
+        ks.sprintf("%u\t%zu\t%lf\t%lf\t%lf\t%lf\t%lf\n",
                    ss[i], rn, accumulators[i].mean_bias(), accumulators[i].mean_error(),
                    accumulators[i].mse(), (1.03896 / std::sqrt(1ull << ss[i]) * rn), static_cast<double>(accumulators[i].nwithinbounds_) / data.niter_);
     for(auto &a: accumulators) a.clear();
