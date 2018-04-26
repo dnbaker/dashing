@@ -17,7 +17,9 @@ template<typename SketchType>
 double fprate(const std::unordered_set<u64> &oset, const SketchType &sketch) {
     size_t nfp = 0;
     for(const auto &el: oset) nfp += sketch.may_contain(el);
+#if !NDEBUG
     std::fprintf(stderr, "%zu of %zu might be contained.\n", nfp, oset.size());
+#endif
     return static_cast<double>(nfp) / oset.size();
 }
 
