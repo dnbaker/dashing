@@ -44,6 +44,7 @@ void dist_usage(const char *arg) {
     std::exit(EXIT_FAILURE);
 }
 
+
 // Usage, utilities
 void sketch_usage(const char *arg) {
     std::fprintf(stderr, "Usage: %s <opts> [genomes if not provided from a file with -F]\n"
