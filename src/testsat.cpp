@@ -1,6 +1,7 @@
 #include "hll/hll.h"
 #include "bonsai/include/aesctr.h"
 #include "bonsai/kspp/ks.h"
+#include "bonsai/include/util.h"
 #include <random>
 #include <mutex>
 #include "cppitertools/product.hpp"
@@ -79,7 +80,7 @@ void func(void *data_, long index, int tid) {
     const size_t rn = data.rns_[index];
     std::vector<acc> accumulators;
     accumulators.reserve(hlls.size());
-    std::generate_n(std::back_inserter(accumulators), hlls.size(), [rn](){return acc(rn);});
+    std::generate_n(std::back_emplacer(accumulators), hlls.size(), [rn](){return acc(rn);});
     // Consider just using the vanilla method, which involves more labor-intensive copying but is simpler.
     if(rn > buf.size()) buf.resize(rn);
     for(size_t inum(0); inum < data.niter_; ++inum) {
@@ -143,15 +144,15 @@ int main(int argc, char *argv[]) {
     }
     std::vector<ks::string> kstrings;
     kstrings.reserve(nthreads);
-    std::generate_n(std::back_inserter(kstrings), nthreads, []{return ks::string(1024);});
+    std::generate_n(std::back_emplacer(kstrings), nthreads, []{return ks::string(1024);});
     std::vector<std::vector<uint64_t>> bufs;
     std::vector<std::vector<hll::hll_t>> hlls;
-    std::generate_n(std::back_inserter(hlls), nthreads, [&] {
+    std::generate_n(std::back_emplacer(hlls), nthreads, [&] {
         std::vector<hll::hll_t> ret;
-        std::generate_n(std::back_inserter(ret), sketch_sizes.size(), [&]{return hll::hll_t(sketch_sizes[ret.size()]);});
+        std::generate_n(std::back_emplacer(ret), sketch_sizes.size(), [&]{return hll::hll_t(sketch_sizes[ret.size()]);});
         return ret;
     });
-    std::fill_n(std::back_inserter(bufs), nthreads, std::vector<uint64_t>(default_buf_size)); 
+    std::fill_n(std::back_emplacer(bufs), nthreads, std::vector<uint64_t>(default_buf_size));
     std::mutex m;
     kth_t data{rnum_sizes, sketch_sizes, bufs, hlls, kstrings, m, niter, fp};
     std::fprintf(fp, "#Sketch size (log2)\tExact size\tMean bias\tMean error\tMean squared error\tFraction within bounds\n");
