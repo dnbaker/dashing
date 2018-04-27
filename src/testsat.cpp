@@ -4,6 +4,7 @@
 #include "bonsai/include/util.h"
 #include <random>
 #include <mutex>
+#include <limits>
 #include "cppitertools/product.hpp"
 #include "klib/kthread.h"
 #include <getopt.h>
@@ -51,9 +52,24 @@ struct acc {
         const double mb = mean_bias();
         return std::sqrt(std::accumulate(std::begin(ests_), std::end(ests_), 0., [&](auto a, auto b) {return a + ((b - exact_) - mb) * ((b - exact_) - mb);}) / (ests_.size() - 1));
     }
-    std::pair<double, double> conf95() {
-        std::sort(std::begin(ests_), std::end(ests_));
+    double max() const {
+        return ests_.size() ? *std::max_element(ests_.begin(), ests_.end(), [&](auto a, auto b){return std::abs(a - exact_) < std::abs(b - exact_);}): std::numeric_limits<double>::quiet_NaN();
+    }
+    std::pair<double, double> conf95(bool sort=true) {
+        if(sort) std::sort(std::begin(ests_), std::end(ests_));
         return std::make_pair(ests_[ests_.size() * 0.025], ests_[ests_.size() * 0.975]);
+    };
+    std::pair<double, double> conf90(bool sort=true) {
+        if(sort) std::sort(std::begin(ests_), std::end(ests_));
+        return std::make_pair(ests_[ests_.size() * 0.05], ests_[ests_.size() * 0.95]);
+    };
+    std::pair<double, double> conf80(bool sort=true) {
+        if(sort) std::sort(std::begin(ests_), std::end(ests_));
+        return std::make_pair(ests_[ests_.size() * 0.1], ests_[ests_.size() * 0.90]);
+    };
+    std::pair<double, double> conf50(bool sort=true) {
+        if(sort) std::sort(std::begin(ests_), std::end(ests_));
+        return std::make_pair(ests_[ests_.size() * 0.25], ests_[ests_.size() * 0.25]);
     };
     void add(double est, unsigned ss) {
         ests_.push_back(est);
@@ -63,7 +79,7 @@ struct acc {
         nabove_ += (err < 0);
         nbelow_ += (err > 0);
     }
-    void clear() {ests_.clear(); nwithinbounds_ = nabove_ = nbelow_ = 0}
+    void clear() {ests_.clear(); nwithinbounds_ = nabove_ = nbelow_ = 0;}
 };
 
 struct kth_t {
@@ -104,6 +120,9 @@ void func(void *data_, long index, int tid) {
     auto &ks(data.strings_[tid]);
     for(size_t i(0); i < hlls.size(); ++i) {
         auto c95 = accumulators[i].conf95();
+        auto c90 = accumulators[i].conf90(false);
+        auto c80 = accumulators[i].conf80(false);
+        auto c50 = accumulators[i].conf50(false);
         ks.sprintf("%u\t%zu\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf|%lf\n",
                    ss[i], rn, accumulators[i].mean_bias(), accumulators[i].mean_error(),
                    accumulators[i].mse(), (1.03896 / std::sqrt(1ull << ss[i]) * rn), static_cast<double>(accumulators[i].nwithinbounds_) / data.niter_,
@@ -165,7 +184,7 @@ int main(int argc, char *argv[]) {
     std::fill_n(std::back_emplacer(bufs), nthreads, std::vector<uint64_t>(default_buf_size));
     std::mutex m;
     kth_t data{rnum_sizes, sketch_sizes, bufs, hlls, kstrings, m, niter, fp};
-    std::fprintf(fp, "#Sketch size (log2)\tExact size\tMean bias\tMean error\tMean squared error\tTheoretical Mean Error\tFraction within bounds\tFraction Overestimated\tFraction Underestimated\tError Std Deviation\tBias Std Deviation\t95%% confidence interval\n");
+    std::fprintf(fp, "#Sketch size (log2)\tExact size\tMean bias\tMean error\tMean squared error\tTheoretical Mean Error\tFraction within bounds\tFraction Overestimated\tFraction Underestimated\tError Std Deviation\tBias Std Deviation\t95%% confidence interval\tMax error\n");
     std::fflush(fp);
     kt_for(nthreads, &func, (void *)&data, rnum_sizes.size());
     if(fp != stdout) std::fclose(fp);
