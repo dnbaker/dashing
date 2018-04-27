@@ -28,36 +28,42 @@ public:
 struct acc {
     size_t             exact_;
     size_t     nwithinbounds_;
+    size_t            nabove_;
+    size_t            nbelow_;
     std::vector<double> ests_;
-    acc(size_t val): exact_(val), nwithinbounds_(0) {}
+    acc(size_t val): exact_(val), nwithinbounds_(0), nabove_(0), nbelow_(0) {}
     acc(const acc &other) = default;
     acc(acc &&other)      = default;
     double mean_bias() const {
-        double ret(0);
-        for(const auto &el: ests_)
-            ret += el - exact_;
-        ret /= ests_.size();
-        return ret;
+        return std::accumulate(std::begin(ests_), std::end(ests_), 0., [&](auto a, auto b) {return a + b - exact_;}) / ests_.size();
     }
     double mean_error() const {
-        double ret(0);
-        for(const auto &el: ests_)
-            ret += std::abs(el - exact_);
-        ret /= ests_.size();
-        return ret;
+        return std::accumulate(std::begin(ests_), std::end(ests_), 0., [&](auto a, auto b) {return a + std::abs(b - exact_);}) / ests_.size();
     }
     double mse() const {
-        double ret(0), tmp;
-        for(const auto &el: ests_)
-            tmp = el - exact_, ret += tmp * tmp;
-        ret /= ests_.size();
-        return ret;
+        return std::accumulate(std::begin(ests_), std::end(ests_), 0., [&](auto a, auto b) {return a + (b - exact_) * (b - exact_);}) / ests_.size();
     }
+    double sde() const {
+        const double mb = mean_error();
+        return std::sqrt(std::accumulate(std::begin(ests_), std::end(ests_), 0., [&](auto a, auto b) {return a + ((b - exact_) - mb) * ((b - exact_) - mb);}) / (ests_.size() - 1));
+    }
+    double sdb() const {
+        const double mb = mean_bias();
+        return std::sqrt(std::accumulate(std::begin(ests_), std::end(ests_), 0., [&](auto a, auto b) {return a + ((b - exact_) - mb) * ((b - exact_) - mb);}) / (ests_.size() - 1));
+    }
+    std::pair<double, double> conf95() {
+        std::sort(std::begin(ests_), std::end(ests_));
+        return std::make_pair(ests_[ests_.size() * 0.025], ests_[ests_.size() * 0.975]);
+    };
     void add(double est, unsigned ss) {
         ests_.push_back(est);
-        nwithinbounds_ += std::abs(static_cast<double>(exact_) - est) /* expected error */ < (1.03896 / std::sqrt(1ull << ss) * exact_); /* expected bound */
+        const auto experr = (1.03896 / std::sqrt(1ull << ss) * exact_);
+        const auto err = static_cast<double>(exact_) - est;
+        nwithinbounds_ += std::abs(err) < experr;
+        nabove_ += (err < 0);
+        nbelow_ += (err > 0);
     }
-    void clear() {ests_.clear(); nwithinbounds_ = 0;}
+    void clear() {ests_.clear(); nwithinbounds_ = nabove_ = nbelow_ = 0}
 };
 
 struct kth_t {
@@ -96,10 +102,14 @@ void func(void *data_, long index, int tid) {
         for(auto &h: hlls) h.clear();
     }
     auto &ks(data.strings_[tid]);
-    for(size_t i(0); i < hlls.size(); ++i)
-        ks.sprintf("%u\t%zu\t%lf\t%lf\t%lf\t%lf\t%lf\n",
+    for(size_t i(0); i < hlls.size(); ++i) {
+        auto c95 = accumulators[i].conf95();
+        ks.sprintf("%u\t%zu\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf|%lf\n",
                    ss[i], rn, accumulators[i].mean_bias(), accumulators[i].mean_error(),
-                   accumulators[i].mse(), (1.03896 / std::sqrt(1ull << ss[i]) * rn), static_cast<double>(accumulators[i].nwithinbounds_) / data.niter_);
+                   accumulators[i].mse(), (1.03896 / std::sqrt(1ull << ss[i]) * rn), static_cast<double>(accumulators[i].nwithinbounds_) / data.niter_,
+                   static_cast<double>(accumulators[i].nabove_) / data.niter_, static_cast<double>(accumulators[i].nbelow_) / data.niter_,
+                   accumulators[i].sde(), accumulators[i].sdb(), c95.first, c95.second);
+    }
     for(auto &a: accumulators) a.clear();
     {
         LockSmith lock(data.m_);
@@ -155,7 +165,8 @@ int main(int argc, char *argv[]) {
     std::fill_n(std::back_emplacer(bufs), nthreads, std::vector<uint64_t>(default_buf_size));
     std::mutex m;
     kth_t data{rnum_sizes, sketch_sizes, bufs, hlls, kstrings, m, niter, fp};
-    std::fprintf(fp, "#Sketch size (log2)\tExact size\tMean bias\tMean error\tMean squared error\tFraction within bounds\n");
+    std::fprintf(fp, "#Sketch size (log2)\tExact size\tMean bias\tMean error\tMean squared error\tTheoretical Mean Error\tFraction within bounds\tFraction Overestimated\tFraction Underestimated\tError Std Deviation\tBias Std Deviation\t95%% confidence interval\n");
+    std::fflush(fp);
     kt_for(nthreads, &func, (void *)&data, rnum_sizes.size());
     if(fp != stdout) std::fclose(fp);
     return EXIT_SUCCESS;
