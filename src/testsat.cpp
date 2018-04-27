@@ -91,9 +91,22 @@ struct kth_t {
     std::mutex                                 &m_;
     const size_t                            niter_;
     std::FILE                                 *fp_;
+    const bool         emit_full_percentile_range_;
 };
 
-void func(void *data_, long index, int tid) {
+template<typename T>
+void random_buff(T *data, size_t nelem, aes::AesCtr<T, 8> &gen) {
+    using AesType = typename aes::AesCtr<T, 8>;
+    using ResultType = typename AesType::result_type;
+    size_t i(0);
+    while(i < nelem * sizeof(ResultType) / gen.BUFSIZE) {
+        gen.generate_new_values();
+        std::memcpy(data + (i++ * gen.BUFSIZE / sizeof(ResultType)), gen.buf(), gen.BUFSIZE);
+    }
+    for(i *= gen.BUFSIZE / sizeof(ResultType);i < nelem; data[i++] = gen());
+}
+
+void card_func(void *data_, long index, int tid) {
     aes::AesCtr<uint64_t, 8> gen(index); // Seed with job index
     kth_t &data(*(kth_t *)data_);
     auto &buf = data.bufs_[tid];
@@ -106,12 +119,7 @@ void func(void *data_, long index, int tid) {
     // Consider just using the vanilla method, which involves more labor-intensive copying but is simpler.
     if(rn > buf.size()) buf.resize(rn);
     for(size_t inum(0); inum < data.niter_; ++inum) {
-        size_t i(0);
-        while(i < rn * 8 / gen.BUFSIZE) {
-            gen.generate_new_values();
-            std::memcpy(buf.data() + (i++ * gen.BUFSIZE / 8), gen.buf(), gen.BUFSIZE);
-        }
-        for(i *= gen.BUFSIZE / 8; i<rn; buf[i++] = gen());
+        random_buff(buf.data(), rn, gen);
         for(size_t i(0); i < rn; ++i) for(auto &h: hlls) h.addh(buf[i]);
         for(size_t i(0); i < hlls.size(); ++i) accumulators[i].add(hlls[i].report(), ss[i]);
         //for(auto &h: hlls) std::fprintf(stderr, "Estimated %lf with exact %zu\n", h.report(), rn);
@@ -123,11 +131,14 @@ void func(void *data_, long index, int tid) {
         auto c90 = accumulators[i].conf90(false);
         auto c80 = accumulators[i].conf80(false);
         auto c50 = accumulators[i].conf50(false);
-        ks.sprintf("%u\t%zu\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf|%lf\n",
+        ks.sprintf("%u\t%zu\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf|%lf",
                    ss[i], rn, accumulators[i].mean_bias(), accumulators[i].mean_error(),
                    accumulators[i].mse(), (1.03896 / std::sqrt(1ull << ss[i]) * rn), static_cast<double>(accumulators[i].nwithinbounds_) / data.niter_,
                    static_cast<double>(accumulators[i].nabove_) / data.niter_, static_cast<double>(accumulators[i].nbelow_) / data.niter_,
                    accumulators[i].sde(), accumulators[i].sdb(), c95.first, c95.second);
+        if(data.emit_full_percentile_range_)
+            ks.sprintf("%lf|%lf\t%lf|%lf\t%lf|%lf", c90.first, c90.second, c80.first, c80.second, c50.first, c50.second);
+        ks.sprintf("%lf\n", accumulators[i].max());
     }
     for(auto &a: accumulators) a.clear();
     {
@@ -151,9 +162,10 @@ int main(int argc, char *argv[]) {
     size_t niter = 250;
     std::vector<size_t> rnum_sizes;
     std::vector<unsigned> sketch_sizes;
+    bool emit_full_percentile_range(false);
     int c, nthreads(1);
     std::FILE *fp = stdout;
-    while((c = getopt(argc, argv, "o:n:r:s:p:b:dh?")) >= 0) {
+    while((c = getopt(argc, argv, "o:n:r:s:p:b:Pdh?")) >= 0) {
         switch(c) {
             case 'n': niter = std::strtoull(optarg, nullptr, 10); break;
             case 'r':
@@ -164,12 +176,19 @@ int main(int argc, char *argv[]) {
             case 'b': default_buf_size = static_cast<size_t>(std::strtoull(optarg, nullptr, 10)); break;
             case 'd': rnum_sizes = DEFAULT_RNUMS; sketch_sizes = DEFAULT_SIZES; break;
             case 'o': fp = std::fopen(optarg, "w"); break;
+            case 'P': emit_full_percentile_range = true; break;
             case 'h': case '?': usage();
         }
     }
     if(rnum_sizes.empty() || sketch_sizes.empty()) {
         std::fprintf(stderr, "Error: at least one each of sketch sizes and rnum sizes should be provided.\n");
         usage();
+    }
+    {
+        aes::AesCtr<uint64_t, 8> gen(1337);
+        std::vector<uint64_t> rvals(10000);
+        random_buff(rvals.data(), rvals.size(), gen);
+        if(std::find(rvals.begin(), rvals.end(), 0) != rvals.end()) throw std::runtime_error("ZOMG");
     }
     std::vector<ks::string> kstrings;
     kstrings.reserve(nthreads);
@@ -183,10 +202,13 @@ int main(int argc, char *argv[]) {
     });
     std::fill_n(std::back_emplacer(bufs), nthreads, std::vector<uint64_t>(default_buf_size));
     std::mutex m;
-    kth_t data{rnum_sizes, sketch_sizes, bufs, hlls, kstrings, m, niter, fp};
-    std::fprintf(fp, "#Sketch size (log2)\tExact size\tMean bias\tMean error\tMean squared error\tTheoretical Mean Error\tFraction within bounds\tFraction Overestimated\tFraction Underestimated\tError Std Deviation\tBias Std Deviation\t95%% confidence interval\tMax error\n");
+    kth_t data{rnum_sizes, sketch_sizes, bufs, hlls, kstrings, m, niter, fp, emit_full_percentile_range};
+    std::fprintf(fp, "#Sketch size (log2)\tExact size\tMean bias\tMean error\tMean squared error\tTheoretical Mean Error\tFraction within bounds\tFraction Overestimated\tFraction Underestimated\tError Std Deviation\tBias Std Deviation\t95%% Interval");
+    if(emit_full_percentile_range)
+        std::fprintf(fp, "90%% Interval\t80%% Interval\t50%% Interval\t");
+    std::fprintf(fp, "Max Error\n");
     std::fflush(fp);
-    kt_for(nthreads, &func, (void *)&data, rnum_sizes.size());
+    kt_for(nthreads, &card_func, (void *)&data, rnum_sizes.size());
     if(fp != stdout) std::fclose(fp);
     return EXIT_SUCCESS;
 }
