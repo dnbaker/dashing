@@ -112,6 +112,27 @@ void random_buff(T *data, size_t nelem, aes::AesCtr<T, 8> &gen) {
     for(i *= gen.BUFSIZE / sizeof(ResultType);i < nelem; data[i++] = gen());
 }
 
+struct jacc_acc {
+    const uint64_t us_; // union size
+    const uint64_t is_; // insersection size
+    const double   ji_; // jaccard index
+    std::vector<double> jis_;  // Jaccard indices
+    std::vector<double> unions_;
+    std::vector<double> isns_; // Insersections
+    std::vector<double> s1s_; // Size 1s
+    std::vector<double> s2s_; // Size 2s
+    jacc_acc(uint64_t us, uint64_t is, double ji, size_t niter): us_(us), is_(is), ji_(ji),
+        jis_(niter), unions_(niter), isns_(niter), s1s_(niter), s2s_(niter) {}
+    void add(double ji, double us, double ins, double s1, double s2) {
+        jis_.push_back(ji);
+        unions_.push_back(us);
+        isns_.push_back(ins);
+        s1s_.push_back(s1);
+        s2s_.push_back(s2);
+    }
+};
+
+
 void jacc_func(void *data_, long index, int tid) {
     aes::AesCtr<uint64_t, 8> gen(index); // Seed with job index
     kth_jacc_t &data(*(kth_jacc_t *)data_);
@@ -130,9 +151,9 @@ void jacc_func(void *data_, long index, int tid) {
     const uint64_t unique_size = (us - is) / 2;
     const double exact_ji = static_cast<double>(is) / static_cast<double>(us);
     std::vector<std::uint64_t> shared_buf(is); // The only heap allocation in the core of the program. These could be cached.
-    std::vector<acc> accumulators;
+    std::vector<jacc_acc> accumulators;
     accumulators.reserve(hlls.size());
-    std::generate_n(std::back_emplacer(accumulators), hlls.size(), [rn](){return acc(rn);});
+    std::generate_n(std::back_emplacer(accumulators), hlls.size(), [=](){return jacc_acc(us, is, exact_ji, data.niter_);});
     // Core loop
     for(size_t inum(0); inum < data.niter_; ++inum) {
         random_buff(shared_buf.data(), shared_buf.size(), gen);
@@ -152,12 +173,30 @@ void jacc_func(void *data_, long index, int tid) {
             for(auto &oh: ohlls) oh.add(hv);
         }
         for(size_t i(0); i < hlls.size(); ++i) {
-            throw std::runtime_error("NotImplementedError: TODO @dnbaker -- write statistical accumulation code.");
+            double est_us(hll::union_size(hlls[i], ohlls[i]));
+            double sz1(hlls[i].report());
+            double sz2(ohlls[i].report());
+            double isn(sz1 + sz2 - est_us);
+            accumulators[i].add(isn / est_us, est_us, isn, sz1, sz2);
         }
         for(auto &h: hlls) h.clear();
         for(auto &oh: hlls) oh.clear();
     }
     auto &ks(data.strings_[tid]);
+    for(size_t i(0); i < hlls.size(); ++i) {
+        auto &a(accumulators[i]);
+        ks.sprintf("%u\t%lf\t%" PRIu64 "\t", ss[i], exact_ji, us); // sketch size
+        auto mv = std::accumulate(a.unions_.begin(), a.unions_.end(), 0., [](auto a, auto b){return a + b;}) / data.niter_;
+        // Mean US, Mean Error, Mean Bias
+        ks.sprintf("%lf\t%lf\t%lf\t", mv, std::accumulate(a.unions_.begin(), a.unions_.end(), 0., [&](auto a, auto b){return a + std::abs(b - us);}) / data.niter_, mv - us);
+        auto iv = std::accumulate(a.isns_.begin(), a.isns_.end(), 0., [](auto a, auto b){return a + b;}) / data.niter_;
+        // Mean IS, IS Error, IS Bias
+        ks.sprintf("%lf\t%lf\t%lf\t", iv, std::accumulate(a.isns_.begin(), a.isns_.end(), 0., [&](auto a, auto b){return a + std::abs(b - is);}) / data.niter_, iv - is);
+        // Mean JI, JI Error, JI Bias
+        auto jv = std::accumulate(a.jis_.begin(), a.jis_.end(), 0., [](auto a, auto b){return a + b;}) / data.niter_;
+        ks.sprintf("%lf\t%lf\t%lf\t", jv, std::accumulate(a.jis_.begin(), a.jis_.end(), 0., [&](auto a, auto b){return a + std::abs(b - is);}) / data.niter_, jv - exact_ji);
+    }
+    // TODO:
 #if 0
     for(size_t i(0); i < hlls.size(); ++i) {
         auto c95 = accumulators[i].conf95();
@@ -300,9 +339,10 @@ int main(int argc, char *argv[]) {
         kt_for(nthreads, &card_func, (void *)&data, rnum_sizes.size());
     } else {
         if(jaccs.empty()) jaccs = DEFAULT_JACCS;
+        if(rnum_sizes.size() == DEFAULT_RNUMS.size()) rnum_sizes.pop_back(), rnum_sizes.pop_back(), rnum_sizes.pop_back(); // Toss the longest experiments.
         kth_jacc_t jacc_data(jaccs, data);
         std::fprintf(fp, "#Sketch size (log2)\tExact Union Size\tExact Size1\tExact Size2\tMean Est Union Size\tMean Est Intersection Size\tMean Est Size1\tMean Est Size2\n"
-                         "Exact JI\tMean Est JI\tMean Error US\tMean Error IS\tMean Error JI\tMean Bias JI\tMean Bias IS\t90%% range\n");
+                         "Exact JI\tMean Est JI\tMean Error US\tMean Error IS\tMean Error JI\tMean Bias JI\tMean Bias IS\tMean Bias US\t90%% range\n");
         std::fflush(fp);
         kt_for(nthreads, &jacc_func, (void *)&jacc_data, rnum_sizes.size() * jaccs.size());
         throw std::runtime_error("NotImplementedError.");
