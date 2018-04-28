@@ -55,22 +55,19 @@ struct acc {
     double max() const {
         return ests_.size() ? *std::max_element(ests_.begin(), ests_.end(), [&](auto a, auto b){return std::abs(a - exact_) < std::abs(b - exact_);}): std::numeric_limits<double>::quiet_NaN();
     }
-    std::pair<double, double> conf95(bool sort=true) {
+    std::pair<double, double> conf(unsigned pct, bool sort=true) {
         if(sort) std::sort(std::begin(ests_), std::end(ests_));
-        return std::make_pair(ests_[ests_.size() * 0.025], ests_[ests_.size() * 0.975]);
-    };
-    std::pair<double, double> conf90(bool sort=true) {
-        if(sort) std::sort(std::begin(ests_), std::end(ests_));
-        return std::make_pair(ests_[ests_.size() * 0.05], ests_[ests_.size() * 0.95]);
-    };
-    std::pair<double, double> conf80(bool sort=true) {
-        if(sort) std::sort(std::begin(ests_), std::end(ests_));
-        return std::make_pair(ests_[ests_.size() * 0.1], ests_[ests_.size() * 0.90]);
-    };
-    std::pair<double, double> conf50(bool sort=true) {
-        if(sort) std::sort(std::begin(ests_), std::end(ests_));
-        return std::make_pair(ests_[ests_.size() * 0.25], ests_[ests_.size() * 0.25]);
-    };
+        const double start = (1. - (pct * 0.01)) / 2., end = 1. - start;
+        return std::make_pair(ests_[ests_.size() * start], ests_[ests_.size() * end]);
+    }
+#define CONF_N(pct) std::pair<double, double> conf50(bool sort=true) {return conf(pct, sort);}
+    CONF_N(90)
+    CONF_N(95)
+    CONF_N(80)
+    CONF_N(10)
+    CONF_N(25)
+    CONF_N(50)
+#undef CONF_N
     void add(double est, unsigned ss) {
         ests_.push_back(est);
         const auto experr = (1.03896 / std::sqrt(1ull << ss) * exact_);
@@ -118,9 +115,14 @@ void card_func(void *data_, long index, int tid) {
     std::generate_n(std::back_emplacer(accumulators), hlls.size(), [rn](){return acc(rn);});
     // Consider just using the vanilla method, which involves more labor-intensive copying but is simpler.
     if(rn > buf.size()) buf.resize(rn);
+    uint64_t hv;
+    hll::WangHash hf;
     for(size_t inum(0); inum < data.niter_; ++inum) {
         random_buff(buf.data(), rn, gen);
-        for(size_t i(0); i < rn; ++i) for(auto &h: hlls) h.addh(buf[i]);
+        for(size_t i(0); i < rn;) {
+            hv = hf(buf[i++]);
+            for(auto &h: hlls) h.add(hv);
+        }
         for(size_t i(0); i < hlls.size(); ++i) accumulators[i].add(hlls[i].report(), ss[i]);
         //for(auto &h: hlls) std::fprintf(stderr, "Estimated %lf with exact %zu\n", h.report(), rn);
         for(auto &h: hlls) h.clear();
@@ -131,13 +133,14 @@ void card_func(void *data_, long index, int tid) {
         auto c90 = accumulators[i].conf90(false);
         auto c80 = accumulators[i].conf80(false);
         auto c50 = accumulators[i].conf50(false);
-        ks.sprintf("%u\t%zu\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf|%lf",
+        auto c10 = accumulators[i].conf10(false);
+        ks.sprintf("%u\t%zu\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf|%lf\t",
                    ss[i], rn, accumulators[i].mean_bias(), accumulators[i].mean_error(),
                    accumulators[i].mse(), (1.03896 / std::sqrt(1ull << ss[i]) * rn), static_cast<double>(accumulators[i].nwithinbounds_) / data.niter_,
                    static_cast<double>(accumulators[i].nabove_) / data.niter_, static_cast<double>(accumulators[i].nbelow_) / data.niter_,
                    accumulators[i].sde(), accumulators[i].sdb(), c95.first, c95.second);
         if(data.emit_full_percentile_range_)
-            ks.sprintf("%lf|%lf\t%lf|%lf\t%lf|%lf", c90.first, c90.second, c80.first, c80.second, c50.first, c50.second);
+            ks.sprintf("%lf|%lf\t%lf|%lf\t%lf|%lf\t%lf|%lf\t", c90.first, c90.second, c80.first, c80.second, c50.first, c50.second, c10.first, c10.second);
         ks.sprintf("%lf\n", accumulators[i].max());
     }
     for(auto &a: accumulators) a.clear();
@@ -153,7 +156,7 @@ std::vector<size_t> DEFAULT_RNUMS {
 };
 
 std::vector<unsigned> DEFAULT_SIZES {
-    10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20
+    10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22
 };
 
 int main(int argc, char *argv[]) {
@@ -205,7 +208,7 @@ int main(int argc, char *argv[]) {
     kth_t data{rnum_sizes, sketch_sizes, bufs, hlls, kstrings, m, niter, fp, emit_full_percentile_range};
     std::fprintf(fp, "#Sketch size (log2)\tExact size\tMean bias\tMean error\tMean squared error\tTheoretical Mean Error\tFraction within bounds\tFraction Overestimated\tFraction Underestimated\tError Std Deviation\tBias Std Deviation\t95%% Interval");
     if(emit_full_percentile_range)
-        std::fprintf(fp, "90%% Interval\t80%% Interval\t50%% Interval\t");
+        std::fprintf(fp, "90%% Interval\t80%% Interval\t50%% Interval\t10%% Interval\t");
     std::fprintf(fp, "Max Error\n");
     std::fflush(fp);
     kt_for(nthreads, &card_func, (void *)&data, rnum_sizes.size());
