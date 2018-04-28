@@ -129,7 +129,10 @@ void jacc_func(void *data_, long index, int tid) {
     const uint64_t is = rn * ji;
     const uint64_t unique_size = (us - is) / 2;
     const double exact_ji = static_cast<double>(is) / static_cast<double>(us);
-    std::vector<std::uint64_t> shared_buf(is);
+    std::vector<std::uint64_t> shared_buf(is); // The only heap allocation in the core of the program. These could be cached.
+    std::vector<acc> accumulators;
+    accumulators.reserve(hlls.size());
+    std::generate_n(std::back_emplacer(accumulators), hlls.size(), [rn](){return acc(rn);});
     // Core loop
     for(size_t inum(0); inum < data.niter_; ++inum) {
         random_buff(shared_buf.data(), shared_buf.size(), gen);
@@ -145,7 +148,7 @@ void jacc_func(void *data_, long index, int tid) {
         }
         random_buff(obuf.data(), unique_size, gen);
         for(size_t i(0); i < unique_size;) {
-            hv = hf(buf[i++]);
+            hv = hf(obuf[i++]);
             for(auto &oh: ohlls) oh.add(hv);
         }
         for(size_t i(0); i < hlls.size(); ++i) {
