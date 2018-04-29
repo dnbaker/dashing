@@ -48,20 +48,17 @@ void usage(const char *ex) {
 
 int main(int argc, char *argv[]) {
     int c;
-    unsigned ndiv = 100, subset_size = 40;
+    unsigned ndiv = 100, npairs = 40;
     if(argc == 1) goto usage;
     while((c = getopt(argc, argv, "n:s:h?")) >= 0) {
         switch(c) {
             case 'n': ndiv = std::atoi(optarg); break;
-            case 's': subset_size = std::atoi(optarg); break;
+            case 's': npairs = std::atoi(optarg); break;
             case 'h': case '?': usage: usage(*argv);
         }
     }
-    auto mat = parse_flashdans_matrix(argv[optind]);
     ndiv = std::min(ndiv, static_cast<unsigned>(mat.size()));
-    std::fprintf(stderr, "Making linear spacing  of size %zu\n", size_t(ndiv));
     auto lins = linspace(ndiv);
-    std::fprintf(stderr, "Making pair_counts of size %zu\n", size_t(ndiv));
     std::vector<size_t> pair_counts(ndiv, static_cast<size_t>(0));
     size_t i(0);
     std::fprintf(stderr, "Starting loop %zu\n", size_t(ndiv));
@@ -69,16 +66,7 @@ int main(int argc, char *argv[]) {
         for(size_t j(0); j < i; ++pair_counts[static_cast<size_t>(ndiv * mat(i, j++))]);
         ++i;
     }
-    std::unordered_set<size_t> needed_indices;
-    while(needed_indices.size() < i) needed_indices.push_back(needed_indices.size());
-    FOREVER {
-        for(const auto el: needed_indices) {
-            bool can_delete = true;
-        }
-    }
     std::fprintf(stderr, "[W:%s:%s:%d] Currently not using subset_size (value: %u). i: %zu\n", __PRETTY_FUNCTION__, __FILE__, __LINE__, subset_size, i);
-    //std::unordered_set<size_t> indices;
-    //while(indices.size() < i) indices.push_back(indices.size());
     auto tinymat = dm::DistanceMatrix<float, 1>(i);
     for(size_t j(0); j < i; ++j) {
         for(size_t k(0); k < i; ++k) {
