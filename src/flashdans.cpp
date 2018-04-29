@@ -130,6 +130,11 @@ void resize_bloom<fhll::fhll_t>(fhll::fhll_t &s, unsigned count, unsigned bfsz) 
     s.set_threshold(count);
     s.resize_bloom(bfsz);
 }
+template<>
+void resize_bloom<cbf::pcfhll_t>(cbf::pcfhll_t &s, unsigned count, unsigned bfsz) {
+    s.set_threshold(count);
+    s.resize_bloom(bfsz);
+}
 
 template<typename SketchType>
 void kt_for_helper(void  *data_, long index, int tid) {
@@ -174,14 +179,14 @@ unsigned fsz2count(uint64_t fsz) {
 
 // Main functions
 int sketch_main(int argc, char *argv[]) {
-    int wsz(-1), k(31), sketch_size(16), skip_cached(false), co, nthreads(1), bs(16), threshold(-1), nblooms(-1), bloom_sketch_size(-1), nhashes(4);
+    int wsz(-1), k(31), sketch_size(16), skip_cached(false), co, nthreads(1), bs(16), threshold(-1), nblooms(-1), bloom_sketch_size(-1), nhashes(4), subsketch_size(10);
     bool canon(true), write_to_dev_null(false), write_gz(false), clamp(false);
     sketching_method sm = EXACT;
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE;
     std::string spacing, paths_file, suffix, prefix;
     uint64_t seedseedseed = 0x1337;
-    while((co = getopt(argc, argv, "n:P:F:c:p:x:R:s:S:k:w:m:H:BfjLzEDIcCeh?")) >= 0) {
+    while((co = getopt(argc, argv, "n:P:F:c:p:x:R:s:S:k:w:m:H:q:BfjLzEDIcCeh?")) >= 0) {
         switch(co) {
             case 'b': bs = std::atoi(optarg); break;
             case 'B': sm = CBF; break;
@@ -205,6 +210,7 @@ int sketch_main(int argc, char *argv[]) {
             case 'R': seedseedseed = std::strtoull(optarg, nullptr, 10); break;
             case 'S': sketch_size = std::atoi(optarg); break;
             case 's': spacing = optarg; break;
+            case 'q': subsketch_size = std::atoi(optarg); break;
             case 'w': wsz = std::atoi(optarg); break;
             case 'x': suffix = optarg; break;
             case 'z': write_gz = true; break;
@@ -257,16 +263,16 @@ int sketch_main(int argc, char *argv[]) {
         sketch_usage(*argv);
     }
     std::vector<hll::hll_t> hlls;
-    std::vector<fhll::fhll_t> fhlls;
+    std::vector<cbf::pcfhll_t> fhlls;
     if(ivecs.size() / (unsigned)(nthreads) > (unsigned)bs) bs = (ivecs.size() / (nthreads) / 2);
     if(sm == EXACT) {
         while(hlls.size() < (unsigned)nthreads) hlls.emplace_back(sketch_size, estim, jestim, 1, clamp);
         detail::kt_sketch_helper<hll::hll_t> helper {hlls, kseqs, bs, sketch_size, k, wsz, (int)sp.c_, sv, ivecs, suffix, prefix, spacing, skip_cached, canon, estim, write_to_dev_null, write_gz, counts, bloom_filter_sizes, use_filter};
         kt_for(nthreads, detail::kt_for_helper<hll::hll_t>, &helper, ivecs.size() / bs + (ivecs.size() % bs != 0));
     } else {
-        while(fhlls.size() < (unsigned)nthreads) fhlls.emplace_back(sketch_size, nblooms, bloom_sketch_size, nhashes, seedseedseed, threshold, estim, jestim, clamp);
-        detail::kt_sketch_helper<fhll::fhll_t> helper {fhlls, kseqs, bs, sketch_size, k, wsz, (int)sp.c_, sv, ivecs, suffix, prefix, spacing, skip_cached, canon, estim, write_to_dev_null, write_gz, counts, bloom_filter_sizes, use_filter};
-        kt_for(nthreads, detail::kt_for_helper<fhll::fhll_t>, &helper, ivecs.size() / bs + (ivecs.size() % bs != 0));
+        while(fhlls.size() < (unsigned)nthreads) fhlls.emplace_back(sketch_size, subsketch_size, nblooms, bloom_sketch_size, nhashes, seedseedseed, threshold, estim, jestim, clamp);
+        detail::kt_sketch_helper<cbf::pcfhll_t> helper {fhlls, kseqs, bs, sketch_size, k, wsz, (int)sp.c_, sv, ivecs, suffix, prefix, spacing, skip_cached, canon, estim, write_to_dev_null, write_gz, counts, bloom_filter_sizes, use_filter};
+        kt_for(nthreads, detail::kt_for_helper<cbf::pcfhll_t>, &helper, ivecs.size() / bs + (ivecs.size() % bs != 0));
     }
     LOG_DEBUG("Finished sketching\n");
     return EXIT_SUCCESS;
