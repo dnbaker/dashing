@@ -35,9 +35,10 @@ dm::DistanceMatrix<float, 1> parse_flashdans_matrix(const std::string &path) {
     return ret;
 }
 
-std::vector<float> linspace(size_t ndiv) {
-    std::vector<float> ret; ret.reserve(ndiv + 1);
-    for(size_t i(0); i < ndiv; ret.emplace_back(static_cast<float>(i++) / ndiv));
+template<typename FloatType=float, typename=std::enable_if_t<std::is_arithmetic_v<float>>>
+std::vector<FloatType> linspace(size_t ndiv) {
+    std::vector<FloatType> ret; ret.reserve(ndiv);
+    std::generate_n(std::back_inserter(ret), ndiv, [&]{return static_cast<FloatType>(ret.size()) / ndiv;});
     return ret;
 }
 
@@ -58,7 +59,7 @@ int main(int argc, char *argv[]) {
         }
     }
     ndiv = std::min(ndiv, static_cast<unsigned>(mat.size()));
-    auto lins = linspace(ndiv);
+    auto lins = linspace<float>(ndiv);
     std::vector<size_t> pair_counts(ndiv, static_cast<size_t>(0));
     size_t i(0);
     std::fprintf(stderr, "Starting loop %zu\n", size_t(ndiv));
