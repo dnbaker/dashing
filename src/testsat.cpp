@@ -184,6 +184,10 @@ void jacc_func(void *data_, long index, int tid) {
     assert(std::accumulate(std::begin(accumulators), std::end(accumulators), true, [](auto a, auto b) {return a && b.unions_.size() == 0;}));
     // Core loop
     for(size_t inum(0); inum < data.niter_; ++inum) {
+#if !NDEBUG
+        for(auto &h: hlls) assert(size_t(h.report()) == 0), h.not_ready();
+        for(auto &h: ohlls) assert(size_t(h.report()) == 0), h.not_ready();
+#endif
         size_t isleft = is;
         static constexpr size_t NPERBUF = gen.BUFSIZE / sizeof(uint64_t);
         while(isleft > NPERBUF) {
@@ -212,12 +216,13 @@ void jacc_func(void *data_, long index, int tid) {
             accumulators[i].add(isn / est_us, est_us, isn, sz1, sz2);
         }
         for(auto &h: hlls) h.clear();
-        for(auto &oh: hlls) oh.clear();
+        for(auto &oh: ohlls) oh.clear();
     }
     auto &ks(data.strings_[tid]);
     double mv, iv, jv;
     for(size_t i(0); i < hlls.size(); ++i) {
         auto &a(accumulators[i]);
+        assert(a.jis_.size() == data.niter_);
         ks.sprintf("%u\t%lf\t%" PRIu64 "\t", ss[i], exact_ji, us); // sketch size
         mv = arr_mean(a.unions_);
         // Mean US, Mean Error, Mean Bias
