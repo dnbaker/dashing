@@ -305,18 +305,9 @@ std::vector<FloatType> linspace(size_t ndiv) {
     return ret;
 }
 
-struct ForPool {
-    void *fp_;
-    ForPool(int nthreads): fp_(kt_forpool_init(nthreads)) {}
-    void forpool(void (*func)(void*,long,int), void *data, long n) {
-        kt_forpool(fp_, func, data, n);
-    }
-    ~ForPool() {
-        kt_forpool_destroy(fp_);
-    }
-};
 
 int main(int argc, char *argv[]) {
+    using bns::ForPool;
     if(argc == 1) usage();
     size_t niter = 50;
     std::vector<size_t> rnum_sizes;
