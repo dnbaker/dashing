@@ -177,20 +177,13 @@ void jacc_func(void *data_, long index, int tid) {
     const uint64_t is = rn * ji;
     const uint64_t unique_size = (us - is) / 2;
     const double exact_ji = static_cast<double>(is) / static_cast<double>(us);
+    // This is the only heap allocation in the core loop. Caching these could help threadscaling.
     std::vector<jacc_acc> accumulators;
     accumulators.reserve(hlls.size());
     std::generate_n(std::back_emplacer(accumulators), hlls.size(), [=](){return jacc_acc(us, is, exact_ji, data.niter_);});
     assert(std::accumulate(std::begin(accumulators), std::end(accumulators), true, [](auto a, auto b) {return a && b.unions_.size() == 0;}));
     // Core loop
     for(size_t inum(0); inum < data.niter_; ++inum) {
-#if 0
-        for(auto &h: hlls) {
-            LOG_ASSERT(!h.get_is_ready());
-        }
-        for(auto &h: ohlls) {
-            LOG_ASSERT(!h.get_is_ready());
-        }
-#endif
         size_t isleft = is;
         static constexpr size_t NPERBUF = gen.BUFSIZE / sizeof(uint64_t);
         while(isleft > NPERBUF) {
@@ -312,6 +305,17 @@ std::vector<FloatType> linspace(size_t ndiv) {
     return ret;
 }
 
+struct ForPool {
+    void *fp_;
+    ForPool(int nthreads): fp_(kt_forpool_init(nthreads)) {}
+    void forpool(void (*func)(void*,long,int), void *data, long n) {
+        kt_forpool(fp_, func, data, n);
+    }
+    ~ForPool() {
+        kt_forpool_destroy(fp_);
+    }
+};
+
 int main(int argc, char *argv[]) {
     if(argc == 1) usage();
     size_t niter = 50;
@@ -332,7 +336,7 @@ int main(int argc, char *argv[]) {
             case 'J': jaccs.emplace_back(std::atof(optarg)); break;
             case 'j': jaccard_exploration = true; break;
             case 'l': jaccs = std::move(linspace<double>(std::atoi(optarg))); break;
-            case 'd': rnum_sizes = DEFAULT_RNUMS; sketch_sizes = DEFAULT_SIZES; jaccs = std::move(linspace<double>(50)); break;
+            case 'd': rnum_sizes = DEFAULT_RNUMS; sketch_sizes = DEFAULT_SIZES; jaccs = std::move(linspace<double>(100)); break;
             case 'o': fp = std::fopen(optarg, "w"); break;
             case 'P': emit_full_percentile_range = true; break;
             case 'h': case '?': usage();
@@ -359,25 +363,23 @@ int main(int argc, char *argv[]) {
     });
     std::mutex m;
     kth_t data{rnum_sizes, sketch_sizes, hlls, kstrings, m, niter, fp, emit_full_percentile_range};
+    ForPool pool(nthreads);
     if(!jaccard_exploration) {
-        std::fprintf(stderr, "NOT DOING JACCARD\n");
         std::fprintf(fp, "#Sketch size (log2)\tExact size\tMean bias\tMean error\tMean squared error\tTheoretical Mean Error\tFraction within bounds\tFraction Overestimated\tFraction Underestimated\tError Std Deviation\tBias Std Deviation\t95%% Interval");
         if(emit_full_percentile_range)
             std::fprintf(fp, "90%% Interval\t80%% Interval\t50%% Interval\t10%% Interval\t");
         std::fprintf(fp, "Max Error\n");
         std::fflush(fp);
-        kt_for(nthreads, &card_func, (void *)&data, rnum_sizes.size());
+        pool.forpool(&card_func, (void *)&data, rnum_sizes.size());
     } else {
-        std::fprintf(stderr, "DOING JACCARD\n");
         if(jaccs.empty()) {
             std::fprintf(stderr, "Error: Some jaccard indices must be specified, either by successive -J{float} calls, -l{ndiv} (e.g., linspace(0, 1, ndiv + 1)[:-1]), or -d {default_jaccs}\n");
             usage();
         }
-        if(rnum_sizes.size() == DEFAULT_RNUMS.size()) rnum_sizes.pop_back(), rnum_sizes.pop_back(), rnum_sizes.pop_back(); // Toss the longest experiments.
         kth_jacc_t jacc_data(jaccs, data);
-        std::fprintf(stderr, "#Sketch size\tExact JI\tExact Union Size\tMean Est US\tMean US error\tMean US Bias\tMean IS\tMean error IS\tMean IS bias\tMean JI\tMean JI error\tMean JI bias\n");
+        std::fprintf(fp, "#Sketch size\tExact JI\tExact Union Size\tMean Est US\tMean US error\tMean US Bias\tMean IS\tMean error IS\tMean IS bias\tMean JI\tMean JI error\tMean JI bias\n");
         std::fflush(fp);
-        kt_for(nthreads, &jacc_func, (void *)&jacc_data, rnum_sizes.size() * jaccs.size());
+        pool.forpool(&jacc_func, (void *)&jacc_data, rnum_sizes.size() * jaccs.size());
     }
     if(fp != stdout) std::fclose(fp);
     return EXIT_SUCCESS;
