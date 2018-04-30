@@ -128,8 +128,14 @@ struct jacc_acc {
     std::vector<double> isns_; // Insersections
     std::vector<double> s1s_; // Size 1s
     std::vector<double> s2s_; // Size 2s
-    jacc_acc(uint64_t us, uint64_t is, double ji, size_t niter): us_(us), is_(is), ji_(ji),
-        jis_(niter), unions_(niter), isns_(niter), s1s_(niter), s2s_(niter) {}
+    jacc_acc(uint64_t us, uint64_t is, double ji, size_t niter): us_(us), is_(is), ji_(ji)
+    {
+        jis_.reserve(niter);
+        unions_.reserve(niter);
+        isns_.reserve(niter);
+        s1s_.reserve(niter);
+        s2s_.reserve(niter);
+    }
     void add(double ji, double us, double ins, double s1, double s2) {
         jis_.push_back(ji);
         unions_.push_back(us);
@@ -170,11 +176,11 @@ void jacc_func(void *data_, long index, int tid) {
     const uint64_t us = rn;
     const uint64_t is = rn * ji;
     const uint64_t unique_size = (us - is) / 2;
-    std::fprintf(stderr, "US: %zu\tIS: %zu\tUnique Size: %zu\n", us, is, unique_size);
     const double exact_ji = static_cast<double>(is) / static_cast<double>(us);
     std::vector<jacc_acc> accumulators;
     accumulators.reserve(hlls.size());
     std::generate_n(std::back_emplacer(accumulators), hlls.size(), [=](){return jacc_acc(us, is, exact_ji, data.niter_);});
+    assert(std::accumulate(std::begin(accumulators), std::end(accumulators), true, [](auto a, auto b) {return a && b.unions_.size() == 0;}));
     // Core loop
     for(size_t inum(0); inum < data.niter_; ++inum) {
 #if 0
@@ -201,69 +207,35 @@ void jacc_func(void *data_, long index, int tid) {
             for(auto &h: hlls) h.add(hv);
             for(auto &oh: ohlls) oh.add(hv);
         }
-        for(auto &h: hlls) {
-            h.sum();
-            //std::fprintf(stderr, "After adding intersection size %zu elements, hll at index %zu has value %lf\n", is, static_cast<size_t>(&h - &hlls[0]), h.report());
-        }
-        for(auto &h: ohlls) {
-            h.sum();
-            //std::fprintf(stderr, "After adding intersection size %zu elements, hll at index %zu has value %lf\n", is, static_cast<size_t>(&h - &ohlls[0]), h.report());
-        }
-#define HLL_MEAN(x) (std::accumulate(std::begin(x), std::end(x), 0., [](auto a, auto &b) {return a + b.report();}) / std::size(x))
-        std::fprintf(stderr, "Now the sketches mean sizes are: %lf, %lf\n", HLL_MEAN(hlls), HLL_MEAN(ohlls));
         GEN_ADD(hlls, unique_size);
         GEN_ADD(ohlls, unique_size);
-        std::fprintf(stderr, "Now the sketches mean sizes, after adding unique_size %zu are: %lf, %lf\n", unique_size, HLL_MEAN(hlls), HLL_MEAN(ohlls));
-#undef HLL_MEAN
 
         for(size_t i(0); i < hlls.size(); ++i) {
             hlls[i].sum(); ohlls[i].sum();
-            double est_us(hll::union_size(hlls[i], ohlls[i]));
             double sz1(hlls[i].report());
             double sz2(ohlls[i].report());
+            double est_us(hll::union_size(hlls[i], ohlls[i]));
             double isn(sz1 + sz2 - est_us);
-            std::fprintf(stderr, "Exact us: %zu. Est us: %lf. Isn: %lf\n", us, est_us, isn);
             accumulators[i].add(isn / est_us, est_us, isn, sz1, sz2);
         }
         for(auto &h: hlls) h.clear();
         for(auto &oh: hlls) oh.clear();
     }
     auto &ks(data.strings_[tid]);
-#if 0
-    std::fprintf(stderr, "#Sketch size\tExact JI\tExact Union Size\tMean Est US\tMean US error\tMean US Bias\tMean IS\tMean error IS\tMean IS bias\tMean JI\tMean JI error\tMean JI bias\n");
-#endif
+    double mv, iv, jv;
     for(size_t i(0); i < hlls.size(); ++i) {
         auto &a(accumulators[i]);
         ks.sprintf("%u\t%lf\t%" PRIu64 "\t", ss[i], exact_ji, us); // sketch size
-        auto mv(arr_mean(a.unions_));
+        mv = arr_mean(a.unions_);
         // Mean US, Mean Error, Mean Bias
         ks.sprintf("%lf\t%lf\t%lf\t", mv, std::accumulate(a.unions_.begin(), a.unions_.end(), 0., [&](auto a, auto b){return a + std::abs(b - us);}) / data.niter_, mv - us);
-        auto iv(arr_mean(a.isns_));
+        iv = arr_mean(a.isns_);
         // Mean IS, IS Error, IS Bias
         ks.sprintf("%lf\t%lf\t%lf\t", iv, std::accumulate(a.isns_.begin(), a.isns_.end(), 0., [&](auto a, auto b){return a + std::abs(b - is);}) / data.niter_, iv - is);
         // Mean JI, JI Error, JI Bias
-        auto jv(arr_mean(a.jis_));
+        jv = arr_mean(a.jis_);
         ks.sprintf("%lf\t%lf\t%lf\n", jv, std::accumulate(a.jis_.begin(), a.jis_.end(), 0., [&](auto a, auto b){return a + std::abs(b - is);}) / data.niter_, jv - exact_ji);
     }
-    // TODO:
-#if 0
-    for(size_t i(0); i < hlls.size(); ++i) {
-        auto c95 = accumulators[i].conf95();
-        auto c90 = accumulators[i].conf90(false);
-        auto c80 = accumulators[i].conf80(false);
-        auto c50 = accumulators[i].conf50(false);
-        auto c10 = accumulators[i].conf10(false);
-        ks.sprintf("%u\t%zu\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf|%lf\t",
-                   ss[i], rn, accumulators[i].mean_bias(), accumulators[i].mean_error(),
-                   accumulators[i].mse(), (1.03896 / std::sqrt(1ull << ss[i]) * rn), static_cast<double>(accumulators[i].nwithinbounds_) / data.niter_,
-                   static_cast<double>(accumulators[i].nabove_) / data.niter_, static_cast<double>(accumulators[i].nbelow_) / data.niter_,
-                   accumulators[i].sde(), accumulators[i].sdb(), c95.first, c95.second);
-        if(data.emit_full_percentile_range_)
-            ks.sprintf("%lf|%lf\t%lf|%lf\t%lf|%lf\t%lf|%lf\t", c90.first, c90.second, c80.first, c80.second, c50.first, c50.second, c10.first, c10.second);
-        ks.sprintf("%lf\n", accumulators[i].max());
-    }
-    for(auto &a: accumulators) a.clear();
-#endif
     {
         LockSmith lock(data.m_);
         ks.write(fileno(data.fp_));
