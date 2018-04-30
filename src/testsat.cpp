@@ -15,7 +15,11 @@ void usage() {
                          "-s\tAdd a sketch size\n"
                          "-p\tSet number of threads [1]\n"
                          "-n\tSet number of iterations. [Default: 50]\n"
-                         "Purpose: test the saturation of HyperLogLogs, including how often they are within expected bounds at various cardinalities and sketch sizes.\n");
+                         "Purpose: test the saturation of HyperLogLogs, including how often they are within expected bounds at various cardinalities and sketch sizes.\n"
+                         "If -j is specified, instead experiments over ranges of jaccard indices.\n"
+                         "-J\tAdd a jaccard index to use\n"
+                         "-l\t[int] Cover the full range over [0,1] in incremenets of 1./<value>\n"
+                );
     std::exit(EXIT_FAILURE);
 }
 
@@ -25,6 +29,11 @@ class LockSmith {
 public:
     LockSmith(MutexType &m): lock_(m) {}
 };
+
+template<typename T>
+double arr_mean(const std::vector<T> &vec) {
+    return std::accumulate(std::cbegin(vec), std::cend(vec), 0., [](auto a, auto b){return a + b;}) / static_cast<double>(std::size(vec));
+}
 
 struct acc {
     size_t             exact_;
@@ -82,7 +91,6 @@ struct acc {
 struct kth_t {
     const std::vector<size_t>                &rns_;
     const std::vector<unsigned>               &ss_;
-    std::vector<std::vector<std::uint64_t>> &bufs_;
     std::vector<std::vector<hll::hll_t>>    &hlls_;
     std::vector<ks::string>              &strings_;
     std::mutex                                 &m_;
@@ -94,9 +102,8 @@ struct kth_t {
 struct kth_jacc_t: public kth_t {
     template<typename... Args>
     kth_jacc_t(const std::vector<double> &jaccs, Args &&... args):
-        kth_t(std::forward<Args>(args)...), ohlls_(this->hlls_), obufs_(this->bufs_), jaccs_(jaccs) {}
+        kth_t(std::forward<Args>(args)...), ohlls_(this->hlls_), jaccs_(jaccs) {}
     std::vector<std::vector<hll::hll_t>>     ohlls_; // Actually copies
-    std::vector<std::vector<std::uint64_t>>  obufs_; // Actually copies
     const std::vector<double>            &jaccs_;
 };
 
@@ -133,68 +140,110 @@ struct jacc_acc {
 };
 
 
+#define GEN_ADD(sketchvec, num) \
+    do {\
+        isleft = num;\
+        while(isleft > NPERBUF) { \
+            gen.generate_new_values(); \
+            for(const auto &val: gen.template view<uint64_t>()) { \
+                hv = hf(val); \
+                for(auto &h: sketchvec) h.add(hv); \
+            } \
+            isleft -= NPERBUF; \
+        }\
+        while(isleft--) {\
+            hv = hf(gen());\
+            for(auto &h: sketchvec) h.add(hv);\
+        }\
+    } while(0)
+
 void jacc_func(void *data_, long index, int tid) {
     aes::AesCtr<uint64_t, 8> gen(index); // Seed with job index
     kth_jacc_t &data(*(kth_jacc_t *)data_);
-    auto &buf = data.bufs_[tid];
-    auto &obuf = data.obufs_[tid];
     const auto &ss = data.ss_;
     auto &hlls(data.hlls_[tid]);
     auto &ohlls(data.ohlls_[tid]);
     const size_t rn = data.rns_[index % data.rns_.size()];
     const double ji = data.jaccs_[index / data.rns_.size()];
-    if(rn > buf.size()) buf.resize(rn);
     uint64_t hv;
     hll::WangHash hf;
     const uint64_t us = rn;
     const uint64_t is = rn * ji;
     const uint64_t unique_size = (us - is) / 2;
+    std::fprintf(stderr, "US: %zu\tIS: %zu\tUnique Size: %zu\n", us, is, unique_size);
     const double exact_ji = static_cast<double>(is) / static_cast<double>(us);
-    std::vector<std::uint64_t> shared_buf(is); // The only heap allocation in the core of the program. These could be cached.
     std::vector<jacc_acc> accumulators;
     accumulators.reserve(hlls.size());
     std::generate_n(std::back_emplacer(accumulators), hlls.size(), [=](){return jacc_acc(us, is, exact_ji, data.niter_);});
     // Core loop
     for(size_t inum(0); inum < data.niter_; ++inum) {
-        random_buff(shared_buf.data(), shared_buf.size(), gen);
-        for(const auto &v: shared_buf) {
-            hv = hf(v);
+#if 0
+        for(auto &h: hlls) {
+            LOG_ASSERT(!h.get_is_ready());
+        }
+        for(auto &h: ohlls) {
+            LOG_ASSERT(!h.get_is_ready());
+        }
+#endif
+        size_t isleft = is;
+        static constexpr size_t NPERBUF = gen.BUFSIZE / sizeof(uint64_t);
+        while(isleft > NPERBUF) {
+            gen.generate_new_values();
+            for(const auto &val: gen.template view<uint64_t>()) {
+                hv = hf(val);
+                for(auto &h: hlls) h.add(hv);
+                for(auto &oh: ohlls) oh.add(hv);
+            }
+            isleft -= NPERBUF;
+        }
+        while(isleft--) {
+            hv = hf(gen());
             for(auto &h: hlls) h.add(hv);
             for(auto &oh: ohlls) oh.add(hv);
         }
-        random_buff(buf.data(), unique_size, gen);
-        for(size_t i(0); i < unique_size;) {
-            hv = hf(buf[i++]);
-            for(auto &h: hlls) h.add(hv);
+        for(auto &h: hlls) {
+            h.sum();
+            //std::fprintf(stderr, "After adding intersection size %zu elements, hll at index %zu has value %lf\n", is, static_cast<size_t>(&h - &hlls[0]), h.report());
         }
-        random_buff(obuf.data(), unique_size, gen);
-        for(size_t i(0); i < unique_size;) {
-            hv = hf(obuf[i++]);
-            for(auto &oh: ohlls) oh.add(hv);
+        for(auto &h: ohlls) {
+            h.sum();
+            //std::fprintf(stderr, "After adding intersection size %zu elements, hll at index %zu has value %lf\n", is, static_cast<size_t>(&h - &ohlls[0]), h.report());
         }
+#define HLL_MEAN(x) (std::accumulate(std::begin(x), std::end(x), 0., [](auto a, auto &b) {return a + b.report();}) / std::size(x))
+        std::fprintf(stderr, "Now the sketches mean sizes are: %lf, %lf\n", HLL_MEAN(hlls), HLL_MEAN(ohlls));
+        GEN_ADD(hlls, unique_size);
+        GEN_ADD(ohlls, unique_size);
+        std::fprintf(stderr, "Now the sketches mean sizes, after adding unique_size %zu are: %lf, %lf\n", unique_size, HLL_MEAN(hlls), HLL_MEAN(ohlls));
+#undef HLL_MEAN
+
         for(size_t i(0); i < hlls.size(); ++i) {
+            hlls[i].sum(); ohlls[i].sum();
             double est_us(hll::union_size(hlls[i], ohlls[i]));
             double sz1(hlls[i].report());
             double sz2(ohlls[i].report());
             double isn(sz1 + sz2 - est_us);
+            std::fprintf(stderr, "Exact us: %zu. Est us: %lf. Isn: %lf\n", us, est_us, isn);
             accumulators[i].add(isn / est_us, est_us, isn, sz1, sz2);
         }
         for(auto &h: hlls) h.clear();
         for(auto &oh: hlls) oh.clear();
     }
     auto &ks(data.strings_[tid]);
+#if 0
+    std::fprintf(stderr, "#Sketch size\tExact JI\tExact Union Size\tMean Est US\tMean US error\tMean US Bias\tMean IS\tMean error IS\tMean IS bias\tMean JI\tMean JI error\tMean JI bias\n");
+#endif
     for(size_t i(0); i < hlls.size(); ++i) {
         auto &a(accumulators[i]);
         ks.sprintf("%u\t%lf\t%" PRIu64 "\t", ss[i], exact_ji, us); // sketch size
-        auto mv = std::accumulate(a.unions_.begin(), a.unions_.end(), 0., [](auto a, auto b){return a + b;}) / data.niter_;
+        auto mv(arr_mean(a.unions_));
         // Mean US, Mean Error, Mean Bias
         ks.sprintf("%lf\t%lf\t%lf\t", mv, std::accumulate(a.unions_.begin(), a.unions_.end(), 0., [&](auto a, auto b){return a + std::abs(b - us);}) / data.niter_, mv - us);
-        auto iv = std::accumulate(a.isns_.begin(), a.isns_.end(), 0., [](auto a, auto b){return a + b;}) / data.niter_;
+        auto iv(arr_mean(a.isns_));
         // Mean IS, IS Error, IS Bias
         ks.sprintf("%lf\t%lf\t%lf\t", iv, std::accumulate(a.isns_.begin(), a.isns_.end(), 0., [&](auto a, auto b){return a + std::abs(b - is);}) / data.niter_, iv - is);
         // Mean JI, JI Error, JI Bias
-        auto jv = std::accumulate(a.jis_.begin(), a.jis_.end(), 0., [](auto a, auto b){return a + b;}) / data.niter_;
-        ks.sprintf("%lf\t%lf\t%lf\t", jv, std::accumulate(a.jis_.begin(), a.jis_.end(), 0., [&](auto a, auto b){return a + std::abs(b - is);}) / data.niter_, jv - exact_ji);
+        auto jv(arr_mean(a.jis_));
+        ks.sprintf("%lf\t%lf\t%lf\n", jv, std::accumulate(a.jis_.begin(), a.jis_.end(), 0., [&](auto a, auto b){return a + std::abs(b - is);}) / data.niter_, jv - exact_ji);
     }
     // TODO:
 #if 0
@@ -224,22 +273,18 @@ void jacc_func(void *data_, long index, int tid) {
 void card_func(void *data_, long index, int tid) {
     aes::AesCtr<uint64_t, 8> gen(index); // Seed with job index
     kth_t &data(*(kth_t *)data_);
-    auto &buf = data.bufs_[tid];
     const auto &ss = data.ss_;
     auto &hlls(data.hlls_[tid]);
     const size_t rn = data.rns_[index];
     std::vector<acc> accumulators;
     accumulators.reserve(hlls.size());
     std::generate_n(std::back_emplacer(accumulators), hlls.size(), [rn](){return acc(rn);});
-    if(rn > buf.size()) buf.resize(rn);
     uint64_t hv;
     hll::WangHash hf;
+    size_t isleft;
     for(size_t inum(0); inum < data.niter_; ++inum) {
-        random_buff(buf.data(), rn, gen);
-        for(size_t i(0); i < rn;) {
-            hv = hf(buf[i++]);
-            for(auto &h: hlls) h.add(hv);
-        }
+        static constexpr size_t NPERBUF = gen.BUFSIZE / sizeof(uint64_t);
+        GEN_ADD(hlls, rn);
         for(size_t i(0); i < hlls.size(); ++i) accumulators[i].add(hlls[i].report(), ss[i]);
         //for(auto &h: hlls) std::fprintf(stderr, "Estimated %lf with exact %zu\n", h.report(), rn);
         for(auto &h: hlls) h.clear();
@@ -268,6 +313,8 @@ void card_func(void *data_, long index, int tid) {
     ks.clear();
 }
 
+#undef GEN_ADD
+
 std::vector<size_t> DEFAULT_RNUMS {
     1ull << 10, 1ull << 12, 1ull << 14, 1ull << 16, 1ull << 18, 1ull << 20, 1ull << 22, 1ull << 24, 1ull << 26, 1ull << 28, 1ull << 30, 1ull << 31, 1ull << 32, 1ull << 33
 };
@@ -277,12 +324,24 @@ std::vector<unsigned> DEFAULT_SIZES {
 };
 
 std::vector<double> DEFAULT_JACCS {
-    0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.11, 0.12, 0.13, 0.14, 0.15, 0.16, 0.17, 0.18, 0.19, 0.2, 0.21, 0.22, 0.23, 0.24, 0.25, 0.26, 0.27, 0.28, 0.29, 0.3, 0.31, 0.32, 0.33, 0.34, 0.35, 0.36, 0.37, 0.38, 0.39, 0.4, 0.41, 0.42, 0.43, 0.44, 0.45, 0.46, 0.47, 0.48, 0.49, 0.5, 0.51, 0.52, 0.53, 0.54, 0.55, 0.56, 0.57, 0.58, 0.59, 0.6, 0.61, 0.62, 0.63, 0.64, 0.65, 0.66, 0.67, 0.68, 0.69, 0.7, 0.71, 0.72, 0.73, 0.74, 0.75, 0.76, 0.77, 0.78, 0.79, 0.8, 0.81, 0.82, 0.83, 0.84, 0.85, 0.86, 0.87, 0.88, 0.89, 0.9, 0.91, 0.92, 0.93, 0.94, 0.95, 0.96, 0.97, 0.98, 0.99, 1.0
+/*
+ * import numpy as np
+ * vals = np.random.random((25,))
+ * vals.sort()
+ * print(f"    {', '.join(map(str, vals))}")
+ */
+    0.006722968595635481, 0.017796518494720748, 0.07826379255402727, 0.10464927948391956, 0.12273725109390998, 0.12361422045187453, 0.12545888740551148, 0.12570606740917067, 0.12575697804761177, 0.16168503173635285, 0.1859235765405335, 0.24223370475397865, 0.28467302368862824, 0.3019017718325645, 0.3171949327372131, 0.346532512061814, 0.3895198723519192, 0.4254367781126247, 0.484925922588482, 0.5265848548958305, 0.5367582354724071, 0.5698976125206885, 0.7336933923750625, 0.8532835057417715, 0.9413034301399099
 };
+
+template<typename FloatType=float, typename=std::enable_if_t<std::is_arithmetic_v<float>>>
+std::vector<FloatType> linspace(size_t ndiv) {
+    std::vector<FloatType> ret; ret.reserve(ndiv);
+    std::generate_n(std::back_inserter(ret), ndiv, [&]{return static_cast<FloatType>(ret.size()) / ndiv;});
+    return ret;
+}
 
 int main(int argc, char *argv[]) {
     if(argc == 1) usage();
-    size_t default_buf_size = 1 << 20;
     size_t niter = 50;
     std::vector<size_t> rnum_sizes;
     std::vector<unsigned> sketch_sizes;
@@ -290,7 +349,7 @@ int main(int argc, char *argv[]) {
     int c, nthreads(1);
     std::vector<double> jaccs;
     std::FILE *fp = stdout;
-    while((c = getopt(argc, argv, "o:n:r:s:p:b:J:jPdh?")) >= 0) {
+    while((c = getopt(argc, argv, "l:o:n:r:s:p:b:J:jPdh?")) >= 0) {
         switch(c) {
             case 'n': niter = std::strtoull(optarg, nullptr, 10); break;
             case 'r':
@@ -300,8 +359,8 @@ int main(int argc, char *argv[]) {
             case 'p': nthreads = std::atoi(optarg); break;
             case 'J': jaccs.emplace_back(std::atof(optarg)); break;
             case 'j': jaccard_exploration = true; break;
-            case 'b': default_buf_size = static_cast<size_t>(std::strtoull(optarg, nullptr, 10)); break;
-            case 'd': rnum_sizes = DEFAULT_RNUMS; sketch_sizes = DEFAULT_SIZES; break;
+            case 'l': jaccs = std::move(linspace<double>(std::atoi(optarg))); break;
+            case 'd': rnum_sizes = DEFAULT_RNUMS; sketch_sizes = DEFAULT_SIZES; jaccs = std::move(linspace<double>(50)); break;
             case 'o': fp = std::fopen(optarg, "w"); break;
             case 'P': emit_full_percentile_range = true; break;
             case 'h': case '?': usage();
@@ -320,17 +379,16 @@ int main(int argc, char *argv[]) {
     std::vector<ks::string> kstrings;
     kstrings.reserve(nthreads);
     std::generate_n(std::back_emplacer(kstrings), nthreads, []{return ks::string(1024);});
-    std::vector<std::vector<uint64_t>> bufs;
     std::vector<std::vector<hll::hll_t>> hlls;
     std::generate_n(std::back_emplacer(hlls), nthreads, [&] {
         std::vector<hll::hll_t> ret;
         std::generate_n(std::back_emplacer(ret), sketch_sizes.size(), [&]{return hll::hll_t(sketch_sizes[ret.size()]);});
         return ret;
     });
-    std::fill_n(std::back_emplacer(bufs), nthreads, std::vector<uint64_t>(default_buf_size));
     std::mutex m;
-    kth_t data{rnum_sizes, sketch_sizes, bufs, hlls, kstrings, m, niter, fp, emit_full_percentile_range};
+    kth_t data{rnum_sizes, sketch_sizes, hlls, kstrings, m, niter, fp, emit_full_percentile_range};
     if(!jaccard_exploration) {
+        std::fprintf(stderr, "NOT DOING JACCARD\n");
         std::fprintf(fp, "#Sketch size (log2)\tExact size\tMean bias\tMean error\tMean squared error\tTheoretical Mean Error\tFraction within bounds\tFraction Overestimated\tFraction Underestimated\tError Std Deviation\tBias Std Deviation\t95%% Interval");
         if(emit_full_percentile_range)
             std::fprintf(fp, "90%% Interval\t80%% Interval\t50%% Interval\t10%% Interval\t");
@@ -338,14 +396,16 @@ int main(int argc, char *argv[]) {
         std::fflush(fp);
         kt_for(nthreads, &card_func, (void *)&data, rnum_sizes.size());
     } else {
-        if(jaccs.empty()) jaccs = DEFAULT_JACCS;
+        std::fprintf(stderr, "DOING JACCARD\n");
+        if(jaccs.empty()) {
+            std::fprintf(stderr, "Error: Some jaccard indices must be specified, either by successive -J{float} calls, -l{ndiv} (e.g., linspace(0, 1, ndiv + 1)[:-1]), or -d {default_jaccs}\n");
+            usage();
+        }
         if(rnum_sizes.size() == DEFAULT_RNUMS.size()) rnum_sizes.pop_back(), rnum_sizes.pop_back(), rnum_sizes.pop_back(); // Toss the longest experiments.
         kth_jacc_t jacc_data(jaccs, data);
-        std::fprintf(fp, "#Sketch size (log2)\tExact Union Size\tExact Size1\tExact Size2\tMean Est Union Size\tMean Est Intersection Size\tMean Est Size1\tMean Est Size2\n"
-                         "Exact JI\tMean Est JI\tMean Error US\tMean Error IS\tMean Error JI\tMean Bias JI\tMean Bias IS\tMean Bias US\t90%% range\n");
+        std::fprintf(stderr, "#Sketch size\tExact JI\tExact Union Size\tMean Est US\tMean US error\tMean US Bias\tMean IS\tMean error IS\tMean IS bias\tMean JI\tMean JI error\tMean JI bias\n");
         std::fflush(fp);
         kt_for(nthreads, &jacc_func, (void *)&jacc_data, rnum_sizes.size() * jaccs.size());
-        throw std::runtime_error("NotImplementedError.");
     }
     if(fp != stdout) std::fclose(fp);
     return EXIT_SUCCESS;
