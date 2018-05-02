@@ -11,6 +11,11 @@
 
 
 namespace bns {
+enum EmissionType {
+    MASH_DIST = 0,
+    JI        = 1,
+    SIZES     = 2
+};
 
 void main_usage(char **argv) {
     std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options. [Subcommands: sketch, dist, setdist, hll, printbinary.]\n",
@@ -40,6 +45,8 @@ void dist_usage(const char *arg) {
                          "-e\tEmit in scientific notation\n"
                          "-f\tReport results as float. (Only important for binary format.) This halves the memory footprint at the cost of precision loss.\n"
                          "-F\tGet paths to genomes from file rather than positional arguments\n"
+                         "-M\tEmit Mash distance (default: jaccard index)\n"
+                         "-Z\tEmit genome sizes (default: jaccard -index)\n"
                 , arg);
     std::exit(EXIT_FAILURE);
 }
@@ -158,7 +165,7 @@ void kt_for_helper(void  *data_, long index, int tid) {
     }
 }
 
-}
+} // namespace detail
 
 enum sketching_method {
     EXACT = 0,
@@ -316,7 +323,7 @@ std::common_type_t<FType1, FType2> dist_index(FType1 ji, FType2 ksinv) {
 }
 
 template<typename FType, typename=std::enable_if_t<std::is_floating_point_v<FType>>>
-void dist_loop(const int pairfi, std::vector<hll::hll_t> &hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const bool emit_jaccard, bool write_binary, const size_t buffer_flush_size=1ull<<18) {
+void dist_loop(const int pairfi, std::vector<hll::hll_t> &hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType emit_fmt, bool write_binary, const size_t buffer_flush_size=1ull<<18) {
 #if !NDEBUG
     std::fprintf(stderr, "value for use_scientific is %s\n", use_scientific ? "t": "f");
 #endif
@@ -329,14 +336,27 @@ void dist_loop(const int pairfi, std::vector<hll::hll_t> &hlls, const std::vecto
     for(size_t i = 0; i < hlls.size(); ++i) {
         hll::hll_t &h1(hlls[i]); // TODO: consider working backwards and pop_back'ing.
         std::vector<FType> &dists = dps[i & 1];
-        if(emit_jaccard) {
-            #pragma omp parallel for schedule(dynamic)
-            for(size_t j = i + 1; j < hlls.size(); ++j)
-                dists[j - i - 1] = jaccard_index(hlls[j], h1);
-        } else {
-            #pragma omp parallel for schedule(dynamic)
-            for(size_t j = i + 1; j < hlls.size(); ++j)
-                dists[j - i - 1] = dist_index(jaccard_index(hlls[j], h1), ksinv);
+        switch(emit_fmt) {
+            case MASH_DIST: {
+                #pragma omp parallel for schedule(dynamic)
+                for(size_t j = i + 1; j < hlls.size(); ++j)
+                    dists[j - i - 1] = dist_index(jaccard_index(hlls[j], h1), ksinv);
+                break;
+            }
+            case JI: {
+                #pragma omp parallel for schedule(dynamic)
+                for(size_t j = i + 1; j < hlls.size(); ++j)
+                    dists[j - i - 1] = jaccard_index(hlls[j], h1);
+                break;
+            }
+            case SIZES: {
+                #pragma omp parallel for schedule(dynamic)
+                for(size_t j = i + 1; j < hlls.size(); ++j)
+                    dists[j - i - 1] = union_size(hlls[j], h1);
+                break;
+            }
+            default:
+                __builtin_unreachable();
         }
         h1.free();
         LOG_DEBUG("Finished chunk %zu of %zu\n", i + 1, hlls.size());
@@ -361,7 +381,8 @@ enum CompReading: unsigned {
 
 int dist_main(int argc, char *argv[]) {
     int wsz(-1), k(31), sketch_size(16), use_scientific(false), co, cache_sketch(false), nthreads(1);
-    bool canon(true), presketched_only(false), write_binary(false), emit_jaccard(true), emit_float(false), clamp(false);
+    bool canon(true), presketched_only(false), write_binary(false), emit_float(false), clamp(false);
+    EmissionType emit_fmt(JI);
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE;
     std::string spacing, paths_file, suffix, prefix;
@@ -369,7 +390,7 @@ int dist_main(int argc, char *argv[]) {
     std::string pairofp_labels;
     FILE *ofp(stdout), *pairofp(stdout);
     omp_set_num_threads(1);
-    while((co = getopt(argc, argv, "P:x:F:c:p:o:s:w:O:S:k:azLfJICbMEeHh?")) >= 0) {
+    while((co = getopt(argc, argv, "P:x:F:c:p:o:s:w:O:S:k:azLfICbMEeHhZ?")) >= 0) {
         switch(co) {
             case 'a': reading_type = AUTODETECT; break;
             case 'b': write_binary = true; break;
@@ -380,7 +401,7 @@ int dist_main(int argc, char *argv[]) {
             case 'F': paths_file = optarg; break;
             case 'H': presketched_only = true; break;
             case 'I': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
-            case 'J': emit_jaccard = false; break;
+            case 'M': emit_fmt = MASH_DIST; break;
             case 'k': k = std::atoi(optarg); break;
             case 'L': clamp = true; break;
             case 'm': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
@@ -394,6 +415,7 @@ int dist_main(int argc, char *argv[]) {
             case 'w': wsz = std::atoi(optarg); break;
             case 'x': suffix = optarg; break;
             case 'z': reading_type = GZ; break;
+            case 'Z': emit_fmt = SIZES; break;
             case 'h': case '?': dist_usage(*argv);
         }
     }
@@ -457,9 +479,9 @@ int dist_main(int argc, char *argv[]) {
         str.write(fileno(pairofp)); str.free();
     }
     if(emit_float)
-        dist_loop<float>(fileno(pairofp), hlls, inpaths, use_scientific, k, emit_jaccard, write_binary);
+        dist_loop<float>(fileno(pairofp), hlls, inpaths, use_scientific, k, emit_fmt, write_binary);
     else
-        dist_loop<double>(fileno(pairofp), hlls, inpaths, use_scientific, k, emit_jaccard, write_binary);
+        dist_loop<double>(fileno(pairofp), hlls, inpaths, use_scientific, k, emit_fmt, write_binary);
     if(write_binary) {
         if(pairofp_labels.empty()) pairofp_labels = "unspecified";
         std::FILE *fp = std::fopen(pairofp_labels.data(), "wb");
