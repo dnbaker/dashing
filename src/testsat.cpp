@@ -232,7 +232,7 @@ void jacc_func(void *data_, long index, int tid) {
         ks.sprintf("%lf\t%lf\t%lf\t", iv, std::accumulate(a.isns_.begin(), a.isns_.end(), 0., [&](auto a, auto b){return a + std::abs(b - is);}) / data.niter_, iv - is);
         // Mean JI, JI Error, JI Bias
         jv = arr_mean(a.jis_);
-        ks.sprintf("%lf\t%lf\t%lf\n", jv, std::accumulate(a.jis_.begin(), a.jis_.end(), 0., [&](auto a, auto b){return a + std::abs(b - is);}) / data.niter_, jv - exact_ji);
+        ks.sprintf("%lf\t%lf\t%lf\n", jv, std::accumulate(a.jis_.begin(), a.jis_.end(), 0., [&](auto a, auto b){return a + std::abs(b - exact_ji);}) / data.niter_, jv - exact_ji);
     }
     {
         LockSmith lock(data.m_);
