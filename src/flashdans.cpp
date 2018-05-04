@@ -152,7 +152,7 @@ void kt_for_helper(void  *data_, long index, int tid) {
         } else {
             fill_sketch(get_hll(sketch), scratch_stringvec, helper.kmer_size_, helper.window_size_, helper.sv_, helper.canon_, nullptr, 1, helper.sketch_size_, &helper.kseqs_[tid]); // Avoid allocation fights.
         }
-        auto &hll = get_hll(sketch);
+        const auto &hll = get_hll(sketch);
         hll.write(helper.write_to_dev_null_ ? "/dev/null": fname.data(), helper.write_gz_);
         sketch.clear();
     }
