@@ -40,17 +40,21 @@ std::string calculate_errors(size_t ss, size_t nfiltl2, size_t niter, size_t nel
     double fphll = 0., fphlf = 0., fpchlf = 0.;
     std::unordered_set<u64> set, oset;
     for(size_t i(0); i < niter; ++i) {
-        while(set.size() < nelem) set.emplace(gen());
-        while(oset.size() < nelem) {
-            u64 val;
-            do {val = gen();} while(set.find(val) != set.end());
-            oset.insert(val);
+        // Generate and insert values.
+        while(__builtin_expect(nelem - set.size() > gen.BUFSIZE, 1)) {
+            for(const auto &val: gen.template view<std::uint64_t>()) if(set.find(val) != set.end()) set.insert(val);
+            gen.generate_new_values();
         }
-        for(const auto &val: set) {
-            hll.addh(val);
-            hlf.addh(val);
-            chlf.addh(val);
+        while(__builtin_expect(nelem - oset.size() > gen.BUFSIZE, 1)) {
+            for(const auto &val: gen.template view<std::uint64_t>()) oset.insert(val);
+            gen.generate_new_values();
         }
+        while(oset.size() < nelem) oset.insert(gen());
+        while(set.size() < nelem)  set.insert(gen());
+        for(const auto &val: set) hll.addh(val), hlf.addh(val), chlf.addh(val);
+
+
+        // Woof.
         mdiffs[0] += std::abs(nelem - hlf.report());
         mdiffs[1] += std::abs(nelem - hll.report());
         mdiffs[2] += std::abs(nelem - hlf.med_report());
@@ -71,11 +75,8 @@ std::string calculate_errors(size_t ss, size_t nfiltl2, size_t niter, size_t nel
         fphll += fprate(oset, hll);
         fphlf += fprate(oset, hlf);
         fpchlf += fprate(oset, chlf);
-        hlf.clear();
-        hll.clear();
-        chlf.clear();
-        set.clear();
-        oset.clear();
+        // Clear structures.
+        hlf.clear(), hll.clear(), chlf.clear(), set.clear(), oset.clear();
     }
     frac /= niter;
     fracborrow /= niter;
@@ -102,8 +103,8 @@ int main(int argc, char *argv[]) {
     unsigned nthreads = argc > 1 ? std::strtoul(argv[1], nullptr, 10): 8;
     size_t niter      = argc > 2 ? std::strtoull(argv[2], nullptr, 10): 50;
     std::string prefix = argc > 3 ? argv[3]: "hlfout";
-    std::vector<size_t> sizes    {10, 11, 12, 14, 16, 18, 20};
-    std::vector<size_t> nelems   {1 << 18, 1 << 20, 1 << 14, 1 << 12, 1 << 24};
+    std::vector<size_t> sizes    {10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20};
+    std::vector<size_t> nelems   {1 << 18, 1 << 20, 1 << 14, 1 << 12, 1 << 24, 1 << 26};
     std::vector<size_t> nfiltl2s {1, 2, 3, 4, 5, 6};
     omp_set_num_threads(nthreads);
     std::vector<comb_t> combs;
