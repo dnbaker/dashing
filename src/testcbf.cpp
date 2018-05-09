@@ -14,7 +14,7 @@ void usage() {
 using namespace bf;
 
 static const std::vector<unsigned> DEFAULT_BFS {10, 12, 14, 16, 18, 20, 22};
-static const std::vector<unsigned> DEFAULT_NHASHES {1, 2, 4, 8, 16};
+static const std::vector<unsigned> DEFAULT_NHASHES {4, 8, 16};
 static const std::vector<unsigned> DEFAULT_NBFS {8, 16, 32};
 static const std::vector<uint64_t> DEFAULT_SIZES {
     10ull,
@@ -95,14 +95,13 @@ int main(int argc, char *argv[]) {
     std::fflush(ofp);
     #pragma omp parallel for
     for(size_t i = 0; i < total_number; ++i) {
-        auto [nh, bfsize, nbfs, size] = combs[i];
+        const auto [nh, bfsize, nbfs, size] = combs[i];
         const uint64_t seed = WangHash()(i);
         aes::AesCtr<uint64_t, 8> gen(seed);
-        std::vector<uint64_t> buf(size);
-        while(buf.size() < size) buf.emplace_back(gen());
         bf::cbf_t cbf(nbfs, bfsize, nh, seedseedseed + 666 * 777 * (i + 1)); // Convolution of bad and good luck.
+        std::vector<uint64_t> buf; buf.reserve(size);
+        while(buf.size() < size) buf.emplace_back(gen());
         for(const auto val: buf) cbf.addh(val);
-        gen.seed(seed);
         std::vector<uint64_t> counts(nbfs + 1);
         for(const auto val: buf) {
             unsigned count = cbf.est_count(val);
@@ -115,7 +114,7 @@ int main(int argc, char *argv[]) {
             ++counts[fastl2(cbf.est_count(val))];
         }
         std::fflush(stderr);
-        assert(std::accumulate(counts.begin(), counts.end(), 0) == size);
+        assert(std::accumulate(counts.begin(), counts.end(), 0ull) == size);
         ks::string outstr = ks::sprintf("%" PRIu64 "\t%u\t%u\t%u", size, nh, bfsize, nbfs);
         for(size_t i(0); i < counts.size(); ++i) outstr.sprintf("\t%u|%" PRIu64 "", 1<<i, counts[i]);
         outstr.sprintf("\t<popcount/m>\t");
@@ -127,7 +126,6 @@ int main(int argc, char *argv[]) {
             LockSmith he_who_holds_the_keys(lock);
             outstr.write(fn);
         }
-        buf.clear();
         //for(auto &bf: cbf) std::fprintf(stderr, "vals: %s\n", bf.print_vals().data());
         //for(auto &bf: cbf) std::fprintf(stderr, "seeds: %s\n", bf.seedstring().data());
     }
