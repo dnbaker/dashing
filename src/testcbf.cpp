@@ -15,6 +15,7 @@ using namespace bf;
 
 static const std::vector<unsigned> DEFAULT_BFS {10, 12, 14, 16, 18, 20, 22};
 static const std::vector<unsigned> DEFAULT_NHASHES {1, 2, 4, 8, 16};
+static const std::vector<unsigned> DEFAULT_NBFS {8, 16, 32};
 static const std::vector<uint64_t> DEFAULT_SIZES {
     10ull,
     1024ull,
@@ -50,6 +51,7 @@ unsigned fastl2(T val) {
 }
 
 int main(int argc, char *argv[]) {
+    if(argc == 1) usage();
     // Approximate counting bloom filter
     uint64_t seedseedseed = 1337; // Wheeeee!
     std::vector<uint64_t> sizes;
@@ -62,7 +64,7 @@ int main(int argc, char *argv[]) {
         switch(c) {
             case 'S': seedseedseed = std::strtoull(optarg, nullptr, 10); break;
             case 's': sizes.emplace_back(std::strtoull(optarg, nullptr, 10)); break;
-            case 'd': sizes = DEFAULT_SIZES, bfsizes = DEFAULT_BFS, nhashes = DEFAULT_NHASHES; break;
+            case 'd': sizes = DEFAULT_SIZES, bfsizes = DEFAULT_BFS, nhashes = DEFAULT_NHASHES, nbfs = DEFAULT_NBFS; break;
             case 'p': nthreads = std::atoi(optarg); break;
             case 'n': nbfs.push_back(std::atoi(optarg)); break;
             case 'H': nhashes.push_back(std::atoi(optarg)); break;
@@ -79,6 +81,8 @@ int main(int argc, char *argv[]) {
     nthreads = std::max(nthreads, 1);
     omp_set_num_threads(nthreads);
     const int fn = fileno(ofp);
+    if(sizes.size() * nbfs.size() * bfsizes.size() * nhashes.size() == 0)
+        sizes = DEFAULT_SIZES, bfsizes = DEFAULT_BFS, nhashes = DEFAULT_NHASHES, nbfs = DEFAULT_NBFS;
     size_t total_number = sizes.size() * nbfs.size() * bfsizes.size() * nhashes.size();
     std::vector<std::tuple<unsigned, unsigned, unsigned, uint64_t>> combs;
     combs.reserve(total_number);
@@ -127,4 +131,5 @@ int main(int argc, char *argv[]) {
         //for(auto &bf: cbf) std::fprintf(stderr, "vals: %s\n", bf.print_vals().data());
         //for(auto &bf: cbf) std::fprintf(stderr, "seeds: %s\n", bf.seedstring().data());
     }
+    return EXIT_SUCCESS;
 }
