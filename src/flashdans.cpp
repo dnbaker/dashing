@@ -9,6 +9,8 @@
 #include "distmat/distmat.h"
 #include <sstream>
 
+using namespace sketch;
+using circ::roundup;
 
 namespace bns {
 enum EmissionType {
@@ -138,7 +140,7 @@ void resize_bloom<fhll::fhll_t>(fhll::fhll_t &s, unsigned count, unsigned bfsz) 
     s.resize_bloom(bfsz);
 }
 template<>
-void resize_bloom<cbf::pcfhll_t>(cbf::pcfhll_t &s, unsigned count, unsigned bfsz) {
+void resize_bloom<fhll::pcfhll_t>(fhll::pcfhll_t &s, unsigned count, unsigned bfsz) {
     s.set_threshold(count);
     s.resize_bloom(bfsz);
 }
@@ -154,7 +156,7 @@ void kt_for_helper(void  *data_, long index, int tid) {
         if(helper.write_gz_) fname += ".gz";
         if(helper.skip_cached_ && isfile(fname)) continue;
         if(helper.use_filter_[i]) {
-            resize_bloom(sketch, helper.counts_[i], std::log2(helper.bloom_sizes_[i]));
+            resize_bloom(sketch, helper.counts_[i], helper.bloom_sizes_[i]);
             fill_sketch(sketch, scratch_stringvec, helper.kmer_size_, helper.window_size_, helper.sv_, helper.canon_, nullptr, 1, helper.sketch_size_, &helper.kseqs_[tid]); // Avoid allocation fights.
         } else {
             fill_sketch(get_hll(sketch), scratch_stringvec, helper.kmer_size_, helper.window_size_, helper.sv_, helper.canon_, nullptr, 1, helper.sketch_size_, &helper.kseqs_[tid]); // Avoid allocation fights.
@@ -181,7 +183,7 @@ unsigned fsz2count(uint64_t fsz) {
     if(fsz < 500ull << 20) return 3 * mul;
     if(fsz < 1ull << 30)  return 10 * mul;
     if(fsz < 3ull << 30)  return 20 * mul;
-    return static_cast<unsigned>(std::pow(2., std::log(fsz >> 30)) * 10.) * mul;
+    return static_cast<unsigned>(std::pow(2., std::log((fsz >> 30))) * 30.) * mul;
     // This likely does not account for compression.
 }
 
@@ -194,7 +196,7 @@ int sketch_main(int argc, char *argv[]) {
     std::string spacing, paths_file, suffix, prefix;
     uint64_t seedseedseed = 0x1337;
     sketching_method sm = EXACT;
-    while((co = getopt(argc, argv, "n:P:F:c:p:x:R:s:S:k:w:m:H:q:BfjLzEDIcCeh?")) >= 0) {
+    while((co = getopt(argc, argv, "n:P:F:c:p:x:R:s:S:k:w:m:H:q:e:BfjLzEDIcCeh?")) >= 0) {
         switch(co) {
             case 'b': bs = std::atoi(optarg); break;
             case 'C': canon = false; break;
@@ -224,30 +226,30 @@ int sketch_main(int argc, char *argv[]) {
             case 'h': case '?': sketch_usage(*argv); break;
         }
     }
-    LOG_DEBUG("Sketch size: %i\n", sketch_size);
-    LOG_DEBUG("Using %zu threads\n", nthreads);
     omp_set_num_threads(nthreads);
     spvec_t sv(parse_spacing(spacing.data(), k));
     Spacer sp(k, wsz, sv);
     std::vector<std::vector<std::string>> ivecs;
     std::vector<unsigned> counts, bloom_filter_sizes;
     std::vector<bool> use_filter;
-    using circ::roundup;
     {
         std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
                                                            : std::vector<std::string>(argv + optind, argv + argc));
+        ivecs.reserve(inpaths.size());
+        counts.reserve(inpaths.size());
+        bloom_filter_sizes.reserve(inpaths.size());
         uint64_t tmp, fsz_max = 0;
         for(const auto &path: inpaths) {
             tmp = filesize(path.data());
             fsz_max = std::max(static_cast<uint64_t>(tmp), fsz_max);
             counts.emplace_back(fsz2count(tmp));
-            bloom_filter_sizes.emplace_back(std::max(static_cast<int>(std::log2(roundup(tmp))), 16));
+            bloom_filter_sizes.emplace_back(std::max(static_cast<int>(std::log2(double(roundup(tmp)))), 16));
             ivecs.emplace_back(std::vector<std::string>{path});
         }
         if(threshold < 0 || bloom_sketch_size < 0) {
             if(threshold < 0) threshold = fsz2count(fsz_max);
             if(bloom_sketch_size < 0) {
-                bloom_sketch_size = std::max(static_cast<int>(std::log2(roundup(fsz_max))) - 3, 16);
+                bloom_sketch_size = std::max(static_cast<int>(std::log2(double(roundup(fsz_max)))) - 3, 16);
                 LOG_INFO("Unset sketch size. Setting to log2(# bits in the largest file) [%i]\n", bloom_sketch_size);
             }
         }
@@ -271,17 +273,17 @@ int sketch_main(int argc, char *argv[]) {
         sketch_usage(*argv);
     }
     std::vector<hll::hll_t> hlls;
-    std::vector<cbf::pcfhll_t> fhlls;
+    std::vector<fhll::pcfhll_t> fhlls;
     if(ivecs.size() / (unsigned)(nthreads) > (unsigned)bs) bs = (ivecs.size() / (nthreads) / 2);
     ForPool pool(nthreads);
     if(sm == EXACT) {
-        while(hlls.size() < (unsigned)nthreads) hlls.emplace_back(sketch_size, estim, jestim, 1, clamp);
+        std::generate_n(std::back_inserter(hlls), nthreads, [&]{return hll::hll_t(sketch_size, estim, jestim, 1, clamp);});
         detail::kt_sketch_helper<hll::hll_t> helper {hlls, kseqs, bs, sketch_size, k, wsz, (int)sp.c_, sv, ivecs, suffix, prefix, spacing, skip_cached, canon, estim, write_to_dev_null, write_gz, counts, bloom_filter_sizes, use_filter};
         pool.forpool(detail::kt_for_helper<hll::hll_t>, &helper, ivecs.size() / bs + (ivecs.size() % bs != 0));
     } else {
-        while(fhlls.size() < (unsigned)nthreads) fhlls.emplace_back(sketch_size, subsketch_size, nblooms, bloom_sketch_size, nhashes, seedseedseed, threshold, estim, jestim, clamp);
-        detail::kt_sketch_helper<cbf::pcfhll_t> helper {fhlls, kseqs, bs, sketch_size, k, wsz, (int)sp.c_, sv, ivecs, suffix, prefix, spacing, skip_cached, canon, estim, write_to_dev_null, write_gz, counts, bloom_filter_sizes, use_filter};
-        pool.forpool(detail::kt_for_helper<cbf::pcfhll_t>, &helper, ivecs.size() / bs + (ivecs.size() % bs != 0));
+        std::generate_n(std::back_inserter(fhlls), nthreads, [&](){return fhll::pcfhll_t(sketch_size, subsketch_size, nblooms, bloom_sketch_size, nhashes, seedseedseed, threshold, estim, jestim, clamp);});
+        detail::kt_sketch_helper<fhll::pcfhll_t> helper {fhlls, kseqs, bs, sketch_size, k, wsz, (int)sp.c_, sv, ivecs, suffix, prefix, spacing, skip_cached, canon, estim, write_to_dev_null, write_gz, counts, bloom_filter_sizes, use_filter};
+        pool.forpool(detail::kt_for_helper<fhll::pcfhll_t>, &helper, ivecs.size() / bs + (ivecs.size() % bs != 0));
     }
     LOG_DEBUG("Finished sketching\n");
     return EXIT_SUCCESS;
@@ -381,8 +383,12 @@ enum CompReading: unsigned {
 }
 
 int dist_main(int argc, char *argv[]) {
-    int wsz(-1), k(31), sketch_size(16), use_scientific(false), co, cache_sketch(false), nthreads(1), nblooms(8);
-    bool canon(true), presketched_only(false), write_binary(false), emit_float(false), clamp(false);
+    int wsz(-1), k(31), sketch_size(16), use_scientific(false), co, cache_sketch(false),
+        nthreads(1), nblooms(8), subsketch_size(-1), bloom_sketch_increment(4), nbloomhashes(1);
+    bool canon(true), presketched_only(false), write_binary(false),
+         emit_float(false),
+         clamp(false),
+         shrinkpow2(true); // Decrease sketch size as 
     EmissionType emit_fmt(JI);
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE;
@@ -392,7 +398,7 @@ int dist_main(int argc, char *argv[]) {
     FILE *ofp(stdout), *pairofp(stdout);
     sketching_method sm = EXACT;
     omp_set_num_threads(1);
-    while((co = getopt(argc, argv, "P:x:F:c:p:o:s:w:O:S:k:azLfICbMEeHhZBNy?")) >= 0) {
+    while((co = getopt(argc, argv, "P:x:F:c:p:o:s:w:O:S:k:=:T:azLfICbMEeHhZBNyq?")) >= 0) {
         switch(co) {
             case 'a': reading_type = AUTODETECT; break;
             case 'b': write_binary = true; break;
@@ -411,6 +417,7 @@ int dist_main(int argc, char *argv[]) {
             case 'O': pairofp = fopen(optarg, "wb"); pairofp_labels = std::string(optarg) + ".labels"; if(pairofp == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
             case 'p': nthreads = std::atoi(optarg); break;
             case 'P': prefix = optarg; break;
+            case 'q': nbloomhashes = std::atoi(optarg); break;
             case 'S': sketch_size = std::atoi(optarg); break;
             case 's': spacing = optarg; break;
             case 'W': cache_sketch = true;  break;
@@ -419,13 +426,14 @@ int dist_main(int argc, char *argv[]) {
             case 'z': reading_type = GZ; break;
             case 'Z': emit_fmt = SIZES; break;
             case 'B': nblooms = std::atoi(optarg); break;
+            case 'T': bloom_sketch_increment = std::atoi(optarg); break;
+            case '=': subsketch_size = std::atoi(optarg); break;
             case 'y': sm = CBF; break;
             case 'N': sm = BY_FNAME; break;
             case 'h': case '?': dist_usage(*argv);
         }
     }
-    std::vector<unsigned> counts, bloom_filter_sizes;
-    std::vector<bool> use_filter;
+    std::vector<uint16_t> counts;
     spvec_t sv(parse_spacing(spacing.data(), k));
     Spacer sp(k, wsz, sv);
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
@@ -435,19 +443,42 @@ int dist_main(int argc, char *argv[]) {
         dist_usage(*argv);
     }
     omp_set_num_threads(nthreads);
-    std::vector<cbf::pcfhll_t> fhlls;
+    std::vector<fhll::pcfhll_t> fhlls;
     std::vector<hll::hll_t> hlls;
     switch(sm) {
-        case CBF: use_filter.insert(use_filter.end(), inpaths.size(), true); throw std::runtime_error("NotImplemented: make the vector of fhlls"); break;
+        case CBF:
+            for(const auto &path: inpaths) counts.emplace_back(fsz2count(filesize(path.data())));
+            std::generate_n(std::back_inserter(fhlls), inpaths.size(),[&](){
+                auto bfsize = std::max(static_cast<int>(std::log2(double(roundup(size_t(filesize(inpaths[fhlls.size()].data())))))), 16) + bloom_sketch_increment;
+                auto sssize = subsketch_size > 0 ? subsketch_size: std::max(10, bfsize - 4);
+                return fhll::pcfhll_t(sketch_size, sssize, nblooms, bfsize, nbloomhashes, 1337u /* seed */, counts[fhlls.size()], estim, jestim, shrinkpow2);
+            });
+            break;
         case BY_FNAME: {
             throw std::runtime_error("NotImplemented: make the vector of fhlls");
             const std::string fq1 = "fastq", fq2 = "fq";
-            for(const auto &path: inpaths) use_filter.emplace_back(path.find(fq1) != std::string::npos || path.find(fq2) != std::string::npos);
+            for(const auto &path: inpaths) {
+                counts.emplace_back(path.find(fq1) != std::string::npos || path.find(fq2) != std::string::npos ? fsz2count(filesize(path.data())): 0);
+            }
+            fhlls.reserve(inpaths.size());
+            std::generate_n(std::back_inserter(fhlls), inpaths.size(),[&](){
+                unsigned filter_count = counts[fhlls.size()];
+                auto bfsize = filter_count ? std::max(static_cast<int>(std::log2(double(roundup(size_t(filesize(inpaths[fhlls.size()].data())))))), 16) + bloom_sketch_increment
+                                           : 0;
+                auto sssize = filter_count ? (subsketch_size > 0 ? subsketch_size
+                                                                 : std::max(10, bfsize - 4))
+                                           : 0;
+                return fhll::pcfhll_t(sketch_size, sssize,
+                                      filter_count ? nblooms: 0,
+                                      bfsize, nbloomhashes, 137u /* fine structure constant */,
+                                      filter_count, estim, jestim, shrinkpow2);
+            });
             break;
         }
         case EXACT: // Do nothing
-            use_filter.insert(use_filter.end(), inpaths.size(), false);
-            hlls = std::vector<hll::hll_t>(inpaths.size(), presketched_only ? hll::hll_t(): hll::hll_t(sketch_size, estim, jestim, 1, clamp));
+            counts.insert(counts.end(), inpaths.size(), 0);
+            hlls.reserve(inpaths.size());
+            std::generate_n(std::back_inserter(hlls), inpaths.size(),[&](){return hll::hll_t(sketch_size, estim, jestim, 1, clamp);});
             break;
         default: __builtin_unreachable();
     }
@@ -469,8 +500,23 @@ int dist_main(int argc, char *argv[]) {
                     // By reserving 256 character, we make it probably that no allocation is necessary in this section.
                     std::vector<std::string> &scratch_stringvec(scratch_vv[omp_get_thread_num()]);
                     scratch_stringvec[0] = inpaths[i];
-                    fill_sketch(hlls[i], scratch_stringvec, k, wsz, sv, canon, nullptr, 1, sketch_size); // Avoid allocation fights.
-                    if(cache_sketch) hlls[i].write(fpath, (reading_type == GZ ? 1: reading_type == AUTODETECT ? std::equal(suf.rbegin(), suf.rend(), fpath.rbegin()): false));
+                    hll::hll_t *sketch_ptr;
+                    if(sm == EXACT) {
+                        fill_sketch(hlls[i], scratch_stringvec, k, wsz, sv, canon, nullptr, 1, sketch_size);
+                        sketch_ptr = &hlls[i];
+                    } else {
+                        if(counts[i]) {
+                            fill_sketch(fhlls[i], scratch_stringvec, k, wsz, sv, canon, nullptr, 1, sketch_size);
+                            sketch_ptr = &get_hll(fhlls[i]);
+                            fhlls[i].free_filters();
+                        } else {
+                            sketch_ptr = &get_hll(fhlls[i]);
+                            fill_sketch(*sketch_ptr, scratch_stringvec, k, wsz, sv, canon, nullptr, 1, sketch_size);
+                            fhlls[i].free_filters();
+                        }
+                    }
+                    if(cache_sketch)
+                        sketch_ptr->write(fpath, (reading_type == GZ ? 1: reading_type == AUTODETECT ? std::equal(suf.rbegin(), suf.rend(), fpath.rbegin()): false));
                 }
             }
         }
