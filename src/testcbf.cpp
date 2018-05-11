@@ -1,7 +1,7 @@
 #include <cassert>
 #include "bonsai/hll/cbf.h"
 #include "bonsai/kspp/ks.h"
-#include "hll/aesctr/aesctr.h"
+#include "bonsai/hll/aesctr/aesctr.h"
 #include "omp.h"
 #include "bonsai/tinythreadpp/source/fast_mutex.h"
 #include <set>
