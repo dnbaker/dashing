@@ -1,8 +1,8 @@
 #include <array>
 #include "hll/hll.h"
-#include "aesctr.h"
+#include "hll/aesctr/aesctr.h"
 #include "omp.h"
-#include "util.h"
+#include "bonsai/bonsai/include/util.h"
 #include <thread>
 using namespace bns;
 using namespace hll;
