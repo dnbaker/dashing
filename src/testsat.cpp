@@ -9,6 +9,8 @@
 #include "klib/kthread.h"
 #include <getopt.h>
 
+using UType = typename vec::SIMDTypes<uint64_t>::VType;
+
 void usage() {
     std::fprintf(stderr, "Usage:\ntestsat <opts>\n"
                          "-r\tAdd a random number size\n"
@@ -145,15 +147,17 @@ struct jacc_acc {
     }
 };
 
+using VectorType = vec::SIMDTypes<uint64_t>::Type;
+
 
 #define GEN_ADD(sketchvec, num) \
     do {\
         isleft = num;\
         while(isleft > NPERBUF) { \
             gen.generate_new_values(); \
-            for(const auto &val: gen.template view<uint64_t>()) { \
-                hv = hf(val); \
-                for(auto &h: sketchvec) h.add(hv); \
+            for(const auto &val: gen.template view<VectorType>()) { \
+                hvec = hf(val); \
+                for(auto &h: sketchvec) h.add(hvec.simd_); \
             } \
             isleft -= NPERBUF; \
         }\
@@ -177,6 +181,7 @@ void jacc_func(void *data_, long index, int tid) {
     const uint64_t is = rn * ji;
     const uint64_t unique_size = (us - is) / 2;
     const double exact_ji = static_cast<double>(is) / static_cast<double>(us);
+    UType hvec;
     // This is the only heap allocation in the core loop. Caching these could help threadscaling.
     std::vector<jacc_acc> accumulators;
     accumulators.reserve(hlls.size());
@@ -189,13 +194,13 @@ void jacc_func(void *data_, long index, int tid) {
         for(auto &h: ohlls) assert(size_t(h.report()) == 0), h.not_ready();
 #endif
         size_t isleft = is;
-        static constexpr size_t NPERBUF = gen.BUFSIZE / sizeof(uint64_t);
+        static constexpr size_t NPERBUF = gen.BUFSIZE / sizeof(hvec);
         while(isleft > NPERBUF) {
             gen.generate_new_values();
-            for(const auto &val: gen.template view<uint64_t>()) {
-                hv = hf(val);
-                for(auto &h: hlls) h.add(hv);
-                for(auto &oh: ohlls) oh.add(hv);
+            for(const auto &val: gen.template view<UType>()) {
+                hvec = hf(val.simd_);
+                for(auto &h: hlls) h.add(hvec.simd_);
+                for(auto &oh: ohlls) oh.add(hvec.simd_);
             }
             isleft -= NPERBUF;
         }
@@ -232,7 +237,7 @@ void jacc_func(void *data_, long index, int tid) {
         ks.sprintf("%lf\t%lf\t%lf\t", iv, std::accumulate(a.isns_.begin(), a.isns_.end(), 0., [&](auto a, auto b){return a + std::abs(b - is);}) / data.niter_, iv - is);
         // Mean JI, JI Error, JI Bias
         jv = arr_mean(a.jis_);
-        ks.sprintf("%lf\t%lf\t%lf\n", jv, std::accumulate(a.jis_.begin(), a.jis_.end(), 0., [&](auto a, auto b){return a + std::abs(b - is);}) / data.niter_, jv - exact_ji);
+        ks.sprintf("%lf\t%lf\t%lf\n", jv, std::accumulate(a.jis_.begin(), a.jis_.end(), 0., [&](auto a, auto b){return a + std::abs(b - exact_ji);}) / data.niter_, jv - exact_ji);
     }
     {
         LockSmith lock(data.m_);
@@ -241,6 +246,7 @@ void jacc_func(void *data_, long index, int tid) {
     ks.clear();
 }
 void card_func(void *data_, long index, int tid) {
+    UType hvec;
     aes::AesCtr<uint64_t, 8> gen(index); // Seed with job index
     kth_t &data(*(kth_t *)data_);
     const auto &ss = data.ss_;
@@ -253,7 +259,7 @@ void card_func(void *data_, long index, int tid) {
     hll::WangHash hf;
     size_t isleft;
     for(size_t inum(0); inum < data.niter_; ++inum) {
-        static constexpr size_t NPERBUF = gen.BUFSIZE / sizeof(uint64_t);
+        static constexpr size_t NPERBUF = gen.BUFSIZE / sizeof(hvec);
         GEN_ADD(hlls, rn);
         for(size_t i(0); i < hlls.size(); ++i) accumulators[i].add(hlls[i].report(), ss[i]);
         //for(auto &h: hlls) std::fprintf(stderr, "Estimated %lf with exact %zu\n", h.report(), rn);
