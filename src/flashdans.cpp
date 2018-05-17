@@ -505,15 +505,10 @@ int dist_main(int argc, char *argv[]) {
                         fill_sketch(hlls[i], scratch_stringvec, k, wsz, sv, canon, nullptr, 1, sketch_size);
                         sketch_ptr = &hlls[i];
                     } else {
-                        if(counts[i]) {
-                            fill_sketch(fhlls[i], scratch_stringvec, k, wsz, sv, canon, nullptr, 1, sketch_size);
-                            sketch_ptr = &get_hll(fhlls[i]);
-                            fhlls[i].free_filters();
-                        } else {
-                            sketch_ptr = &get_hll(fhlls[i]);
-                            fill_sketch(*sketch_ptr, scratch_stringvec, k, wsz, sv, canon, nullptr, 1, sketch_size);
-                            fhlls[i].free_filters();
-                        }
+                        if(counts[i]) fill_sketch(fhlls[i], scratch_stringvec, k, wsz, sv, canon, nullptr, 1, sketch_size);
+                        else fill_sketch(get_hll(fhlls[i]), scratch_stringvec, k, wsz, sv, canon, nullptr, 1, sketch_size);
+                        sketch_ptr = &get_hll(fhlls[i]);
+                        fhlls[i].free_filters();
                     }
                     if(cache_sketch)
                         sketch_ptr->write(fpath, (reading_type == GZ ? 1: reading_type == AUTODETECT ? std::equal(suf.rbegin(), suf.rend(), fpath.rbegin()): false));
