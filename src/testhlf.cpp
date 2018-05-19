@@ -9,7 +9,7 @@
 #include "bonsai/bonsai/include/logutil.h"
 #include "bonsai/clhash/include/clhash.h"
 using u64 = std::uint64_t;
-//using namespace bns;
+using namespace sketch;
 using namespace hll;
 using namespace hll::detail;
 

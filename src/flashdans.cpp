@@ -185,7 +185,7 @@ unsigned fsz2count(uint64_t fsz) {
 
 // Main functions
 int sketch_main(int argc, char *argv[]) {
-    int wsz(-1), k(31), sketch_size(16), skip_cached(false), co, nthreads(1), bs(16), threshold(-1), nblooms(-1), bloom_sketch_size(-1), nhashes(4), subsketch_size(10);
+    int wsz(0), k(31), sketch_size(16), skip_cached(false), co, nthreads(1), bs(16), threshold(-1), nblooms(-1), bloom_sketch_size(-1), nhashes(4), subsketch_size(10);
     bool canon(true), write_to_dev_null(false), write_gz(false), clamp(false);
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE;
@@ -379,7 +379,7 @@ enum CompReading: unsigned {
 }
 
 int dist_main(int argc, char *argv[]) {
-    int wsz(-1), k(31), sketch_size(16), use_scientific(false), co, cache_sketch(false),
+    int wsz(0), k(31), sketch_size(16), use_scientific(false), co, cache_sketch(false),
         nthreads(1), nblooms(8), bloom_sketch_increment(4), nbloomhashes(1);
     bool canon(true), presketched_only(false), write_binary(false),
          emit_float(false),
@@ -470,7 +470,6 @@ int dist_main(int argc, char *argv[]) {
         // Scope to force deallocation of scratch_vv.
         std::vector<std::vector<std::string>> scratch_vv(nthreads, std::vector<std::string>{"empty"});
         if(wsz < sp.c_) wsz = sp.c_;
-        throw std::runtime_error("TODO: Add Spacer parsing/use. This s one of our arguments.");
         #pragma omp parallel for
         for(size_t i = 0; i < hlls.size(); ++i) {
             const std::string &path(inpaths[i]);
@@ -485,8 +484,15 @@ int dist_main(int argc, char *argv[]) {
                     const int tid = omp_get_thread_num();
                     Encoder<score::Lex> enc(nullptr, 0, sp, nullptr, canon);
                     if(counts[i] == 0) {
-                        detail::HashFiller hf(hlls[i]);
-                        enc.for_each([&](u64 kmer){hf.add(kmer);}, inpaths[i].data(), &kseqs[tid]);
+                        {
+                            detail::HashFiller hf(hlls[i]);
+                            enc.for_each([&](u64 kmer){hf.add(kmer);}, inpaths[i].data(), &kseqs[tid]);
+                        }
+#if 0
+                        auto hll = hlls[i].clone();
+                        enc.for_each([&](u64 kmer){hll.add(kmer);}, inpaths[i].data(), &kseqs[tid]);
+                        std::fprintf(stderr, "Sizes: Manual %lf, auto %lf\n", hll.report(), hlls[i].report());
+#endif
                     } else {
                         bf::cbf_t &cbf = cbfs[tid];
                         enc.for_each([&](u64 kmer){
@@ -572,7 +578,7 @@ int print_binary_main(int argc, char *argv[]) {
 }
 
 int setdist_main(int argc, char *argv[]) {
-    int wsz(-1), k(31), use_scientific(false), co;
+    int wsz(0), k(31), use_scientific(false), co;
     bool canon(true), emit_jaccard(true);
     unsigned bufsize(1 << 18);
     int nt(1);
@@ -658,7 +664,7 @@ int setdist_main(int argc, char *argv[]) {
 }
 
 int hll_main(int argc, char *argv[]) {
-    int c, wsz(-1), k(31), num_threads(-1), sketch_size(24);
+    int c, wsz(0), k(31), num_threads(-1), sketch_size(24);
     bool canon(true);
     std::string spacing, paths_file;
     std::ios_base::sync_with_stdio(false);
