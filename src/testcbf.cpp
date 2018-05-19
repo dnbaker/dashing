@@ -20,7 +20,8 @@ void usage() {
     std::exit(EXIT_FAILURE);
 }
 
-using namespace bf;
+using namespace sketch;
+using namespace sketch::bf;
 
 static const std::vector<unsigned> DEFAULT_BFS {10, 12, 14, 16, 18, 20, 22};
 static const std::vector<unsigned> DEFAULT_NHASHES {4, 8, 16};
