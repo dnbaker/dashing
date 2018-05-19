@@ -10,6 +10,7 @@
 #include <getopt.h>
 
 using UType = typename vec::SIMDTypes<uint64_t>::VType;
+using namespace sketch;
 
 void usage() {
     std::fprintf(stderr, "Usage:\ntestsat <opts>\n"
@@ -197,7 +198,7 @@ void jacc_func(void *data_, long index, int tid) {
         static constexpr size_t NPERBUF = gen.BUFSIZE / sizeof(hvec);
         while(isleft > NPERBUF) {
             gen.generate_new_values();
-            for(const auto &val: gen.template view<UType>()) {
+            for(const auto &val: gen.template view<UType, true>()) {
                 hvec = hf(val.simd_);
                 for(auto &h: hlls) h.add(hvec.simd_);
                 for(auto &oh: ohlls) oh.add(hvec.simd_);

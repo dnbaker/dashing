@@ -5,6 +5,7 @@
 #include "bonsai/bonsai/include/util.h"
 #include <thread>
 using namespace bns;
+using namespace sketch;
 using namespace hll;
 using namespace hll::detail;
 
