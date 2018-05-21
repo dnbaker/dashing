@@ -194,8 +194,24 @@ void jacc_func(void *data_, long index, int tid) {
         for(auto &h: hlls) assert(size_t(h.report()) == 0), h.not_ready();
         for(auto &h: ohlls) assert(size_t(h.report()) == 0), h.not_ready();
 #endif
+#if USE_SLOW_OBVIOUS_METHOD
+        std::fprintf(stderr, "is: %" PRIu64 ". union size: %" PRIu64 ". Unique size: %" PRIu64 "\n", is, us, unique_size);
+        for(size_t i(is); i--;) {
+            auto val = gen();
+            for(auto &h: hlls) h.addh(val);
+            for(auto &oh: ohlls) oh.add(val);
+        }
+        for(size_t i(unique_size); i--;) {
+            auto val = gen();
+            for(auto &h: hlls) h.addh(val);
+        }
+        for(size_t i(unique_size); i--;) {
+            auto val = gen();
+            for(auto &h: ohlls) h.addh(val);
+        }
+#else
         size_t isleft = is;
-        static constexpr size_t NPERBUF = gen.BUFSIZE / sizeof(hvec);
+        static constexpr size_t NPERBUF = gen.BUFSIZE / sizeof(uint64_t);
         while(isleft > NPERBUF) {
             gen.generate_new_values();
             for(const auto &val: gen.template view<UType, true>()) {
@@ -212,14 +228,16 @@ void jacc_func(void *data_, long index, int tid) {
         }
         GEN_ADD(hlls, unique_size);
         GEN_ADD(ohlls, unique_size);
+#endif
 
         for(size_t i(0); i < hlls.size(); ++i) {
             hlls[i].sum(); ohlls[i].sum();
             double sz1(hlls[i].report());
             double sz2(ohlls[i].report());
             double est_us(hll::union_size(hlls[i], ohlls[i]));
-            double isn(sz1 + sz2 - est_us);
+            double isn(std::max(0., sz1 + sz2 - est_us));
             accumulators[i].add(isn / est_us, est_us, isn, sz1, sz2);
+            //std::fprintf(stderr, "Sizes (individual): %lf, %lf. US, est: %lf. IS, est: %lf, JI, est: %lf. Exact US: %" PRIu64 ". Exact IS: %" PRIu64 ". Exact JI: %lf. Exact sizes for both: %" PRIu64 ".\n", sz1, sz2, est_us, isn, isn / est_us, us, is, exact_ji, unique_size + is);
         }
         for(auto &h: hlls) h.clear();
         for(auto &oh: ohlls) oh.clear();
@@ -260,7 +278,7 @@ void card_func(void *data_, long index, int tid) {
     hll::WangHash hf;
     size_t isleft;
     for(size_t inum(0); inum < data.niter_; ++inum) {
-        static constexpr size_t NPERBUF = gen.BUFSIZE / sizeof(hvec);
+        static constexpr size_t NPERBUF = gen.BUFSIZE / sizeof(u64);
         GEN_ADD(hlls, rn);
         for(size_t i(0); i < hlls.size(); ++i) accumulators[i].add(hlls[i].report(), ss[i]);
         //for(auto &h: hlls) std::fprintf(stderr, "Estimated %lf with exact %zu\n", h.report(), rn);
