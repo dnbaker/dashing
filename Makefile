@@ -114,3 +114,4 @@ zex: $(patsubst %,%_z,$(EX))
 
 clean:
 	rm -f $(EX) libzstd.a flashdans_z
+mostlyclean: clean
