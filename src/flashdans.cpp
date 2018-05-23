@@ -185,7 +185,7 @@ unsigned fsz2count(uint64_t fsz) {
 
 // Main functions
 int sketch_main(int argc, char *argv[]) {
-    int wsz(0), k(31), sketch_size(16), skip_cached(false), co, nthreads(1), bs(16), threshold(-1), nblooms(-1), bloom_sketch_size(-1), nhashes(4), subsketch_size(10);
+    int wsz(0), k(31), sketch_size(16), skip_cached(false), co, nthreads(1), bs(16), threshold(-1), nblooms(-1), bloom_sketch_size(-1), nhashes(1), subsketch_size(10);
     bool canon(true), write_to_dev_null(false), write_gz(false), clamp(false);
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE;
@@ -245,7 +245,7 @@ int sketch_main(int argc, char *argv[]) {
         if(threshold < 0 || bloom_sketch_size < 0) {
             if(threshold < 0) threshold = fsz2count(fsz_max);
             if(bloom_sketch_size < 0) {
-                bloom_sketch_size = std::max(static_cast<int>(std::log2(double(roundup(fsz_max)))) - 3, 16);
+                bloom_sketch_size = std::max(static_cast<int>(std::log2(double(roundup(fsz_max)))) - 3, 20);
                 LOG_INFO("Unset sketch size. Setting to log2(# bits in the largest file) [%i]\n", bloom_sketch_size);
             }
         }
@@ -446,7 +446,7 @@ int dist_main(int argc, char *argv[]) {
             unsigned maxbfsize = std::numeric_limits<int>::min();
             for(const auto &path: inpaths) {
                 auto fsz = (unsigned)filesize(path.data());
-                unsigned bfsize = std::max(static_cast<unsigned>(std::log2((double)roundup(fsz))), 16u) + bloom_sketch_increment;
+                unsigned bfsize = std::max(static_cast<unsigned>(std::log2((double)roundup(fsz))), 20u) + bloom_sketch_increment;
                 maxbfsize = std::max(bfsize, maxbfsize);
                 static const std::string fq1 = ".fastq", fq2 = ".fq";
                 counts.emplace_back((sm == CBF || (path.find(fq1) != std::string::npos || path.find(fq2) != std::string::npos)) ? fsz2count(filesize(path.data())): 0);

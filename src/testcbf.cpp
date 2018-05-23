@@ -69,6 +69,7 @@ int main(int argc, char *argv[]) {
     std::vector<unsigned> nhashes;
     std::vector<unsigned> nbfs;
     int c, nthreads = 1;
+    unsigned bufsz = 1 << 16u;
     std::FILE *ofp = stdout;
     while((c = getopt(argc, argv, "f:b:z:n:o:p:s:S:H:dh")) >= 0) {
         switch(c) {
@@ -79,6 +80,7 @@ int main(int argc, char *argv[]) {
             case 'n': nbfs.push_back(std::atoi(optarg)); break;
             case 'H': nhashes.push_back(std::atoi(optarg)); break;
             case 'z': bfsizes.push_back(std::atoi(optarg)); break;
+            case 'b': bufsz = std::atoi(optarg); break;
             case 'o':
                 if(ofp != stdout) throw std::runtime_error("Can't assign ofp twice! This would memory leak.");
                 if((ofp = std::fopen(optarg, "w")) == nullptr)
@@ -109,9 +111,11 @@ int main(int argc, char *argv[]) {
     while(strings.size() < (unsigned)nthreads) strings.emplace_back(65536u);
     while(countvecs.size() < (unsigned)nthreads) countvecs.emplace_back(16);
     while(bufs.size() < (unsigned)nthreads) bufs.emplace_back(10000);
+    std::fprintf(stderr, "nthreads: %i\n", nthreads);
     #pragma omp parallel for
     for(size_t i = 0; i < total_number; ++i) {
         const auto [nh, bfsize, nbfs, size] = combs[i];
+        std::fprintf(stderr, "nh %u, bfsize %u, nbfs %u, size %zu\n", nh, bfsize, nbfs, size);
         const uint64_t seed = WangHash()(i);
         aes::AesCtr<uint64_t, 8> gen(seed);
         bf::cbf_t cbf(nbfs, bfsize, nh, seedseedseed + 666 * 777 * (i + 1)); // Convolution of bad and good luck.
@@ -121,7 +125,7 @@ int main(int argc, char *argv[]) {
         for(size_t i(0); i < buf.size(); buf[i] = gen(), cbf.addh(buf[i]), ++i);
         std::vector<uint64_t> &counts(countvecs[tid]);
         counts.resize(nbfs);
-        std::memset(counts.data(), 0, sizeof(counts[0]) * counts.size());
+        std::fill(std::begin(counts), std::end(counts), static_cast<uint64_t>(0));
         for(const auto val: buf) {
             unsigned result = cbf.est_count(val);
             if(result == 0) {
@@ -138,10 +142,10 @@ int main(int argc, char *argv[]) {
         ks::string &outstr = strings[tid];
         outstr.sprintf("%" PRIu64 "\t%u\t%u\t%u", size, nh, bfsize, nbfs);
         for(size_t i(0); i < counts.size(); ++i) outstr.sprintf("\t%u|%" PRIu64 "", 1<<i, counts[i]);
-        outstr.sprintf("\t<popcount/m>\t");
-        for(const auto &bf: cbf) outstr.sprintf("%u/%zu\t", bf.popcnt(), bf.m());
+        outstr.sprintf("\t<popcount/m>");
+        for(const auto &bf: cbf) outstr.sprintf("\t%u/%zu", bf.popcnt(), bf.m());
         outstr.putc_('\n');
-        if(outstr.size() > 1u << 16) {
+        if(outstr.size() > bufsz) {
             LockSmith he_who_holds_the_keys(mutex);
             outstr.write(fn);
             outstr.clear();
