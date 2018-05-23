@@ -57,9 +57,12 @@ ALL_ZOBJS=$(ZOBJS) $(ZW_OBJS) bonsai/bonsai/clhash.o bonsai/klib/kthread.o
 INCLUDE=-Ibonsai/clhash/include -I.  -Ibonsai/libpopcnt -Iinclude -Ibonsai/circularqueue $(ZSTD_INCLUDE) $(INCPLUS) -Ibonsai/hll -Ibonsai/hll/vec -Ibonsai/pdqsort -Ibonsai -Ibonsai/bonsai/include/
 
 EX=$(patsubst src/%.cpp,%,$(wildcard src/*.cpp))
+Z_EX=$(patsubst src/%.cpp,%_z,$(wildcard src/*.cpp))
 
 
 all: $(EX)
+
+z: $(Z_EX)
 
 update:
 	git submodule update --init --remote --recursive . && cd bonsai && git checkout master && git pull && make update && cd .. && cd distmat && git checkout master && git pull && cd ..
@@ -104,6 +107,8 @@ zex: $(patsubst %,%_z,$(EX))
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 %_d: src/%.cpp $(ALL_ZOBJS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+%_di: src/%.cpp $(ALL_ZOBJS)
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -fno-inline -O1 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 #
 #
 #%_sz: src/%.cpp $(ALL_ZOBJS)
@@ -113,5 +118,5 @@ zex: $(patsubst %,%_z,$(EX))
 #	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(DOBJS) $< -o $@ $(LIB)
 
 clean:
-	rm -f $(EX) libzstd.a flashdans_z
+	rm -f $(EX) $(Z_EX) libzstd.a
 mostlyclean: clean
