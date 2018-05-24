@@ -24,7 +24,7 @@ using namespace sketch;
 using namespace bf;
 
 static const std::vector<unsigned> DEFAULT_BFS {10, 12, 14, 16, 18, 20, 22};
-static const std::vector<unsigned> DEFAULT_NHASHES {4, 8, 16};
+static const std::vector<unsigned> DEFAULT_NHASHES {1, 2, 4};
 static const std::vector<unsigned> DEFAULT_NBFS {8, 16, 32};
 static const std::vector<uint64_t> DEFAULT_SIZES {
     10ull,
@@ -111,11 +111,12 @@ int main(int argc, char *argv[]) {
     while(strings.size() < (unsigned)nthreads) strings.emplace_back(65536u);
     while(countvecs.size() < (unsigned)nthreads) countvecs.emplace_back(16);
     while(bufs.size() < (unsigned)nthreads) bufs.emplace_back(10000);
-    std::fprintf(stderr, "nthreads: %i\n", nthreads);
     #pragma omp parallel for
     for(size_t i = 0; i < total_number; ++i) {
         const auto [nh, bfsize, nbfs, size] = combs[i];
-        std::fprintf(stderr, "nh %u, bfsize %u, nbfs %u, size %zu\n", nh, bfsize, nbfs, size);
+#if !NDEBUG
+        std::fprintf(stderr, "For index %zu -- cbf with nh:%u, bfsize:%u, nbfs: %u, size: %u\n", i, unsigned(nh), unsigned(bfsize), (unsigned)nbfs, (unsigned)size);
+#endif
         const uint64_t seed = WangHash()(i);
         aes::AesCtr<uint64_t, 8> gen(seed);
         bf::cbf_t cbf(nbfs, bfsize, nh, seedseedseed + 666 * 777 * (i + 1)); // Convolution of bad and good luck.
