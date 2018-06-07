@@ -383,48 +383,50 @@ int dist_main(int argc, char *argv[]) {
         nthreads(1), nblooms(8), bloom_sketch_increment(4), nbloomhashes(1);
     bool canon(true), presketched_only(false), write_binary(false),
          emit_float(false),
-         clamp(false),
+         clamp(false), sketch_query_by_seq(true),
          shrinkpow2(true); // Decrease sketch size as 
     EmissionType emit_fmt(JI);
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE;
-    std::string spacing, paths_file, suffix, prefix;
+    std::string spacing, paths_file, suffix, prefix, pairofp_labels;
     CompReading reading_type = CompReading::UNCOMPRESSED;
-    std::string pairofp_labels;
     FILE *ofp(stdout), *pairofp(stdout);
     sketching_method sm = EXACT;
     omp_set_num_threads(1);
-    while((co = getopt(argc, argv, "P:x:F:c:p:o:s:w:O:S:k:=:T:azLfICbMEeHhZBNyq?")) >= 0) {
+    std::vector<std::string> querypaths;
+    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:T:DazLfICbMEeHhZBNyq?")) >= 0) {
         switch(co) {
-            case 'a': reading_type = AUTODETECT; break;
-            case 'b': write_binary = true; break;
+            case 'B': nblooms = std::atoi(optarg); break;
             case 'C': canon = false; break;
+            case 'D': sketch_query_by_seq = false; break;
             case 'E': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
-            case 'e': use_scientific = true; break;
-            case 'f': emit_float = true; break;
             case 'F': paths_file = optarg; break;
             case 'H': presketched_only = true; break;
             case 'I': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
-            case 'M': emit_fmt = MASH_DIST; break;
-            case 'k': k = std::atoi(optarg); break;
             case 'L': clamp = true; break;
+            case 'M': emit_fmt = MASH_DIST; break;
+            case 'N': sm = BY_FNAME; break;
+            case 'O': pairofp = fopen(optarg, "wb"); pairofp_labels = std::string(optarg) + ".labels"; if(pairofp == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
+            case 'P': prefix = optarg; break;
+            case 'Q': querypaths.emplace_back(optarg); break;
+            case 'S': sketch_size = std::atoi(optarg); break;
+            case 'T': bloom_sketch_increment = std::atoi(optarg); break;
+            case 'W': cache_sketch = true;  break;
+            case 'Z': emit_fmt = SIZES; break;
+            case 'a': reading_type = AUTODETECT; break;
+            case 'b': write_binary = true; break;
+            case 'e': use_scientific = true; break;
+            case 'f': emit_float = true; break;
+            case 'k': k = std::atoi(optarg); break;
             case 'm': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
             case 'o': ofp = fopen(optarg, "w"); if(ofp == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
-            case 'O': pairofp = fopen(optarg, "wb"); pairofp_labels = std::string(optarg) + ".labels"; if(pairofp == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
             case 'p': nthreads = std::atoi(optarg); break;
-            case 'P': prefix = optarg; break;
             case 'q': nbloomhashes = std::atoi(optarg); break;
-            case 'S': sketch_size = std::atoi(optarg); break;
             case 's': spacing = optarg; break;
-            case 'W': cache_sketch = true;  break;
             case 'w': wsz = std::atoi(optarg); break;
             case 'x': suffix = optarg; break;
-            case 'z': reading_type = GZ; break;
-            case 'Z': emit_fmt = SIZES; break;
-            case 'B': nblooms = std::atoi(optarg); break;
-            case 'T': bloom_sketch_increment = std::atoi(optarg); break;
             case 'y': sm = CBF; break;
-            case 'N': sm = BY_FNAME; break;
+            case 'z': reading_type = GZ; break;
             case 'h': case '?': dist_usage(*argv);
         }
     }
@@ -520,21 +522,74 @@ int dist_main(int argc, char *argv[]) {
     // TODO: Emit overlaps and symmetric differences.
     if(ofp != stdout) std::fclose(ofp);
     str.clear();
-    if(write_binary) {
-        const char *name = emit_float ? dm::MAGIC_NUMBER<float>().name(): dm::MAGIC_NUMBER<double>().name();
-        std::fwrite(name, std::strlen(name + 1), 1, pairofp);
-        const size_t hs(hlls.size());
-        std::fwrite(&hs, sizeof(hs), 1, pairofp);
+    if(querypaths.size()) { // Screen query against input paths rather than perform all-pairs
+        std::fprintf(pairofp, "#queryfile||seqname");
+        for(const auto &ip: inpaths)
+            std::fprintf(pairofp, "\t%s", ip.data());
+        std::fputc('\n', pairofp);
+        std::fflush(pairofp);
+        hll::hll_t hll(sketch_size, estim, jestim, 1, clamp);
+        kseq_t ks = kseq_init_stack();
+        std::vector<double> dists(inpaths.size());
+        ks::string output;
+        const int fn = fileno(pairofp);
+        output.resize(1 << 16);
+        Encoder<score::Lex> enc(sp);
+        const char *fmt = use_scientific ? "\t%e": "\t%lf";
+        for(const auto &path: querypaths) {
+            gzFile fp = gzopen(path.data(), "rb");
+            kseq_assign(&ks, fp);
+            if(sketch_query_by_seq) {
+                while(kseq_read(&ks) >= 0) {
+                    output.sprintf("%s||%s", path.data(), ks.name.s ? ks.name.s: const_cast<char *>("seq_without_name"));
+                    {
+                        detail::HashFiller<hll::hll_t> hf(hll);
+                        enc.for_each([&](u64 kmer) {hf.add(kmer);}, ks.seq.s, ks.seq.l);
+                    }
+                    #pragma omp parallel for
+                    for(size_t i = 0; i < hlls.size(); ++i) {
+                        dists[i] = hll.jaccard_index(hlls[i]);
+                    }
+                    for(size_t i(0); i < hlls.size(); output.sprintf(fmt, dists[i++]));
+                    output.putc_('\n');
+                    if(output.size() >= (1 << 16)) output.write(fn), output.clear();
+                    hll.clear();
+                }
+            } else {
+                output.sprintf("%s", path.data());
+                detail::HashFiller<hll::hll_t> hf(hll);
+                while(kseq_read(&ks) >= 0) {
+                    enc.for_each([&](u64 kmer) {hf.add(kmer);}, ks.seq.s, ks.seq.l);
+                }
+                #pragma omp parallel for
+                for(size_t i = 0; i < hlls.size(); ++i) {
+                    dists[i] = hll.jaccard_index(hlls[i]);
+                }
+                for(size_t i(0); i < hlls.size(); output.sprintf(fmt, dists[i++]));
+                output.putc_('\n');
+                if(output.size() >= (1 << 16)) output.write(fn), output.clear();
+                hll.clear();
+            }
+        }
+        output.write(fn); output.clear();
+        kseq_destroy_stack(ks);
     } else {
-        str.sprintf("##Names \t");
-        for(const auto &path: inpaths) str.sprintf("%s\t", path.data());
-        str.back() = '\n';
-        str.write(fileno(pairofp)); str.free();
+        if(write_binary) {
+            const char *name = emit_float ? dm::MAGIC_NUMBER<float>().name(): dm::MAGIC_NUMBER<double>().name();
+            std::fwrite(name, std::strlen(name + 1), 1, pairofp);
+            const size_t hs(hlls.size());
+            std::fwrite(&hs, sizeof(hs), 1, pairofp);
+        } else {
+            str.sprintf("##Names \t");
+            for(const auto &path: inpaths) str.sprintf("%s\t", path.data());
+            str.back() = '\n';
+            str.write(fileno(pairofp)); str.free();
+        }
+        if(emit_float)
+            dist_loop<float>(fileno(pairofp), hlls, inpaths, use_scientific, k, emit_fmt, write_binary);
+        else
+            dist_loop<double>(fileno(pairofp), hlls, inpaths, use_scientific, k, emit_fmt, write_binary);
     }
-    if(emit_float)
-        dist_loop<float>(fileno(pairofp), hlls, inpaths, use_scientific, k, emit_fmt, write_binary);
-    else
-        dist_loop<double>(fileno(pairofp), hlls, inpaths, use_scientific, k, emit_fmt, write_binary);
     if(write_binary) {
         if(pairofp_labels.empty()) pairofp_labels = "unspecified";
         std::FILE *fp = std::fopen(pairofp_labels.data(), "wb");
