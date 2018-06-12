@@ -42,10 +42,6 @@ static const std::vector<uint64_t> DEFAULT_SIZES {
     2097152ull,
     4194304ull,
     8388608ull,
-    16777216ull,
-    33554432ull,
-    67108864ull,
-    134217728ull // Powers of 2 from 10 to 28
 };
 
 struct LockSmith {
