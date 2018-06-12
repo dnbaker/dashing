@@ -44,7 +44,7 @@ void dist_usage(const char *arg) {
                          "-x\tSet suffix in sketch file names [empty]\n"
                          "-o\tOutput for genome size estimates [stdout]\n"
                          "-O\tOutput for genome distance matrix [stdout]\n"
-                         "-L:\tClamp estimates below expected variance to 0. [Default: do not clamp]\n"
+                         "-L\tClamp estimates below expected variance to 0. [Default: do not clamp]\n"
                          "-e\tEmit in scientific notation\n"
                          "-f\tReport results as float. (Only important for binary format.) This halves the memory footprint at the cost of precision loss.\n"
                          "-F\tGet paths to genomes from file rather than positional arguments\n"
@@ -80,6 +80,11 @@ void sketch_usage(const char *arg) {
                          "-z\tWrite gzip compressed. (Or zstd-compressed, if compiled with zlibWrapper.\n"
                 , arg);
     std::exit(EXIT_FAILURE);
+}
+
+bool fname_is_fq(const std::string &path) {
+    static const std::string fq1 = ".fastq", fq2 = ".fq";
+    return path.find(fq1) != std::string::npos || path.find(fq2) != std::string::npos;
 }
 
 std::string hll_fname(const char *path, size_t sketch_p, int wsz, int k, int csz, const std::string &spacing, const std::string &suffix="", const std::string &prefix="") {
@@ -251,8 +256,7 @@ int sketch_main(int argc, char *argv[]) {
         }
         if(sm == CBF) use_filter = std::vector<bool>(inpaths.size(), true);
         else if(sm == BY_FNAME) {
-            const std::string fq1 = "fastq", fq2 = "fq";
-            for(const auto &path: inpaths) use_filter.emplace_back(path.find(fq1) != std::string::npos || path.find(fq2) != std::string::npos);
+            for(const auto &path: inpaths) use_filter.emplace_back(fname_is_fq(path));
         } else {
             use_filter = std::vector<bool>(inpaths.size(), false);
             std::vector<unsigned> tmp; std::swap(tmp, counts);
@@ -450,8 +454,7 @@ int dist_main(int argc, char *argv[]) {
                 auto fsz = (unsigned)filesize(path.data());
                 unsigned bfsize = std::max(static_cast<unsigned>(std::log2((double)roundup(fsz))), 20u) + bloom_sketch_increment;
                 maxbfsize = std::max(bfsize, maxbfsize);
-                static const std::string fq1 = ".fastq", fq2 = ".fq";
-                counts.emplace_back((sm == CBF || (path.find(fq1) != std::string::npos || path.find(fq2) != std::string::npos)) ? fsz2count(filesize(path.data())): 0);
+                counts.emplace_back((sm == CBF || fname_is_fq(path)) ? fsz2count(filesize(path.data())): 0);
             }
             // Ensure that we have enough bloom filters for the max count
             if(auto max_count = *std::max_element(std::begin(counts), std::end(counts)); max_count > (1u << nblooms))

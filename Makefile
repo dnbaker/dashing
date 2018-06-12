@@ -57,13 +57,11 @@ ALL_ZOBJS=$(ZOBJS) $(ZW_OBJS) bonsai/bonsai/clhash.o bonsai/klib/kthread.o
 INCLUDE=-Ibonsai/clhash/include -I.  -Ibonsai/libpopcnt -Iinclude -Ibonsai/circularqueue $(ZSTD_INCLUDE) $(INCPLUS) -Ibonsai/hll -Ibonsai/hll/vec -Ibonsai/pdqsort -Ibonsai -Ibonsai/bonsai/include/
 
 EX=$(patsubst src/%.cpp,%,$(wildcard src/*.cpp))
-Z_EX=$(patsubst src/%.cpp,%_z,$(wildcard src/*.cpp))
 D_EX=$(patsubst src/%.cpp,%_d,$(wildcard src/*.cpp))
 
 
 all: $(EX)
 
-z: $(Z_EX)
 d: $(D_EX)
 
 update:
@@ -106,7 +104,7 @@ test/%.zo: test/%.cpp
 
 zobj: $(ALL_ZOBJS)
 
-%_z: src/%.cpp $(ALL_ZOBJS) $(DEPS)
+%: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 %_d: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
@@ -121,5 +119,5 @@ zobj: $(ALL_ZOBJS)
 #	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(DOBJS) $< -o $@ $(LIB)
 
 clean:
-	rm -f $(EX) $(Z_EX) $(D_EX) libzstd.a $(OBJ)
+	rm -f $(EX) $(D_EX) libzstd.a
 mostlyclean: clean
