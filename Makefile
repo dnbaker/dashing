@@ -121,5 +121,5 @@ zobj: $(ALL_ZOBJS)
 #	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(DOBJS) $< -o $@ $(LIB)
 
 clean:
-	rm -f $(EX) $(Z_EX) $(D_EX) libzstd.a
+	rm -f $(EX) $(Z_EX) $(D_EX) libzstd.a $(OBJ)
 mostlyclean: clean
