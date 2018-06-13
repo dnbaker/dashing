@@ -398,7 +398,7 @@ int dist_main(int argc, char *argv[]) {
     sketching_method sm = EXACT;
     omp_set_num_threads(1);
     std::vector<std::string> querypaths;
-    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:T:DazLfICbMEeHhZBNyq?")) >= 0) {
+    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:T:DazLfICbMEeHhZBNymq?")) >= 0) {
         switch(co) {
             case 'B': nblooms = std::atoi(optarg); break;
             case 'C': canon = false; break;
