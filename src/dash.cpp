@@ -492,10 +492,8 @@ int dist_main(int argc, char *argv[]) {
                     const int tid = omp_get_thread_num();
                     Encoder<score::Lex> enc(nullptr, 0, sp, nullptr, canon);
                     if(counts[i] == 0) {
-                        {
-                            detail::HashFiller hf(hlls[i]);
-                            enc.for_each([&](u64 kmer){hf.add(kmer);}, inpaths[i].data(), &kseqs[tid]);
-                        }
+                        hll::hll_t &h = hlls[i];
+                        enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);
 #if 0
                         auto hll = hlls[i].clone();
                         enc.for_each([&](u64 kmer){hll.add(kmer);}, inpaths[i].data(), &kseqs[tid]);
@@ -548,10 +546,7 @@ int dist_main(int argc, char *argv[]) {
             if(sketch_query_by_seq) {
                 while(kseq_read(&ks) >= 0) {
                     output.sprintf("%s||%s", path.data(), ks.name.s ? ks.name.s: const_cast<char *>("seq_without_name"));
-                    {
-                        detail::HashFiller<hll::hll_t> hf(hll);
-                        enc.for_each([&](u64 kmer) {hf.add(kmer);}, ks.seq.s, ks.seq.l);
-                    }
+                    enc.for_each([&](u64 kmer) {hll.addh(kmer);}, ks.seq.s, ks.seq.l);
                     #pragma omp parallel for
                     for(size_t i = 0; i < hlls.size(); ++i) {
                         dists[i] = hll.jaccard_index(hlls[i]);
@@ -563,10 +558,8 @@ int dist_main(int argc, char *argv[]) {
                 }
             } else {
                 output.sprintf("%s", path.data());
-                detail::HashFiller<hll::hll_t> hf(hll);
-                while(kseq_read(&ks) >= 0) {
-                    enc.for_each([&](u64 kmer) {hf.add(kmer);}, ks.seq.s, ks.seq.l);
-                }
+                while(kseq_read(&ks) >= 0)
+                    enc.for_each([&](u64 kmer) {hll.addh(kmer);}, ks.seq.s, ks.seq.l);
                 #pragma omp parallel for
                 for(size_t i = 0; i < hlls.size(); ++i) {
                     dists[i] = hll.jaccard_index(hlls[i]);
