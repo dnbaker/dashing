@@ -485,7 +485,8 @@ int dist_main(int argc, char *argv[]) {
             if(presketched_only) hlls[i].read(path);
             else {
                 const std::string fpath(hll_fname(path.data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix));
-                if(cache_sketch && isfile(fpath)) {
+                const bool isf = isfile(fpath);
+                if(cache_sketch && isf) {
                     LOG_DEBUG("Sketch found at %s with size %zu, %u\n", fpath.data(), size_t(1ull << sketch_size), sketch_size);
                     hlls[i].read(fpath);
                 } else {
@@ -494,19 +495,12 @@ int dist_main(int argc, char *argv[]) {
                     if(counts[i] == 0) {
                         hll::hll_t &h = hlls[i];
                         enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);
-#if 0
-                        auto hll = hlls[i].clone();
-                        enc.for_each([&](u64 kmer){hll.add(kmer);}, inpaths[i].data(), &kseqs[tid]);
-                        std::fprintf(stderr, "Sizes: Manual %lf, auto %lf\n", hll.report(), hlls[i].report());
-#endif
                     } else {
                         bf::cbf_t &cbf = cbfs[tid];
-                        enc.for_each([&](u64 kmer){
-                            if(cbf.addh(kmer) >= counts[i]) hlls[i].addh(kmer);
-                        }, inpaths[i].data(), &kseqs[tid]);
+                        enc.for_each([&](u64 kmer){if(cbf.addh(kmer) >= counts[i]) hlls[i].addh(kmer);}, inpaths[i].data(), &kseqs[tid]);
                         cbf.clear();
                     }
-                    if(cache_sketch) hlls[i].write(fpath, (reading_type == GZ ? 1: reading_type == AUTODETECT ? std::equal(suf.rbegin(), suf.rend(), fpath.rbegin()): false));
+                    if(cache_sketch && !isf) hlls[i].write(fpath, (reading_type == GZ ? 1: reading_type == AUTODETECT ? std::equal(suf.rbegin(), suf.rend(), fpath.rbegin()): false));
                 }
             }
         }
