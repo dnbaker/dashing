@@ -316,7 +316,7 @@ size_t submit_emit_dists(const int pairfi, const FType *ptr, u64 hs, size_t inde
             for(k = 0; k < hs - index - 1; str.sprintf(fmt, ptr[k++]));
         }
         str.back() = '\n';
-        if(str.size() >= 1 << 18) str.write(pairfi), str.clear();
+        if(str.size() >= 1 << 18) str.flush(pairfi);
     }
     return index;
 }
@@ -374,7 +374,7 @@ void dist_loop(const int pairfi, std::vector<hll::hll_t> &hlls, const std::vecto
         submitter = std::async(std::launch::async, submit_emit_dists<FType>, pairfi, dists.data(), hlls.size(), i, std::ref(str), std::ref(inpaths), write_binary, use_scientific, buffer_flush_size);
     }
     submitter.get();
-    if(!write_binary) str.write(pairfi), str.clear();
+    if(!write_binary) str.flush(pairfi);
 }
 
 namespace {
@@ -513,9 +513,9 @@ int dist_main(int argc, char *argv[]) {
         const int fn(fileno(ofp));
         for(size_t i(0); i < hlls.size(); ++i) {
             str.sprintf("%s\t%lf\n", inpaths[i].data(), hlls[i].report());
-            if(str.size() >= 1 << 18) str.write(fn), str.clear();
+            if(str.size() >= 1 << 18) str.flush(fn);
         }
-        str.write(fn), str.clear();
+        str.flush(fn);
     }
     // TODO: Emit overlaps and symmetric differences.
     if(ofp != stdout) std::fclose(ofp);
@@ -547,7 +547,7 @@ int dist_main(int argc, char *argv[]) {
                     }
                     for(size_t i(0); i < hlls.size(); output.sprintf(fmt, dists[i++]));
                     output.putc_('\n');
-                    if(output.size() >= (1 << 16)) output.write(fn), output.clear();
+                    if(output.size() >= (1 << 16)) output.flush(fn);
                     hll.clear();
                 }
             } else {
@@ -560,11 +560,11 @@ int dist_main(int argc, char *argv[]) {
                 }
                 for(size_t i(0); i < hlls.size(); output.sprintf(fmt, dists[i++]));
                 output.putc_('\n');
-                if(output.size() >= (1 << 16)) output.write(fn), output.clear();
+                if(output.size() >= (1 << 16)) output.flush(fn);
                 hll.clear();
             }
         }
-        output.write(fn); output.clear();
+        output.flush(fn);
         kseq_destroy_stack(ks);
     } else {
         if(write_binary) {
@@ -675,9 +675,9 @@ int setdist_main(int argc, char *argv[]) {
         const int fn(fileno(ofp));
         for(size_t i(0); i < nhashes; ++i) {
             str.sprintf("%s\t%zu\n", inpaths[i].data(), kh_size(&hashes[i]));
-            if(str.size() > 1 << 17) str.write(fn), str.clear();
+            if(str.size() > 1 << 17) str.flush(fn);
         }
-        str.write(fn), str.clear();
+        str.flush(fn);
     }
     // TODO: Emit overlaps and symmetric differences.
     if(ofp != stdout) std::fclose(ofp);
