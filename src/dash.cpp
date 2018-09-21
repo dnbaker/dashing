@@ -281,11 +281,11 @@ int sketch_main(int argc, char *argv[]) {
     ForPool pool(nthreads);
     if(sm == EXACT) {
         std::generate_n(std::back_inserter(hlls), nthreads, [&]{return hll::hll_t(sketch_size, estim, jestim, 1, clamp);});
-        detail::kt_sketch_helper<hll::hll_t> helper {hlls, kseqs, bs, sketch_size, k, wsz, (int)sp.c_, sv, ivecs, suffix, prefix, spacing, skip_cached, canon, estim, write_to_dev_null, write_gz, counts, bloom_filter_sizes, use_filter};
+        detail::kt_sketch_helper<hll::hll_t> helper {hlls, kseqs, bs, sketch_size, k, wsz, (int)sp.c_, sv, ivecs, suffix, prefix, spacing, static_cast<bool>(skip_cached), canon, estim, write_to_dev_null, write_gz, counts, bloom_filter_sizes, use_filter};
         pool.forpool(detail::kt_for_helper<hll::hll_t>, &helper, ivecs.size() / bs + (ivecs.size() % bs != 0));
     } else {
         std::generate_n(std::back_inserter(fhlls), nthreads, [&](){return fhll::pcfhll_t(sketch_size, subsketch_size, nblooms, bloom_sketch_size, nhashes, seedseedseed, threshold, estim, jestim, clamp);});
-        detail::kt_sketch_helper<fhll::pcfhll_t> helper {fhlls, kseqs, bs, sketch_size, k, wsz, (int)sp.c_, sv, ivecs, suffix, prefix, spacing, skip_cached, canon, estim, write_to_dev_null, write_gz, counts, bloom_filter_sizes, use_filter};
+        detail::kt_sketch_helper<fhll::pcfhll_t> helper {fhlls, kseqs, bs, sketch_size, k, wsz, (int)sp.c_, sv, ivecs, suffix, prefix, spacing, static_cast<bool>(skip_cached), canon, estim, write_to_dev_null, write_gz, counts, bloom_filter_sizes, use_filter};
         pool.forpool(detail::kt_for_helper<fhll::pcfhll_t>, &helper, ivecs.size() / bs + (ivecs.size() % bs != 0));
     }
     LOG_DEBUG("Finished sketching\n");
