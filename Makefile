@@ -9,7 +9,7 @@ WARNINGS=-Wall -Wextra -Wno-char-subscripts \
 		 -Wpointer-arith -Wwrite-strings -Wdisabled-optimization \
 		 -Wformat -Wcast-align -Wno-unused-function -Wno-unused-parameter \
 		 -pedantic -DUSE_PDQSORT -Wunused-variable \
-		# -Wduplicated-branches -Wdangling-else  # -Wsuggest-attribute=malloc   # -Wconversion
+		 -Wduplicated-branches -Wdangling-else   -Wsuggest-attribute=malloc   # -Wconversion
 ifndef EXTRA
 	EXTRA:=
 endif
@@ -99,8 +99,8 @@ test/%.zo: test/%.cpp
 %: src/%.cpp libzstd.a $(OBJ) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(OBJ) -DNDEBUG $< -o $@ $(LIB)
 
-%_s: $(OBJ) src/%.cpp libzstd.a $(DEPS)
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(OBJ) -static-libstdc++ -static-libgcc -DNDEBUG $< -o $@ $(LIB)
+%_s: src/%.cpp $(OBJ) libzstd.a $(DEPS)
+	echo "OBJ: $(OBJ)" && $(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(OBJ) -static-libstdc++ -static-libgcc -DNDEBUG $< -o $@ $(LIB)
 
 zobj: $(ALL_ZOBJS)
 
