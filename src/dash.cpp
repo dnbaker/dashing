@@ -486,9 +486,8 @@ int dist_main(int argc, char *argv[]) {
             // Ensure that we have enough bloom filters for the max count
             if(auto max_count = *std::max_element(std::begin(counts), std::end(counts)); max_count > (1u << nblooms))
                 nblooms = static_cast<unsigned>(std::log2(roundup(max_count)));
-            std::generate_n(std::back_inserter(cbfs), nthreads,[&](){
-                return std::move(bf::cbf_t(nblooms, maxbfsize, nbloomhashes, cbfs.size() * 1337u, shrinkpow2));
-            });
+            while(cbfs.size() < static_cast<unsigned>(nthreads))
+                cbfs.emplace_back(nblooms, maxbfsize, nbloomhashes, cbfs.size() * 1337u, shrinkpow2);
             break;
         }
         case EXACT: break;
