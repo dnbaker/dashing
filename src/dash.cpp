@@ -262,10 +262,10 @@ int sketch_main(int argc, char *argv[]) {
                     LOG_INFO("Unset sketch size. Setting to log2(# bits in the largest file) [%i]\n", bloom_sketch_size);
                 }
             }
-            if(sm == CBF) use_filter = std::vector<bool>(inpaths.size(), true);
-            else { // BY_FNAME
+            if(sm == CBF)
+                use_filter = std::vector<bool>(inpaths.size(), true);
+            else // BY_FNAME
                 for(const auto &path: inpaths) use_filter.emplace_back(fname_is_fq(path));
-            }
         } else {
             for(const auto &path: inpaths)
                 ivecs.emplace_back(std::vector<std::string>{path});
@@ -278,7 +278,7 @@ int sketch_main(int argc, char *argv[]) {
     }
     KSeqBufferHolder kseqs(nthreads);
     if(wsz < sp.c_) wsz = sp.c_;
-    if(ivecs.size() == 0) {
+    if(ivecs.empty()) {
         std::fprintf(stderr, "No paths. See usage.\n");
         sketch_usage(*argv);
     }
@@ -289,15 +289,14 @@ int sketch_main(int argc, char *argv[]) {
     if(sm == EXACT) {
         while(hlls.size() < (u32)nthreads) hlls.emplace_back(sketch_size, estim, jestim, 1, clamp);
         detail::kt_sketch_helper<hll_t> helper {hlls, kseqs, bs, sketch_size, k, wsz, (int)sp.c_, sv, ivecs, suffix, prefix, spacing, skip_cached, canon, estim, write_to_dev_null, write_gz, counts, bloom_filter_sizes, use_filter};
-        pool.forpool(entropy_minimization ? detail::kt_for_helper<hll_t, score::Entropy>: detail::kt_for_helper<hll_t, score::Lex>,
-                     &helper, ivecs.size() / bs + (ivecs.size() % bs != 0));
+        auto helper_fn = entropy_minimization ? detail::kt_for_helper<hll_t, score::Entropy>: detail::kt_for_helper<hll_t, score::Lex>;
+        pool.forpool(helper_fn, &helper, ivecs.size() / bs + (ivecs.size() % bs != 0));
     } else {
-        while(fhlls.size() < (u32)nthreads) {
+        while(fhlls.size() < (u32)nthreads)
             fhlls.emplace_back(sketch_size, subsketch_size, nblooms, bloom_sketch_size, nhashes, seedseedseed, threshold, estim, jestim, clamp);
-        }
         detail::kt_sketch_helper<fhll::pcfhll_t> helper {fhlls, kseqs, bs, sketch_size, k, wsz, (int)sp.c_, sv, ivecs, suffix, prefix, spacing, skip_cached, canon, estim, write_to_dev_null, write_gz, counts, bloom_filter_sizes, use_filter};
-        pool.forpool(entropy_minimization ? detail::kt_for_helper<fhll::pcfhll_t, score::Entropy>: detail::kt_for_helper<fhll::pcfhll_t, score::Lex>,
-                     &helper, ivecs.size() / bs + (ivecs.size() % bs != 0));
+        auto helper_fn = entropy_minimization ? detail::kt_for_helper<fhll::pcfhll_t_t, score::Entropy>: detail::kt_for_helper<fhll::pcfhll_t_t, score::Lex>;
+        pool.forpool(helper_fn, &helper, ivecs.size() / bs + (ivecs.size() % bs != 0));
     }
     LOG_INFO("Successfully finished sketching from %zu files\n", ivecs.size());
     return EXIT_SUCCESS;
