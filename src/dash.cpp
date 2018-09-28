@@ -295,7 +295,7 @@ int sketch_main(int argc, char *argv[]) {
         while(fhlls.size() < (u32)nthreads)
             fhlls.emplace_back(sketch_size, subsketch_size, nblooms, bloom_sketch_size, nhashes, seedseedseed, threshold, estim, jestim, clamp);
         detail::kt_sketch_helper<fhll::pcfhll_t> helper {fhlls, kseqs, bs, sketch_size, k, wsz, (int)sp.c_, sv, ivecs, suffix, prefix, spacing, skip_cached, canon, estim, write_to_dev_null, write_gz, counts, bloom_filter_sizes, use_filter};
-        auto helper_fn = entropy_minimization ? detail::kt_for_helper<fhll::pcfhll_t_t, score::Entropy>: detail::kt_for_helper<fhll::pcfhll_t_t, score::Lex>;
+        auto helper_fn = entropy_minimization ? detail::kt_for_helper<fhll::pcfhll_t, score::Entropy>: detail::kt_for_helper<fhll::pcfhll_t, score::Lex>;
         pool.forpool(helper_fn, &helper, ivecs.size() / bs + (ivecs.size() % bs != 0));
     }
     LOG_INFO("Successfully finished sketching from %zu files\n", ivecs.size());
