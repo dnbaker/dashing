@@ -309,7 +309,7 @@ struct LockSmith {
     ~LockSmith() {m_.unlock();}
 };
 
-template<typename FType, typename=std::enable_if_t<std::is_floating_point_v<FType>>>
+template<typename FType, typename=typename std::enable_if<std::is_floating_point<FType>::value>::type>
 size_t submit_emit_dists(const int pairfi, const FType *ptr, u64 hs, size_t index, ks::string &str, const std::vector<std::string> &inpaths, bool write_binary, bool use_scientific, const size_t buffer_flush_size=1ull<<18) {
     if(write_binary) {
        ::write(pairfi, ptr, sizeof(FType) * hs);
@@ -332,13 +332,16 @@ size_t submit_emit_dists(const int pairfi, const FType *ptr, u64 hs, size_t inde
 }
 
 template<typename FType1, typename FType2,
-         typename=std::enable_if_t<std::is_floating_point_v<FType1> && std::is_floating_point_v<FType2>>>
-std::common_type_t<FType1, FType2> dist_index(FType1 ji, FType2 ksinv) {
+         typename=typename std::enable_if<
+            std::is_floating_point<FType1>::value && std::is_floating_point<FType2>::value
+          >::type
+         >
+typename std::common_type<FType1, FType2>::type dist_index(FType1 ji, FType2 ksinv) {
     // Adapter from Mash https://github.com/Marbl/Mash
     return ji ? -std::log(2. * ji / (1. + ji)) * ksinv: 1.;
 }
 
-template<typename FType, typename=std::enable_if_t<std::is_floating_point_v<FType>>>
+template<typename FType, typename=typename std::enable_if<std::is_floating_point<FType>::value>::type>
 void dist_loop(const int pairfi, std::vector<hll_t> &hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType emit_fmt, bool write_binary, const size_t buffer_flush_size=1ull<<18) {
 #if !NDEBUG
     std::fprintf(stderr, "value for use_scientific is %s\n", use_scientific ? "t": "f");
