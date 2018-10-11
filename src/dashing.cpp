@@ -6,7 +6,7 @@
 #include "bonsai/bonsai/include/bitmap.h"
 #include "bonsai/bonsai/include/setcmp.h"
 #include "hll/hll.h"
-#include "hll/cbf.h"
+#include "hll/ccm.h"
 #include "distmat/distmat.h"
 #include <sstream>
 
@@ -51,6 +51,7 @@ void dist_usage(const char *arg) {
                          "-L\tClamp estimates below expected variance to 0. [Default: do not clamp]\n"
                          "-e\tEmit in scientific notation\n"
                          "-f\tReport results as float. (Only important for binary format.) This halves the memory footprint at the cost of precision loss.\n"
+                         "-g\tUse entropy minimization (rather than lexical)\n"
                          "-F\tGet paths to genomes from file rather than positional arguments\n"
                          "-M\tEmit Mash distance (default: jaccard index)\n"
                          "-Z\tEmit genome sizes (default: jaccard -index)\n"
@@ -182,20 +183,24 @@ enum sketching_method {
 };
 
 
-unsigned fsz2count(uint64_t fsz) {
+size_t fsz2countcm(uint64_t fsz, double factor=1.) {
+    return roundup(size_t(std::log2(fsz * factor))) + 2; // plus 2 to account for the fact that the file is likely compressed
+}
+
+size_t fsz2count(uint64_t fsz) {
     static constexpr size_t mul = 4; // Take these estimates and multiply by 4 just to be safe
     // This should be adapted according to the error rate of the pcbf
     if(fsz < 300ull << 20) return 1 * mul;
     if(fsz < 500ull << 20) return 3 * mul;
     if(fsz < 1ull << 30)  return 10 * mul;
     if(fsz < 3ull << 30)  return 20 * mul;
-    return static_cast<unsigned>(std::pow(2., std::log((fsz >> 30))) * 30.) * mul;
+    return static_cast<size_t>(std::pow(2., std::log((fsz >> 30))) * 30.) * mul;
     // This likely does not account for compression.
 }
 
 // Main functions
 int sketch_main(int argc, char *argv[]) {
-    int wsz(0), k(31), sketch_size(16), skip_cached(false), co, nthreads(1), bs(16), threshold(-1), nblooms(-1), bloom_sketch_size(-1), nhashes(1), subsketch_size(10);
+    int wsz(0), k(31), sketch_size(16), skip_cached(false), co, nthreads(1), bs(16), threshold(-1), nfiltersubsketches(-1), bloom_sketch_size(-1), nhashes(1), subsketch_size(10);
     bool canon(true), write_to_dev_null(false), write_gz(false), clamp(false);
     bool entropy_minimization = false;
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
@@ -238,30 +243,16 @@ int sketch_main(int argc, char *argv[]) {
     spvec_t sv(parse_spacing(spacing.data(), k));
     Spacer sp(k, wsz, sv);
     std::vector<std::vector<std::string>> ivecs;
-    std::vector<unsigned> counts, bloom_filter_sizes;
     std::vector<bool> use_filter;
     {
         std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
                                                            : std::vector<std::string>(argv + optind, argv + argc));
         ivecs.reserve(inpaths.size());
         if(sm != EXACT) {
-            counts.reserve(inpaths.size());
-            bloom_filter_sizes.reserve(inpaths.size());
-            uint64_t tmp, fsz_max = 0;
-            for(const auto &path: inpaths) {
-                tmp = filesize(path.data());
-                fsz_max = std::max(static_cast<uint64_t>(tmp), fsz_max);
-                counts.emplace_back(fsz2count(tmp));
-                bloom_filter_sizes.emplace_back(std::max(static_cast<int>(std::log2(double(roundup(tmp)))), 16));
-                ivecs.emplace_back(std::vector<std::string>{path});
-            }
-            if(threshold < 0 || bloom_sketch_size < 0) {
-                if(threshold < 0) threshold = fsz2count(fsz_max);
-                if(bloom_sketch_size < 0) {
-                    bloom_sketch_size = std::max(static_cast<int>(std::log2(double(roundup(fsz_max)))) - 3, 20);
-                    LOG_INFO("Unset sketch size. Setting to log2(# bits in the largest file) [%i]\n", bloom_sketch_size);
-                }
-            }
+            const auto cmsketchsize = fsz2countcm(
+                std::accumulate(inpaths.begin(), inpaths.end(), 0u,
+                                [](unsigned x, const auto &y) ->unsigned {return std::max(x, (unsigned) filesize(y.data()));})
+            );
             if(sm == CBF)
                 use_filter = std::vector<bool>(inpaths.size(), true);
             else // BY_FNAME
@@ -288,13 +279,13 @@ int sketch_main(int argc, char *argv[]) {
     ForPool pool(nthreads);
     if(sm == EXACT) {
         while(hlls.size() < (u32)nthreads) hlls.emplace_back(sketch_size, estim, jestim, 1, clamp);
-        detail::kt_sketch_helper<hll_t> helper {hlls, kseqs, bs, sketch_size, k, wsz, (int)sp.c_, sv, ivecs, suffix, prefix, spacing, skip_cached, canon, estim, write_to_dev_null, write_gz, counts, bloom_filter_sizes, use_filter};
+        detail::kt_sketch_helper<hll_t> helper {hlls, kseqs, bs, sketch_size, k, wsz, (int)sp.c_, sv, ivecs, suffix, prefix, spacing, skip_cached, canon, estim, write_to_dev_null, write_gz, counts, cm_sizes, use_filter};
         auto helper_fn = entropy_minimization ? detail::kt_for_helper<hll_t, score::Entropy>: detail::kt_for_helper<hll_t, score::Lex>;
         pool.forpool(helper_fn, &helper, ivecs.size() / bs + (ivecs.size() % bs != 0));
     } else {
         while(fhlls.size() < (u32)nthreads)
             fhlls.emplace_back(sketch_size, subsketch_size, nblooms, bloom_sketch_size, nhashes, seedseedseed, threshold, estim, jestim, clamp);
-        detail::kt_sketch_helper<fhll::pcfhll_t> helper {fhlls, kseqs, bs, sketch_size, k, wsz, (int)sp.c_, sv, ivecs, suffix, prefix, spacing, skip_cached, canon, estim, write_to_dev_null, write_gz, counts, bloom_filter_sizes, use_filter};
+        detail::kt_sketch_helper<fhll::pcfhll_t> helper {fhlls, kseqs, bs, sketch_size, k, wsz, (int)sp.c_, sv, ivecs, suffix, prefix, spacing, skip_cached, canon, estim, write_to_dev_null, write_gz, counts, cm_sizes, use_filter};
         auto helper_fn = entropy_minimization ? detail::kt_for_helper<fhll::pcfhll_t, score::Entropy>: detail::kt_for_helper<fhll::pcfhll_t, score::Lex>;
         pool.forpool(helper_fn, &helper, ivecs.size() / bs + (ivecs.size() % bs != 0));
     }
@@ -400,23 +391,23 @@ enum CompReading: unsigned {
 #define FILL_SKETCH_MIN(MinType) \
     do {\
         Encoder<MinType> enc(nullptr, 0, sp, nullptr, canon);\
-        if(counts.empty() || counts[i] == 0) {\
+        if(cms.empty()) {\
             hll_t &h = hlls[i];\
             enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
         } else {\
-            bf::cbf_t &cbf = cbfs[tid];\
-            enc.for_each([&](u64 kmer){if(cbf.addh(kmer) >= counts[i]) hlls[i].addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
-            cbf.clear();\
+            sketch::cm::ccm_t &cm = cms[tid];\
+            enc.for_each([&,mincount](u64 kmer){if(cm.addh(kmer) >= mincount) hlls[i].addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            cm.clear();\
         } \
     } while(0)
 
 int dist_main(int argc, char *argv[]) {
     int wsz(0), k(31), sketch_size(16), use_scientific(false), co, cache_sketch(false),
-        nthreads(1), nblooms(8), bloom_sketch_increment(4), nbloomhashes(1);
+        nthreads(1), mincount(30), nhashes(4);
     bool canon(true), presketched_only(false), write_binary(false),
          emit_float(false),
-         clamp(false), sketch_query_by_seq(true), entropy_minimization(false),
-         shrinkpow2(true); // Decrease sketch size as 
+         clamp(false), sketch_query_by_seq(true), entropy_minimization(false);
+    double factor = 1.;
     EmissionType emit_fmt(JI);
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE;
@@ -428,7 +419,6 @@ int dist_main(int argc, char *argv[]) {
     std::vector<std::string> querypaths;
     while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:T:gDazLfICbMEeHhZBNymq?")) >= 0) {
         switch(co) {
-            case 'B': nblooms = std::atoi(optarg); break;
             case 'C': canon = false; break;
             case 'D': sketch_query_by_seq = false; break;
             case 'E': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
@@ -438,23 +428,26 @@ int dist_main(int argc, char *argv[]) {
             case 'L': clamp = true; break;
             case 'M': emit_fmt = MASH_DIST; break;
             case 'N': sm = BY_FNAME; break;
-            case 'O': pairofp = fopen(optarg, "wb"); pairofp_labels = std::string(optarg) + ".labels"; if(pairofp == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
-            case 'P': prefix = optarg; break;
+            case 'O': if((pairofp = fopen(optarg, "wb")) == nullptr)
+                          LOG_EXIT("Could not open file at %s for writing.\n", optarg);
+                      pairofp_labels = std::string(optarg) + ".labels";
+                      break;
+            case 'P': prefix = optarg;                 break;
             case 'Q': querypaths.emplace_back(optarg); break;
             case 'S': sketch_size = std::atoi(optarg); break;
-            case 'T': bloom_sketch_increment = std::atoi(optarg); break;
-            case 'W': cache_sketch = true;  break;
-            case 'Z': emit_fmt = SIZES; break;
-            case 'a': reading_type = AUTODETECT; break;
-            case 'b': write_binary = true; break;
-            case 'e': use_scientific = true; break;
-            case 'f': emit_float = true; break;
-            case 'g': entropy_minimization = true; break;
-            case 'k': k = std::atoi(optarg); break;
+            case 'W': cache_sketch = true;             break;
+            case 'Z': emit_fmt = SIZES;                break;
+            case 'a': reading_type = AUTODETECT;       break;
+            case 'b': write_binary = true;             break;
+            case 'c': mincount = std::atoi(optarg);    break;
+            case 'e': use_scientific = true;           break;
+            case 'f': emit_float = true;               break;
+            case 'g': entropy_minimization = true;     break;
+            case 'k': k = std::atoi(optarg);           break;
             case 'm': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
-            case 'o': ofp = fopen(optarg, "w"); if(ofp == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
-            case 'p': nthreads = std::atoi(optarg); break;
-            case 'q': nbloomhashes = std::atoi(optarg); break;
+            case 'o': if((ofp = fopen(optarg, "w")) == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
+            case 'p': nthreads = std::atoi(optarg);    break;
+            case 'q': nhashes = std::atoi(optarg);     break;
             case 's': spacing = optarg; break;
             case 'w': wsz = std::atoi(optarg); break;
             case 'x': suffix = optarg; break;
@@ -463,7 +456,6 @@ int dist_main(int argc, char *argv[]) {
             case 'h': case '?': dist_usage(*argv);
         }
     }
-    std::vector<uint16_t> counts;
     spvec_t sv(parse_spacing(spacing.data(), k));
     Spacer sp(k, wsz, sv);
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
@@ -473,27 +465,22 @@ int dist_main(int argc, char *argv[]) {
         dist_usage(*argv);
     }
     omp_set_num_threads(nthreads);
-    std::vector<sketch::bf::cbf_t> cbfs;
+    std::vector<sketch::cm::ccm_t> cms;
     std::vector<hll_t> hlls;
     KSeqBufferHolder kseqs(nthreads);
     switch(sm) {
         case CBF: case BY_FNAME: {
-            unsigned maxbfsize = std::numeric_limits<int>::min();
-            for(const auto &path: inpaths) {
-                auto fsz = (unsigned)filesize(path.data());
-                unsigned bfsize = std::max(static_cast<unsigned>(std::log2((double)roundup(fsz))), 20u) + bloom_sketch_increment;
-                maxbfsize = std::max(bfsize, maxbfsize);
-                counts.emplace_back((sm == CBF || fname_is_fq(path)) ? fsz2count(filesize(path.data())): 0);
-            }
-            // Ensure that we have enough bloom filters for the max count
-            if(auto max_count = *std::max_element(std::begin(counts), std::end(counts)); max_count > (1u << nblooms))
-                nblooms = static_cast<unsigned>(std::log2(roundup(max_count)));
-            while(cbfs.size() < static_cast<unsigned>(nthreads))
-                cbfs.emplace_back(nblooms, maxbfsize, nbloomhashes, cbfs.size() * 1337u, shrinkpow2);
+            const auto cmsketchsize = fsz2countcm(
+                std::accumulate(inpaths.begin(), inpaths.end(), 0u,
+                                [](unsigned x, const auto &y) ->unsigned {return std::max(x, (unsigned)filesize(y.data()));}),
+                factor
+            );
+            unsigned nbits = std::log2(mincount) + 1;
+            while(cms.size() < static_cast<unsigned>(nthreads))
+                cms.emplace_back(nbits, cmsketchsize, nhashes, cms.size() * 1337u);
             break;
         }
-        case EXACT: break;
-        default: __builtin_unreachable();
+        case EXACT: default: break;
     }
     hlls.reserve(inpaths.size());
     while(hlls.size() < inpaths.size()) hlls.emplace_back(hll_t(sketch_size, estim, jestim, 1, clamp));
@@ -734,7 +721,6 @@ int hll_main(int argc, char *argv[]) {
     int c, wsz(0), k(31), num_threads(-1), sketch_size(24);
     bool canon(true);
     std::string spacing, paths_file;
-    std::ios_base::sync_with_stdio(false);
     if(argc < 2) {
         usage: LOG_EXIT("Usage: %s <opts> <paths>\nFlags:\n"
                         "-k:\tkmer length (Default: 31. Max: 31)\n"
@@ -773,6 +759,7 @@ int hll_main(int argc, char *argv[]) {
 using namespace bns;
 
 int main(int argc, char *argv[]) {
+    std::ios_base::sync_with_stdio(false);
     if(argc == 1) main_usage(argv);
     if(std::strcmp(argv[1], "sketch") == 0) return sketch_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "dist") == 0) return dist_main(argc - 1, argv + 1);
