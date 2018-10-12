@@ -65,17 +65,17 @@ all: $(EX)
 d: $(D_EX)
 
 update:
-	git submodule update --init --remote --recursive . && cd bonsai && git checkout master && git pull && make update && cd .. && cd distmat && git checkout master && git pull && cd ..
+	+git submodule update --init --remote --recursive . && cd bonsai && git checkout master && git pull && make update && cd .. && cd distmat && git checkout master && git pull && cd ..
 
 libzstd.a:
 	+cd bonsai/bonsai && make libzstd.a && cp libzstd.a ../../
 
 bonsai/klib/kstring.o:
-	cd bonsai/bonsai && make ../klib/kstring.o && cd ../.. && \
+	+cd bonsai/bonsai && make ../klib/kstring.o && cd ../.. && \
 	cd bonsai/bonsai && make ../klib/kthread.o && cd ../..
 
 bonsai/bonsai/clhash.o:
-	cd bonsai/bonsai && make clhash.o && cd ../..
+	+cd bonsai/bonsai && make clhash.o && cd ../..
 
 OBJ=bonsai/klib/kstring.o bonsai/klib/kthread.o bonsai/bonsai/clhash.o
 

@@ -186,6 +186,7 @@ int sketch_main(int argc, char *argv[]) {
     std::vector<cm::ccm_t> cms;
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
                                                        : std::vector<std::string>(argv + optind, argv + argc));
+    std::sort(inpaths.begin(), inpaths.end(), [](const auto &x, const auto &y) {return bns::filesize(x.data()) > bns::filesize(y.data());});
     if(sm != EXACT) {
         if(cmsketchsize < 0) {
             cmsketchsize = fsz2countcm(
@@ -410,6 +411,7 @@ int dist_main(int argc, char *argv[]) {
     Spacer sp(k, wsz, sv);
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
                                                        : std::vector<std::string>(argv + optind, argv + argc));
+    std::sort(inpaths.begin(), inpaths.end(), [](const auto &x, const auto &y) {return bns::filesize(x.data()) > bns::filesize(y.data());});
     if(inpaths.size() == 0) {
         std::fprintf(stderr, "No paths. See usage.\n");
         dist_usage(*argv);
