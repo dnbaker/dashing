@@ -9,6 +9,7 @@
 #include "hll/ccm.h"
 #include "distmat/distmat.h"
 #include <sstream>
+#include <sys/stat.h>
 
 using namespace sketch;
 using circ::roundup;
@@ -26,6 +27,51 @@ void main_usage(char **argv) {
                  *argv, *argv);
     std::exit(EXIT_FAILURE);
 }
+
+size_t posix_fsize(const char *path) {
+    struct stat st;
+    stat(path, &st);
+    return st.st_size;
+}
+
+namespace detail {
+struct path_size {
+    friend void swap(path_size&, path_size&);
+    std::string path;
+    size_t size;
+    path_size(std::string &&p, size_t sz): path(std::move(p)), size(sz) {}
+    path_size(const std::string &p, size_t sz): path(p), size(sz) {}
+    path_size(path_size &&o): path(std::move(o.path)), size(o.size) {}
+    path_size(): size(0) {}
+    path_size &operator=(path_size &&o) {
+        std::swap(o.path, path);
+        std::swap(o.size, size);
+        return *this;
+    }
+};
+
+inline void swap(path_size &a, path_size &b) {
+    std::swap(a.path, b.path);
+    std::swap(a.size, b.size);
+}
+
+void sort_paths_by_fsize(std::vector<std::string> &paths) {
+    std::vector<unsigned> fsizes(paths.size());
+    #pragma omp parallel for
+    for(size_t i = 0; i < paths.size(); ++i)
+        fsizes[i] = posix_fsize(paths[i].data());
+    std::vector<path_size> ps(paths.size());
+    #pragma omp parallel for
+    for(size_t i = 0; i < paths.size(); ++i)
+        ps[i] = path_size(paths[i], fsizes[i]);
+    std::sort(ps.begin(), ps.end(), [](const auto &x, const auto &y) {return x.size > y.size;});
+    paths.clear();
+    for(const auto &p: ps) paths.emplace_back(std::move(p.path));
+    std::fprintf(stderr, "paths size: %zu\n", paths.size());
+    for(const auto &p: paths) std::fprintf(stderr, "p: %s,", p.data());
+    std::fputc('\n', stderr);
+}
+} // namespace detail
 
 void dist_usage(const char *arg) {
     std::fprintf(stderr, "Usage: %s <opts> [genomes if not provided from a file with -F]\n"
@@ -150,7 +196,7 @@ int sketch_main(int argc, char *argv[]) {
     std::string spacing, paths_file, suffix, prefix;
     sketching_method sm = EXACT;
     uint64_t seedseedseed = 1337u;
-    while((co = getopt(argc, argv, "n:P:F:c:p:x:R:s:S:k:w:H:q:BfjLzEDIcCeh?")) >= 0) {
+    while((co = getopt(argc, argv, "n:P:F:c:p:x:R:s:S:k:w:H:q:mBfjLzEDIcCeh?")) >= 0) {
         switch(co) {
             case 'B': sm = CBF; break;
             case 'C': canon = false; break;
@@ -159,7 +205,6 @@ int sketch_main(int argc, char *argv[]) {
             case 'F': paths_file = optarg; break;
             case 'H': nhashes = std::atoi(optarg); break;
             case 'I': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
-            case 'J': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
             case 'L': clamp = true; break;
             case 'P': prefix = optarg; break;
             case 'R': seedseedseed = std::strtoull(optarg, nullptr, 10); break;
@@ -168,6 +213,7 @@ int sketch_main(int argc, char *argv[]) {
             case 'e': entropy_minimization = true; break;
             case 'f': sm = BY_FNAME; break;
             case 'k': k = std::atoi(optarg); break;
+            case 'm': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
             case 'n': mincount = std::atoi(optarg); break;
             case 'p': nthreads = std::atoi(optarg); break;
             case 'q': cmsketchsize = std::atoi(optarg); break;
@@ -186,12 +232,16 @@ int sketch_main(int argc, char *argv[]) {
     std::vector<cm::ccm_t> cms;
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
                                                        : std::vector<std::string>(argv + optind, argv + argc));
-    std::sort(inpaths.begin(), inpaths.end(), [](const auto &x, const auto &y) {return bns::filesize(x.data()) > bns::filesize(y.data());});
+    detail::sort_paths_by_fsize(inpaths);
+    if(inpaths.empty()) {
+        std::fprintf(stderr, "No paths. See usage.\n");
+        sketch_usage(*argv);
+    }
     if(sm != EXACT) {
         if(cmsketchsize < 0) {
             cmsketchsize = fsz2countcm(
                 std::accumulate(inpaths.begin(), inpaths.end(), 0u,
-                                [](unsigned x, const auto &y) ->unsigned {return std::max(x, (unsigned)bns::filesize(y.data()));})
+                                [](unsigned x, const auto &y) ->unsigned {return std::max(x, (unsigned)posix_fsize(y.data()));})
             );
         }
         if(sm == CBF)
@@ -204,10 +254,6 @@ int sketch_main(int argc, char *argv[]) {
     }
     KSeqBufferHolder kseqs(nthreads);
     if(wsz < sp.c_) wsz = sp.c_;
-    if(inpaths.empty()) {
-        std::fprintf(stderr, "No paths. See usage.\n");
-        sketch_usage(*argv);
-    }
     std::vector<hll_t> hlls;
     while(hlls.size() < (u32)nthreads) hlls.emplace_back(sketch_size, estim, jestim, 1, clamp);
     nthreads = std::max(nthreads, 1);
@@ -370,15 +416,15 @@ int dist_main(int argc, char *argv[]) {
     std::vector<std::string> querypaths;
     while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:T:gDazLfICbMEeHhZBNymq?")) >= 0) {
         switch(co) {
-            case 'C': canon = false; break;
-            case 'D': sketch_query_by_seq = false; break;
+            case 'C': canon = false;                   break;
+            case 'D': sketch_query_by_seq = false;     break;
             case 'E': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
-            case 'F': paths_file = optarg; break;
-            case 'H': presketched_only = true; break;
+            case 'F': paths_file = optarg;             break;
+            case 'H': presketched_only = true;         break;
             case 'I': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
-            case 'L': clamp = true; break;
-            case 'M': emit_fmt = MASH_DIST; break;
-            case 'N': sm = BY_FNAME; break;
+            case 'L': clamp = true;                    break;
+            case 'M': emit_fmt = MASH_DIST;            break;
+            case 'N': sm = BY_FNAME;                   break;
             case 'O': if((pairofp = fopen(optarg, "wb")) == nullptr)
                           LOG_EXIT("Could not open file at %s for writing.\n", optarg);
                       pairofp_labels = std::string(optarg) + ".labels";
@@ -399,24 +445,24 @@ int dist_main(int argc, char *argv[]) {
             case 'o': if((ofp = fopen(optarg, "w")) == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
             case 'p': nthreads = std::atoi(optarg);    break;
             case 'q': nhashes = std::atoi(optarg);     break;
-            case 's': spacing = optarg; break;
-            case 'w': wsz = std::atoi(optarg); break;
-            case 'x': suffix = optarg; break;
-            case 'y': sm = CBF; break;
-            case 'z': reading_type = GZ; break;
+            case 's': spacing = optarg;                break;
+            case 'w': wsz = std::atoi(optarg);         break;
+            case 'x': suffix = optarg;                 break;
+            case 'y': sm = CBF;                        break;
+            case 'z': reading_type = GZ;               break;
             case 'h': case '?': dist_usage(*argv);
         }
     }
+    omp_set_num_threads(nthreads);
     spvec_t sv(parse_spacing(spacing.data(), k));
     Spacer sp(k, wsz, sv);
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
                                                        : std::vector<std::string>(argv + optind, argv + argc));
-    std::sort(inpaths.begin(), inpaths.end(), [](const auto &x, const auto &y) {return bns::filesize(x.data()) > bns::filesize(y.data());});
-    if(inpaths.size() == 0) {
+    detail::sort_paths_by_fsize(inpaths);
+    if(inpaths.empty()) {
         std::fprintf(stderr, "No paths. See usage.\n");
-        dist_usage(*argv);
+        sketch_usage(*argv);
     }
-    omp_set_num_threads(nthreads);
     std::vector<sketch::cm::ccm_t> cms;
     std::vector<hll_t> hlls;
     KSeqBufferHolder kseqs(nthreads);
@@ -424,7 +470,7 @@ int dist_main(int argc, char *argv[]) {
         case CBF: case BY_FNAME: {
             const auto cmsketchsize = fsz2countcm(
                 std::accumulate(inpaths.begin(), inpaths.end(), 0u,
-                                [](unsigned x, const auto &y) ->unsigned {return std::max(x, (unsigned)bns::filesize(y.data()));}),
+                                [](unsigned x, const auto &y) ->unsigned {return std::max(x, (unsigned)posix_fsize(y.data()));}),
                 factor
             );
             unsigned nbits = std::log2(mincount) + 1;
