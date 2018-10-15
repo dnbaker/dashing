@@ -67,9 +67,6 @@ void sort_paths_by_fsize(std::vector<std::string> &paths) {
     std::sort(ps.begin(), ps.end(), [](const auto &x, const auto &y) {return x.size > y.size;});
     paths.clear();
     for(const auto &p: ps) paths.emplace_back(std::move(p.path));
-    std::fprintf(stderr, "paths size: %zu\n", paths.size());
-    for(const auto &p: paths) std::fprintf(stderr, "p: %s,", p.data());
-    std::fputc('\n', stderr);
 }
 } // namespace detail
 
