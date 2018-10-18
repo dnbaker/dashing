@@ -15,6 +15,10 @@ using namespace sketch;
 using circ::roundup;
 using hll::hll_t;
 
+#ifndef BUFFER_FLUSH_SIZE
+#define BUFFER_FLUSH_SIZE (1u << 18)
+#endif
+
 namespace bns {
 enum EmissionType {
     MASH_DIST = 0,
@@ -23,7 +27,7 @@ enum EmissionType {
 };
 
 void main_usage(char **argv) {
-    std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options. [Subcommands: sketch, dist, setdist, hll, printbinary.]\n",
+    std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options. [Subcommands: sketch, dist, setdist, hll, printmat.]\n",
                  *argv, *argv);
     std::exit(EXIT_FAILURE);
 }
@@ -75,13 +79,13 @@ void dist_usage(const char *arg) {
                          "Flags:\n"
                          "-h/-?\tUsage\n"
                          "-k\tSet kmer size [31]\n"
+                         "-W\tCache sketches/use cached sketches\n"
                          "-p\tSet number of threads [1]\n"
                          "-s\tadd a spacer of the format <int>x<int>,<int>x<int>,"
                          "..., where the first integer corresponds to the space "
                          "between bases repeated the second integer number of times\n"
                          "-w\tSet window size [max(size of spaced kmer, [parameter])]\n"
                          "-S\tSet sketch size [16, for 2**16 bytes each]\n"
-                         "-c\tCache sketches/use cached sketches\n"
                          "-H\tTreat provided paths as pre-made sketches.\n"
                          "-C\tDo not canonicalize. [Default: canonicalize]\n"
                          "-P\tSet prefix for sketch file locations [empty]\n"
@@ -116,10 +120,9 @@ void sketch_usage(const char *arg) {
                          "-w\tSet window size [max(size of spaced kmer, [parameter])]\n"
                          "-S\tSet sketch size [16, for 2**16 bytes each]\n"
                          "-F\tGet paths to genomes from file rather than positional arguments\n"
-                         "-b:\tBatch size [16 genomes]\n"
-                         "-c:\tCache sketches/use cached sketches\n"
-                         "-C:\tDo not canonicalize. [Default: canonicalize]\n"
-                         "-L:\tClamp estimates below expected variance to 0. [Default: do not clamp]\n"
+                         "-c\tCache sketches/use cached sketches\n"
+                         "-C\tDo not canonicalize. [Default: canonicalize]\n"
+                         "-L\tClamp estimates below expected variance to 0. [Default: do not clamp]\n"
                          "-P\tSet prefix for sketch file locations [empty]\n"
                          "-x\tSet suffix in sketch file names [empty]\n"
                          "-E\tUse Flajolet with inclusion/exclusion quantitation method for hll. [Default: Ertl Joint MLE]\n"
@@ -183,6 +186,11 @@ size_t fsz2count(uint64_t fsz) {
     // This likely does not account for compression.
 }
 
+/*
+ *
+  enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+ */
+
 // Main functions
 int sketch_main(int argc, char *argv[]) {
     int wsz(0), k(31), sketch_size(16), skip_cached(false), co, nthreads(1), mincount(-1), nhashes(1), cmsketchsize(-1);
@@ -221,10 +229,10 @@ int sketch_main(int argc, char *argv[]) {
             case 'h': case '?': sketch_usage(*argv); break;
         }
     }
+    nthreads = std::max(nthreads, 1);
     omp_set_num_threads(nthreads);
     spvec_t sv(parse_spacing(spacing.data(), k));
     Spacer sp(k, wsz, sv);
-    std::vector<std::vector<std::string>> ivecs;
     std::vector<bool> use_filter;
     std::vector<cm::ccm_t> cms;
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
@@ -253,15 +261,13 @@ int sketch_main(int argc, char *argv[]) {
     if(wsz < sp.c_) wsz = sp.c_;
     std::vector<hll_t> hlls;
     while(hlls.size() < (u32)nthreads) hlls.emplace_back(sketch_size, estim, jestim, 1, clamp);
-    nthreads = std::max(nthreads, 1);
-    omp_set_num_threads(nthreads);
     std::vector<std::string> fnames(nthreads);
+
 #define MAIN_SKETCH_LOOP(MinType)\
-    for(size_t i = 0; i < ivecs.size(); ++i) {\
+    for(size_t i = 0; i < inpaths.size(); ++i) {\
         const int tid = omp_get_thread_num();\
         std::string &fname = fnames[tid];\
-        std::vector<std::string> &scratch_stringvec = ivecs[i];\
-        fname = hll_fname(scratch_stringvec[0].data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix);\
+        fname = hll_fname(inpaths[i].data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix);\
         if(write_gz) fname += ".gz";\
         if(skip_cached && isfile(fname)) continue;\
         Encoder<MinType> enc(nullptr, 0, sp, nullptr, canon);\
@@ -276,28 +282,31 @@ int sketch_main(int argc, char *argv[]) {
         h.clear();\
     }
     if(entropy_minimization) {
-        #pragma omp parallel for schedule(dynamic, 16)
+        #pragma omp parallel for schedule(dynamic)
         MAIN_SKETCH_LOOP(bns::score::Entropy)
     } else {
-        #pragma omp parallel for schedule(dynamic, 16)
+        #pragma omp parallel for schedule(dynamic)
         MAIN_SKETCH_LOOP(bns::score::Lex)
     }
 #undef MAIN_SKETCH_LOOP
-    LOG_INFO("Successfully finished sketching from %zu files\n", ivecs.size());
+    LOG_INFO("Successfully finished sketching from %zu files\n", inpaths.size());
     return EXIT_SUCCESS;
 }
 
-struct LockSmith {
-    // Simple lock-holder to avoid writing to the same file twice.
-    tthread::fast_mutex &m_;
-    LockSmith(tthread::fast_mutex &m): m_(m) {m_.lock();}
-    ~LockSmith() {m_.unlock();}
-};
 
 template<typename FType, typename=typename std::enable_if<std::is_floating_point<FType>::value>::type>
-size_t submit_emit_dists(const int pairfi, const FType *ptr, u64 hs, size_t index, ks::string &str, const std::vector<std::string> &inpaths, bool write_binary, bool use_scientific, const size_t buffer_flush_size=1ull<<18) {
+size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks::string &str, const std::vector<std::string> &inpaths, bool write_binary, bool use_scientific, const size_t buffer_flush_size=1ull<<18) {
     if(write_binary) {
-       ::write(pairfi, ptr, sizeof(FType) * hs);
+#if !NDEBUG
+        for(size_t i = 0; i < hs - index - 1; ++i) {
+            std::fprintf(stderr, "index: %zu. value: %lf\n", i + index, ptr[i]);
+        }
+#endif
+        const ssize_t nbytes = sizeof(FType) * (hs - index - 1);
+        LOG_DEBUG("Writing %zd bytes for %zu items\n", nbytes, (hs - index - 1));
+        if(ssize_t i = ::write(pairfi, ptr, nbytes); i != nbytes) {
+            std::fprintf(stderr, "written %zd bytes instead of expected %zd\n", i, nbytes);
+        }
     } else {
         const char *const fmt(use_scientific ? "%e\t": "%f\t");
 #if !NDEBUG
@@ -327,7 +336,7 @@ typename std::common_type<FType1, FType2>::type dist_index(FType1 ji, FType2 ksi
 }
 
 template<typename FType, typename=typename std::enable_if<std::is_floating_point<FType>::value>::type>
-void dist_loop(const int pairfi, std::vector<hll_t> &hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType emit_fmt, bool write_binary, const size_t buffer_flush_size=1ull<<18) {
+void dist_loop(std::FILE *ofp, std::vector<hll_t> &hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType emit_fmt, bool write_binary, const size_t buffer_flush_size=1ull<<18) {
 #if !NDEBUG
     std::fprintf(stderr, "value for use_scientific is %s\n", use_scientific ? "t": "f");
 #endif
@@ -337,24 +346,25 @@ void dist_loop(const int pairfi, std::vector<hll_t> &hlls, const std::vector<std
     ks::string str;
     const FType ksinv = 1./ k;
     std::future<size_t> submitter;
+    const int pairfi = fileno(ofp);
     for(size_t i = 0; i < hlls.size(); ++i) {
         hll_t &h1(hlls[i]); // TODO: consider working backwards and pop_back'ing.
         std::vector<FType> &dists = dps[i & 1];
         switch(emit_fmt) {
             case MASH_DIST: {
-                #pragma omp parallel for schedule(dynamic)
+                #pragma omp parallel for
                 for(size_t j = i + 1; j < hlls.size(); ++j)
                     dists[j - i - 1] = dist_index(jaccard_index(hlls[j], h1), ksinv);
                 break;
             }
             case JI: {
-                #pragma omp parallel for schedule(dynamic)
+                #pragma omp parallel for
                 for(size_t j = i + 1; j < hlls.size(); ++j)
                     dists[j - i - 1] = jaccard_index(hlls[j], h1);
                 break;
             }
             case SIZES: {
-                #pragma omp parallel for schedule(dynamic)
+                #pragma omp parallel for
                 for(size_t j = i + 1; j < hlls.size(); ++j)
                     dists[j - i - 1] = union_size(hlls[j], h1);
                 break;
@@ -409,9 +419,8 @@ int dist_main(int argc, char *argv[]) {
     CompReading reading_type = CompReading::UNCOMPRESSED;
     FILE *ofp(stdout), *pairofp(stdout);
     sketching_method sm = EXACT;
-    omp_set_num_threads(1);
     std::vector<std::string> querypaths;
-    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:T:gDazLfICbMEeHhZBNymq?")) >= 0) {
+    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:T:gDazLfICbMEeHhZBNymqW?")) >= 0) {
         switch(co) {
             case 'C': canon = false;                   break;
             case 'D': sketch_query_by_seq = false;     break;
@@ -450,6 +459,7 @@ int dist_main(int argc, char *argv[]) {
             case 'h': case '?': dist_usage(*argv);
         }
     }
+    if(nthreads < 0) nthreads = 1;
     omp_set_num_threads(nthreads);
     spvec_t sv(parse_spacing(spacing.data(), k));
     Spacer sp(k, wsz, sv);
@@ -458,7 +468,7 @@ int dist_main(int argc, char *argv[]) {
     detail::sort_paths_by_fsize(inpaths);
     if(inpaths.empty()) {
         std::fprintf(stderr, "No paths. See usage.\n");
-        sketch_usage(*argv);
+        dist_usage(*argv);
     }
     std::vector<sketch::cm::ccm_t> cms;
     std::vector<hll_t> hlls;
@@ -480,8 +490,6 @@ int dist_main(int argc, char *argv[]) {
     hlls.reserve(inpaths.size());
     while(hlls.size() < inpaths.size()) hlls.emplace_back(hll_t(sketch_size, estim, jestim, 1, clamp));
     {
-        // Scope to force deallocation of scratch_vv.
-        std::vector<std::vector<std::string>> scratch_vv(nthreads, std::vector<std::string>{"empty"});
         if(wsz < sp.c_) wsz = sp.c_;
         #pragma omp parallel for
         for(size_t i = 0; i < hlls.size(); ++i) {
@@ -569,20 +577,26 @@ int dist_main(int argc, char *argv[]) {
         kseq_destroy_stack(ks);
     } else {
         if(write_binary) {
-            const char *name = emit_float ? dm::MAGIC_NUMBER<float>().name(): dm::MAGIC_NUMBER<double>().name();
-            std::fwrite(name, std::strlen(name + 1), 1, pairofp);
-            const size_t hs(hlls.size());
+            std::string name = emit_float ? dm::more_magic::MAGIC_NUMBER<float>().name(): dm::more_magic::MAGIC_NUMBER<double>().name();
+            name += '\n';
+            LOG_DEBUG("About to add magic to file. First, what's my offset? %ld\n", std::ftell(pairofp));
+            std::fputs(name.data(), pairofp);
+            const uint64_t hs(hlls.size());
+#if !NDEBUG
+            std::fprintf(stderr, "Number of sketches: %zu\n", hs);
+#endif
             std::fwrite(&hs, sizeof(hs), 1, pairofp);
+            std::fflush(pairofp);
         } else {
             str.sprintf("##Names \t");
             for(const auto &path: inpaths) str.sprintf("%s\t", path.data());
             str.back() = '\n';
             str.write(fileno(pairofp)); str.free();
         }
-        if(emit_float)
-            dist_loop<float>(fileno(pairofp), hlls, inpaths, use_scientific, k, emit_fmt, write_binary);
-        else
-            dist_loop<double>(fileno(pairofp), hlls, inpaths, use_scientific, k, emit_fmt, write_binary);
+
+        auto fn_ptr = emit_float ? dist_loop<float> :dist_loop<double>;
+        static constexpr uint32_t buffer_flush_size = BUFFER_FLUSH_SIZE;
+        fn_ptr(pairofp, hlls, inpaths, use_scientific, k, emit_fmt, write_binary, buffer_flush_size);
     }
     if(write_binary) {
         if(pairofp_labels.empty()) pairofp_labels = "unspecified";
@@ -597,30 +611,32 @@ int dist_main(int argc, char *argv[]) {
 
 int print_binary_main(int argc, char *argv[]) {
     int c;
-    bool use_float = false, use_scientific = false;
+    //bool use_float = false; Automatically detected, not needed.
+    bool use_scientific = false;
     std::string outpath;
     for(char **p(argv); *p; ++p) if(std::strcmp(*p, "-h") && std::strcmp(*p, "--help") == 0) goto usage;
     if(argc == 1) {
         usage:
         std::fprintf(stderr, "%s <path to binary file> [- to read from stdin]\n", argv ? static_cast<const char *>(*argv): "flashdans");
     }
-    while((c = getopt(argc, argv, ":o:sfh?")) >= 0) {
+    while((c = getopt(argc, argv, ":o:sh?")) >= 0) {
         switch(c) {
             case 'o': outpath = optarg; break;
-            case 'f': use_float = true; break;
             case 's': use_scientific = true; break;
+            case 'h': case '?': goto usage;
         }
     }
     std::FILE *fp;
     if(outpath.empty()) outpath = "/dev/stdout";
-    if(use_float) {
-        dm::DistanceMatrix<float> mat(argv[optind]);
-        if((fp = std::fopen(outpath.data(), "wb")) == nullptr) RUNTIME_ERROR(ks::sprintf("Could not open file at %s", outpath.data()).data());
+#define INNER(type) \
+        dm::DistanceMatrix<type> mat(argv[optind]);\
+        LOG_INFO("Name of found: %s\n", dm::DistanceMatrix<type>::magic_string());\
+        if((fp = std::fopen(outpath.data(), "wb")) == nullptr) RUNTIME_ERROR(ks::sprintf("Could not open file at %s", outpath.data()).data());\
         mat.printf(fp, use_scientific);
-    } else {
-        dm::DistanceMatrix<double> mat(argv[optind]);
-        if((fp = std::fopen(outpath.data(), "wb")) == nullptr) RUNTIME_ERROR(ks::sprintf("Could not open file at %s", outpath.data()).data());
-        mat.printf(fp, use_scientific);
+    try {
+        INNER(float);
+    } catch(const std::runtime_error &re) {
+        INNER(double);
     }
     std::fclose(fp);
     return EXIT_SUCCESS;
@@ -760,7 +776,7 @@ int main(int argc, char *argv[]) {
     else if(std::strcmp(argv[1], "dist") == 0) return dist_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "setdist") == 0) return setdist_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "hll") == 0) return hll_main(argc - 1, argv + 1);
-    else if(std::strcmp(argv[1], "printbinary") == 0) return print_binary_main(argc - 1, argv + 1);
+    else if(std::strcmp(argv[1], "printmat") == 0) return print_binary_main(argc - 1, argv + 1);
     else {
         for(const char *const *p(argv + 1); *p; ++p)
             if(std::string(*p) == "-h" || std::string(*p) == "--help") main_usage(argv);

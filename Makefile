@@ -8,7 +8,7 @@ CLHASH_CHECKOUT = "&& git checkout master"
 WARNINGS=-Wall -Wextra -Wno-char-subscripts \
 		 -Wpointer-arith -Wwrite-strings -Wdisabled-optimization \
 		 -Wformat -Wcast-align -Wno-unused-function -Wno-unused-parameter \
-		 -pedantic -DUSE_PDQSORT -Wunused-variable \
+		 -pedantic -DUSE_PDQSORT -Wunused-variable -Winline \
 		# -Wduplicated-branches -Wdangling-else  # -Wsuggest-attribute=malloc   # -Wconversion
 ifndef EXTRA
 	EXTRA:=
@@ -102,6 +102,8 @@ test/%.zo: test/%.cpp
 
 zobj: $(ALL_ZOBJS)
 
+dash: src/dashing.cpp $(ALL_ZOBJS) $(DEPS)
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 %: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 %_s: src/%.cpp $(ALL_ZOBJS) $(DEPS)
