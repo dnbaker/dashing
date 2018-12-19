@@ -94,7 +94,7 @@ void dist_usage(const char *arg) {
                          "-o\tOutput for genome size estimates [stdout]\n"
                          "-I\tUse Ertl's Improved Estimator\n"
                          "-E\tUse Ertl's Original Estimator\n"
-                         "-m\tUse Ertl's MLE Estimator with inclusion/exclusion [default\tUses Ertl's Joint MLE Estimator]\n"
+                         "-J\tUse Ertl's JMLE Estimator with inclusion/exclusion [default\tUses Ertl-MLE]\n"
                          "-O\tOutput for genome distance matrix [stdout]\n"
                          "-L\tClamp estimates below expected variance to 0. [Default: do not clamp]\n"
                          "-e\tEmit in scientific notation\n"
@@ -202,7 +202,7 @@ int sketch_main(int argc, char *argv[]) {
     std::string spacing, paths_file, suffix, prefix;
     sketching_method sm = EXACT;
     uint64_t seedseedseed = 1337u;
-    while((co = getopt(argc, argv, "n:P:F:c:p:x:R:s:S:k:w:H:q:mBfjLzEDIcCeh?")) >= 0) {
+    while((co = getopt(argc, argv, "n:P:F:c:p:x:R:s:S:k:w:H:q:JBfjLzEDIcCeh?")) >= 0) {
         switch(co) {
             case 'B': sm = CBF; break;
             case 'C': canon = false; break;
@@ -219,7 +219,7 @@ int sketch_main(int argc, char *argv[]) {
             case 'e': entropy_minimization = true; break;
             case 'f': sm = BY_FNAME; break;
             case 'k': k = std::atoi(optarg); break;
-            case 'm': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
+            case 'J': jestim = hll::JointEstimationMethod::ERTL_JMLE; break;
             case 'n': mincount = std::atoi(optarg); break;
             case 'p': nthreads = std::atoi(optarg); break;
             case 'q': cmsketchsize = std::atoi(optarg); break;
