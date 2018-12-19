@@ -85,7 +85,7 @@ void dist_usage(const char *arg) {
                          "..., where the first integer corresponds to the space "
                          "between bases repeated the second integer number of times\n"
                          "-w\tSet window size [max(size of spaced kmer, [parameter])]\n"
-                         "-S\tSet sketch size [16, for 2**16 bytes each]\n"
+                         "-S\tSet sketch size [10, for 2**10 bytes each]\n"
                          "-H\tTreat provided paths as pre-made sketches.\n"
                          "-C\tDo not canonicalize. [Default: canonicalize]\n"
                          "-P\tSet prefix for sketch file locations [empty]\n"
@@ -118,7 +118,7 @@ void sketch_usage(const char *arg) {
                          "..., where the first integer corresponds to the space "
                          "between bases repeated the second integer number of times\n"
                          "-w\tSet window size [max(size of spaced kmer, [parameter])]\n"
-                         "-S\tSet sketch size [16, for 2**16 bytes each]\n"
+                         "-S\tSet sketch size [10, for 2**10 bytes each]\n"
                          "-F\tGet paths to genomes from file rather than positional arguments\n"
                          "-c\tCache sketches/use cached sketches\n"
                          "-C\tDo not canonicalize. [Default: canonicalize]\n"
@@ -193,11 +193,11 @@ size_t fsz2count(uint64_t fsz) {
 
 // Main functions
 int sketch_main(int argc, char *argv[]) {
-    int wsz(0), k(31), sketch_size(16), skip_cached(false), co, nthreads(1), mincount(-1), nhashes(1), cmsketchsize(-1);
+    int wsz(0), k(31), sketch_size(10), skip_cached(false), co, nthreads(1), mincount(-1), nhashes(1), cmsketchsize(-1);
     bool canon(true), write_to_dev_null(false), write_gz(false), clamp(false);
     bool entropy_minimization = false;
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
-    hll::JointEstimationMethod jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE;
+    hll::JointEstimationMethod jestim = static_cast<hll::JointEstimationMethod>(hll::EstimationMethod::ERTL_MLE);
     std::string spacing, paths_file, suffix, prefix;
     sketching_method sm = EXACT;
     uint64_t seedseedseed = 1337u;
@@ -336,7 +336,7 @@ typename std::common_type<FType1, FType2>::type dist_index(FType1 ji, FType2 ksi
 }
 
 template<typename FType, typename=typename std::enable_if<std::is_floating_point<FType>::value>::type>
-void dist_loop(std::FILE *ofp, std::vector<hll_t> &hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType emit_fmt, bool write_binary, const size_t buffer_flush_size=1ull<<18) {
+void dist_loop(std::FILE *ofp, std::vector<hll_t> &hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType emit_fmt, bool write_binary, int nthreads, const size_t buffer_flush_size=1ull<<18) {
 #if !NDEBUG
     std::fprintf(stderr, "value for use_scientific is %s\n", use_scientific ? "t": "f");
 #endif
@@ -347,6 +347,7 @@ void dist_loop(std::FILE *ofp, std::vector<hll_t> &hlls, const std::vector<std::
     const FType ksinv = 1./ k;
     std::future<size_t> submitter;
     const int pairfi = fileno(ofp);
+    omp_set_num_threads(nthreads);
     for(size_t i = 0; i < hlls.size(); ++i) {
         hll_t &h1(hlls[i]); // TODO: consider working backwards and pop_back'ing.
         std::vector<FType> &dists = dps[i & 1];
@@ -373,13 +374,15 @@ void dist_loop(std::FILE *ofp, std::vector<hll_t> &hlls, const std::vector<std::
                 __builtin_unreachable();
         }
         h1.free();
-        LOG_DEBUG("Finished chunk %zu of %zu\n", i + 1, hlls.size());
+        LOG_INFO("Finished chunk %zu of %zu\n", i + 1, hlls.size());
 #if !NDEBUG
         if(i) LOG_DEBUG("Finished writing row %zu\n", submitter.get());
 #else
         if(i) submitter.get();
 #endif
-        submitter = std::async(std::launch::async, submit_emit_dists<FType>, pairfi, dists.data(), hlls.size(), i, std::ref(str), std::ref(inpaths), write_binary, use_scientific, buffer_flush_size);
+        submitter = std::async(std::launch::async, submit_emit_dists<FType>,
+                               pairfi, dists.data(), hlls.size(), i,
+                               std::ref(str), std::ref(inpaths), write_binary, use_scientific, buffer_flush_size);
     }
     submitter.get();
     if(!write_binary) str.flush(pairfi);
@@ -406,7 +409,7 @@ enum CompReading: unsigned {
     } while(0)
 
 int dist_main(int argc, char *argv[]) {
-    int wsz(0), k(31), sketch_size(16), use_scientific(false), co, cache_sketch(false),
+    int wsz(0), k(31), sketch_size(10), use_scientific(false), co, cache_sketch(false),
         nthreads(1), mincount(30), nhashes(4);
     bool canon(true), presketched_only(false), write_binary(false),
          emit_float(false),
@@ -414,7 +417,7 @@ int dist_main(int argc, char *argv[]) {
     double factor = 1.;
     EmissionType emit_fmt(JI);
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
-    hll::JointEstimationMethod jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE;
+    hll::JointEstimationMethod jestim = static_cast<hll::JointEstimationMethod>(hll::EstimationMethod::ERTL_MLE);
     std::string spacing, paths_file, suffix, prefix, pairofp_labels;
     CompReading reading_type = CompReading::UNCOMPRESSED;
     FILE *ofp(stdout), *pairofp(stdout);
@@ -488,10 +491,11 @@ int dist_main(int argc, char *argv[]) {
         case EXACT: default: break;
     }
     hlls.reserve(inpaths.size());
+    std::atomic<uint32_t> ncomplete = 0;
     while(hlls.size() < inpaths.size()) hlls.emplace_back(hll_t(sketch_size, estim, jestim, 1, clamp));
     {
         if(wsz < sp.c_) wsz = sp.c_;
-        #pragma omp parallel for
+        #pragma omp parallel for schedule(dynamic)
         for(size_t i = 0; i < hlls.size(); ++i) {
             const std::string &path(inpaths[i]);
             static const std::string suf = ".gz";
@@ -513,6 +517,7 @@ int dist_main(int argc, char *argv[]) {
                     if(cache_sketch && !isf) hlls[i].write(fpath, (reading_type == GZ ? 1: reading_type == AUTODETECT ? std::equal(suf.rbegin(), suf.rend(), fpath.rbegin()): false));
                 }
             }
+            LOG_INFO("Finished sketching genome at path %s. %d/%zu complete\n", path.data(), ++ncomplete, inpaths.size());
         }
     }
     kseqs.free();
@@ -594,9 +599,9 @@ int dist_main(int argc, char *argv[]) {
             str.write(fileno(pairofp)); str.free();
         }
 
-        auto fn_ptr = emit_float ? dist_loop<float> :dist_loop<double>;
+        auto fn_ptr = emit_float ? dist_loop<float> : dist_loop<double>;
         static constexpr uint32_t buffer_flush_size = BUFFER_FLUSH_SIZE;
-        fn_ptr(pairofp, hlls, inpaths, use_scientific, k, emit_fmt, write_binary, buffer_flush_size);
+        fn_ptr(pairofp, hlls, inpaths, use_scientific, k, emit_fmt, write_binary, nthreads, buffer_flush_size);
     }
     if(write_binary) {
         if(pairofp_labels.empty()) pairofp_labels = "unspecified";
