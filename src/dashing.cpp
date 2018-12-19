@@ -81,6 +81,7 @@ void dist_usage(const char *arg) {
                          "-k\tSet kmer size [31]\n"
                          "-W\tCache sketches/use cached sketches\n"
                          "-p\tSet number of threads [1]\n"
+                         "-b\tEmit distances in binary (default: human-readable)\n"
                          "-s\tadd a spacer of the format <int>x<int>,<int>x<int>,"
                          "..., where the first integer corresponds to the space "
                          "between bases repeated the second integer number of times\n"
@@ -101,7 +102,7 @@ void dist_usage(const char *arg) {
                          "-g\tUse entropy minimization (rather than lexical)\n"
                          "-F\tGet paths to genomes from file rather than positional arguments\n"
                          "-M\tEmit Mash distance (default: jaccard index)\n"
-                         "-Z\tEmit genome sizes (default: jaccard -index)\n"
+                         "-Z\tEmit genome sizes (default: jaccard index)\n"
                 , arg);
     std::exit(EXIT_FAILURE);
 }
