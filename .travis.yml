@@ -16,7 +16,6 @@ before_install:
 script:
   - make update
   - cd bonsai
-  - make
   - make unit
   - ./bonsai/unit hll
   - ./bonsai/unit SIMDhash
