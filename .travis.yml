@@ -22,6 +22,9 @@ script:
   - ./bonsai/unit counter
   - ./bonsai/unit circdebuff
   - ./bonsai/unit tax
+  - cd ..
+  - make dashing
+  - ./dashing dist bonsai/bonsai/test/GCF_00*z
 notifications:
     slack: jhu-genomics:BbHYSks7DhOolq80IYf6m9oe
     rooms:

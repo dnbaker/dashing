@@ -1,18 +1,18 @@
-# dash
+# Dashing [![Build Status](https://travis-ci.com/dnbaker/dashing.svg?branch=master)](https://travis-ci.com/dnbaker/dashing)
 
-dash sketches and computes distances between fasta and fastq data.
+dashing sketches and computes distances between fasta and fastq data.
 
 # Build
 Clone this repository recursively, and use make.
 
 ```bash
-git clone --recursive https://github.com/dnbaker/dash
-cd dash && make dash
+git clone --recursive https://github.com/dnbaker/dashing
+cd dashing && make dashing
 ```
 
 # Usage
 
-To see all usage options, use `./dash <subcommand>`, for subcommand in `[sketch, dist, hll, setdist]`.
+To see all usage options, use `./dashing <subcommand>`, for subcommand in `[sketch, dist, hll, setdist]`.
 Of most interest is probably the dist command, which can take either genomes or pre-built sketches as arguments.
 
 
@@ -20,7 +20,7 @@ Of most interest is probably the dist command, which can take either genomes or 
 For the simplest case of unspaced, unminimized kmers for a set of genomes with `k = 31` and 13 threads:
 
 ```
-dash dist -k31 -p13 -Odistance_matrix.txt -osize_estimates.txt genome1.fna.gz genome2.fna genome3.fasta <...>
+dashing dist -k31 -p13 -Odistance_matrix.txt -osize_estimates.txt genome1.fna.gz genome2.fna genome3.fasta <...>
 ```
 
 The genomes can be omitted as positional arguments if `-F genome_paths.txt` is provided, where `genome_paths.txt` is a file containing a path to a genome per line.
@@ -32,7 +32,7 @@ These can be cached with `-c`, which saves the sketches for later use. These ske
 The sketch command largely mirrors dist, except that only sketches are computed.
 
 ```
-dash sketch -k31 -p13 -F genome_paths.txt
+dashing sketch -k31 -p13 -F genome_paths.txt
 ```
 
 ## setdist
