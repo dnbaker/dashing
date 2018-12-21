@@ -1,0 +1,31 @@
+sudo: false
+language: cpp
+compiler:
+  - gcc
+addons:
+  apt:
+    sources:
+    - ubuntu-toolchain-r-test
+    packages:
+    - g++-7
+install:
+  - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 60 --slave /usr/bin/g++ g++ /usr/bin/g++-7
+script:
+  - cd bonsai
+  - make
+  - make unit
+  - ./bonsai/unit hll
+  - ./bonsai/unit SIMDhash
+  - ./bonsai/unit popcnt
+  - ./bonsai/unit roundup64
+  - ./bonsai/unit set
+  - ./bonsai/unit counter
+  - ./bonsai/unit circdebuff
+  - ./bonsai/unit tax
+  - cd ..
+  - make dashing
+  - ./dashing dist bonsai/bonsai/test/GCF_00*z
+notifications:
+    slack: jhu-genomics:BbHYSks7DhOolq80IYf6m9oe
+    rooms:
+      - jhu-genomics:BbHYSks7DhOolq80IYf6m9oe#meta_trees
