@@ -7,7 +7,7 @@ Clone this repository recursively, and use make.
 
 ```bash
 git clone --recursive https://github.com/dnbaker/dashing
-cd dashing && make update && make dashing
+cd dashing && make update dashing
 ```
 
 # Usage
