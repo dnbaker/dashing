@@ -102,9 +102,7 @@ test/%.zo: test/%.cpp
 
 zobj: $(ALL_ZOBJS)
 
-dash: src/dashing.cpp $(ALL_ZOBJS) $(DEPS)
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
-%: src/%.cpp $(ALL_ZOBJS) $(DEPS)
+%: src/%.cpp $(ALL_ZOBJS) $(DEPS) update
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 %_s: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -static -static-libstdc++ -static-libgcc -DNDEBUG bonsai/zlib/libz.a bonsai/clhash/clhash.o $< -o $@
