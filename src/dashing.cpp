@@ -219,7 +219,7 @@ int sketch_main(int argc, char *argv[]) {
             case 'e': entropy_minimization = true; break;
             case 'f': sm = BY_FNAME; break;
             case 'k': k = std::atoi(optarg); break;
-            case 'J': jestim = hll::JointEstimationMethod::ERTL_JMLE; break;
+            case 'J': jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
             case 'n': mincount = std::atoi(optarg); break;
             case 'p': nthreads = std::atoi(optarg); break;
             case 'q': cmsketchsize = std::atoi(optarg); break;
@@ -305,7 +305,8 @@ size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks:
 #endif
         const ssize_t nbytes = sizeof(FType) * (hs - index - 1);
         LOG_DEBUG("Writing %zd bytes for %zu items\n", nbytes, (hs - index - 1));
-        if(ssize_t i = ::write(pairfi, ptr, nbytes); i != nbytes) {
+        ssize_t i = ::write(pairfi, ptr, nbytes);
+        if(i != nbytes) {
             std::fprintf(stderr, "written %zd bytes instead of expected %zd\n", i, nbytes);
         }
     } else {
@@ -492,7 +493,8 @@ int dist_main(int argc, char *argv[]) {
         case EXACT: default: break;
     }
     hlls.reserve(inpaths.size());
-    std::atomic<uint32_t> ncomplete = 0;
+    std::atomic<uint32_t> ncomplete;
+    ncomplete.store(0);
     while(hlls.size() < inpaths.size()) hlls.emplace_back(hll_t(sketch_size, estim, jestim, 1, clamp));
     {
         if(wsz < sp.c_) wsz = sp.c_;
