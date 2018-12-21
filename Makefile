@@ -110,5 +110,5 @@ zobj: $(ALL_ZOBJS)
 %_pgi: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -pg -fno-inline -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 clean:
-	rm -f $(EX) $(D_EX) libzstd.a
+	rm -f $(EX) $(D_EX) libzstd.a && cd bonsai/zstd && make clean && cd ../zlib && make clean && cd ../..
 mostlyclean: clean
