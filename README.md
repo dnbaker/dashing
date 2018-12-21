@@ -10,6 +10,11 @@ git clone --recursive https://github.com/dnbaker/dashing
 cd dashing && make update dashing
 ```
 
+Dashing is written in C++14, which means that it requires a relatively new compiler.
+Dashing is tested under gcc`{6-9}`, but fails for gcc4, which is installed by default on many machines.
+For OSX, we recommend using Homebrew to install gcc-8.
+On Linux, we recommend package managers. (For instance, our Travis-CI Ubuntu example upgrades to a sufficiently new GCC using `sudo update-alternatives`.
+
 # Usage
 
 To see all usage options, use `./dashing <subcommand>`, for subcommand in `[sketch, dist, hll, setdist]`.
