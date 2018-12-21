@@ -1,6 +1,6 @@
-.PHONY=all tests clean obj update
-CXX=g++
-CC=gcc
+.PHONY=all tests clean obj
+CXX?=g++
+CC?=gcc
 
 GMATCH=$(findstring g++,$(CXX))
 
@@ -10,15 +10,9 @@ WARNINGS=-Wall -Wextra -Wno-char-subscripts \
 		 -Wformat -Wcast-align -Wno-unused-function -Wno-unused-parameter \
 		 -pedantic -DUSE_PDQSORT -Wunused-variable -Winline \
 		# -Wduplicated-branches -Wdangling-else  # -Wsuggest-attribute=malloc   # -Wconversion
-ifndef EXTRA
-	EXTRA:=
-endif
-ifndef INCPLUS
-	INCPLUS:=
-endif
-ifndef EXTRA_LD
-	EXTRA_LD:=
-endif
+EXTRA?=
+INCPLUS?=
+EXTRA_LD?=
 DBG:=
 OS:=$(shell uname)
 FLAGS=
@@ -60,7 +54,7 @@ EX=$(patsubst src/%.cpp,%,$(wildcard src/*.cpp))
 D_EX=$(patsubst src/%.cpp,%_d,$(wildcard src/*.cpp))
 
 
-all: $(EX)
+all: update dashing
 
 d: $(D_EX)
 
