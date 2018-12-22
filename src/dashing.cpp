@@ -773,6 +773,50 @@ int hll_main(int argc, char *argv[]) {
     return EXIT_SUCCESS;
 }
 
+void union_usage [[noreturn]] (char *ex) {
+    std::fprintf(stderr, "Usage: %s genome1 <genome2>...\n"
+                         "Flags:\n"
+                         "-o: Write union sketch to file [/dev/stdout]\n"
+                         "-z: Emit compressed sketch\n",
+                 ex);
+    std::exit(1);
+}
+
+int union_main(int argc, char *argv[]) {
+    if(std::find_if(argv, argc + argv, [](const char *s) {return std::strcmp(s, "--help") == 0;}) != argc + argv)
+        union_usage(*argv);
+    bool compress = false;
+    int compression_level = 6;
+    const char *opath = "/dev/stdout";
+    std::vector<std::string> paths;
+    for(int c;(c = getopt(argc, argv, "o:F:zZ:h?")) >= 0;) {
+        switch(c) {
+            case 'h': union_usage(*argv);
+            case 'Z': compression_level = std::atoi(optarg); [[fallthrough]];
+            case 'z': compress = true; break;
+            case 'o': opath = optarg; break;
+            case 'F': paths = get_paths(optarg); break;
+        }
+    }
+    if(argc == optind && paths.empty()) union_usage(*argv);
+    std::for_each(argv + optind, argv + argc, [&](const char *s){paths.emplace_back(s);});
+    hll::hll_t hll(paths.back());
+    paths.pop_back();
+    for(auto &path: paths) {
+        hll += hll_t(path);
+    }
+    char mode[6];
+    if(compress && compression_level)
+        std::sprintf(mode, "wb%d", compression_level % 23);
+    else
+        std::sprintf(mode, "wT");
+    gzFile ofp = gzopen(opath, mode);
+    if(!ofp) throw std::runtime_error(std::string("Could not open file at ") + opath);
+    hll.write(ofp);
+    gzclose(ofp);
+    return 0;
+}
+
 } // namespace bns
 
 using namespace bns;
@@ -782,6 +826,7 @@ int main(int argc, char *argv[]) {
     if(argc == 1) main_usage(argv);
     if(std::strcmp(argv[1], "sketch") == 0) return sketch_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "dist") == 0) return dist_main(argc - 1, argv + 1);
+    else if(std::strcmp(argv[1], "union") == 0) return union_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "setdist") == 0) return setdist_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "hll") == 0) return hll_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "printmat") == 0) return print_binary_main(argc - 1, argv + 1);
