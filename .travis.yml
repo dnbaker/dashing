@@ -11,10 +11,8 @@ addons:
 install:
   - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-6 60 --slave /usr/bin/g++ g++ /usr/bin/g++-6
 before_install:
-  - git submodule update --init --recursive
   - make update
 script:
-  - make update
   - cd bonsai
   - make unit
   - ./bonsai/unit hll
