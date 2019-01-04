@@ -59,7 +59,7 @@ all: update dashing
 d: $(D_EX)
 
 update:
-	+git submodule update --init --remote --recursive . && cd bonsai && git checkout master && git pull && make update && \
+	+git checkout master && git submodule update --init --remote --recursive . && cd bonsai && git checkout master && git pull && make update && \
     cd linear && git checkout master && git pull && cd .. && cd .. && cd distmat && git checkout master && git pull && cd ..
 
 libzstd.a:
