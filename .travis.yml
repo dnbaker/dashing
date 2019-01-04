@@ -13,6 +13,7 @@ install:
 before_install:
   - make update
 script:
+  - make update
   - cd bonsai
   - make unit
   - ./bonsai/unit hll
