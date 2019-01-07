@@ -8,7 +8,7 @@ CLHASH_CHECKOUT = "&& git checkout master"
 WARNINGS=-Wall -Wextra -Wno-char-subscripts \
 		 -Wpointer-arith -Wwrite-strings -Wdisabled-optimization \
 		 -Wformat -Wcast-align -Wno-unused-function -Wno-unused-parameter \
-		 -pedantic -DUSE_PDQSORT -Wunused-variable -Winline \
+		 -pedantic -DUSE_PDQSORT -Wunused-variable -Winline -Wno-attributes\
 		# -Wduplicated-branches -Wdangling-else  # -Wsuggest-attribute=malloc   # -Wconversion
 EXTRA?=
 INCPLUS?=
@@ -59,7 +59,7 @@ all: update dashing
 d: $(D_EX)
 
 update:
-	+git submodule update --init --remote --recursive . && cd bonsai && git checkout master && git pull && make update && \
+	+git checkout master && git submodule update --init --remote --recursive . && cd bonsai && git checkout master && git pull && make update && \
     cd linear && git checkout master && git pull && cd .. && cd .. && cd distmat && git checkout master && git pull && cd ..
 
 libzstd.a:

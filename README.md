@@ -6,7 +6,7 @@ dashing sketches and computes distances between fasta and fastq data.
 Clone this repository recursively, and use make.
 
 ```bash
-git clone --recursive https://github.com/dnbaker/dashing
+git clone https://github.com/dnbaker/dashing
 cd dashing && make update dashing
 ```
 
