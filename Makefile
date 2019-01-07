@@ -97,10 +97,17 @@ test/%.zo: test/%.cpp
 
 zobj: $(ALL_ZOBJS)
 
-%: src/%.cpp $(ALL_ZOBJS) $(DEPS) update
+%: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
-%_s: src/%.cpp $(ALL_ZOBJS) $(DEPS) update
+%_s: src/%.cpp $(ALL_ZOBJS) $(DEPS)
+	ln -sf `$(CXX) --print-file-name=libgomp.a` && \
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -static-libstdc++ -static-libgcc bonsai/zlib/libz.a  -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+%_s128: src/%.cpp $(ALL_ZOBJS) $(DEPS)
+	ln -sf `$(CXX) --print-file-name=libgomp.a` && \
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mno-avx2 -msse4.1 -static-libstdc++ -static-libgcc bonsai/zlib/libz.a  -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+%_s512: src/%.cpp $(ALL_ZOBJS) $(DEPS)
+	ln -sf `$(CXX) --print-file-name=libgomp.a` && \
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mavx512dq -mavx512vl -mavx512bw -static-libstdc++ -static-libgcc bonsai/zlib/libz.a  -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 %_d: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -fsanitize=address -fsanitize=undefined -fsanitize=leak $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 %_di: src/%.cpp $(ALL_ZOBJS) $(DEPS)
