@@ -376,8 +376,8 @@ void dist_loop(std::FILE *ofp, std::vector<hll_t> &hlls, const std::vector<std::
                 __builtin_unreachable();
         }
         h1.free();
-        LOG_INFO("Finished chunk %zu of %zu\n", i + 1, hlls.size());
 #if !NDEBUG
+        LOG_DEBUG("Finished chunk %zu of %zu\n", i + 1, hlls.size());
         if(i) LOG_DEBUG("Finished writing row %zu\n", submitter.get());
 #else
         if(i) submitter.get();
@@ -520,7 +520,8 @@ int dist_main(int argc, char *argv[]) {
                     if(cache_sketch && !isf) hlls[i].write(fpath, (reading_type == GZ ? 1: reading_type == AUTODETECT ? std::equal(suf.rbegin(), suf.rend(), fpath.rbegin()): false));
                 }
             }
-            LOG_INFO("Finished sketching genome at path %s. %d/%zu complete\n", path.data(), ++ncomplete, inpaths.size());
+            LOG_INFO("Finished sketching genome at path %s. %d/%zu (%%%lf) complete\n", path.data(), ncomplete + 1, inpaths.size(), double(ncomplete + 1) / inpaths.size());
+            ++ncomplete;
         }
     }
     kseqs.free();
