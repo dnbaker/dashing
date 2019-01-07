@@ -18,7 +18,7 @@ OS:=$(shell uname)
 FLAGS=
 
 OPT_MINUS_OPENMP= -O3 -funroll-loops\
-	  -pipe -fno-strict-aliasing -march=native -mpclmul $(FLAGS) $(EXTRA)
+	  -pipe -fno-strict-aliasing -march=native -mpclmul -DUSE_PDQSORT $(FLAGS) $(EXTRA)
 OPT=$(OPT_MINUS_OPENMP) -fopenmp
 XXFLAGS=-fno-rtti
 CXXFLAGS=$(OPT) $(XXFLAGS) -std=c++14 $(WARNINGS)
@@ -99,8 +99,8 @@ zobj: $(ALL_ZOBJS)
 
 %: src/%.cpp $(ALL_ZOBJS) $(DEPS) update
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
-%_s: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/bonsai/clhash.o
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -static -static-libstdc++ -static-libgcc -DNDEBUG bonsai/zlib/libz.a bonsai/bonsai/clhash.o $< -o $@
+%_s: src/%.cpp $(ALL_ZOBJS) $(DEPS) update
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -static-libstdc++ -static-libgcc bonsai/zlib/libz.a  -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 %_d: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -fsanitize=address -fsanitize=undefined -fsanitize=leak $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 %_di: src/%.cpp $(ALL_ZOBJS) $(DEPS)
