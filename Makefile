@@ -18,7 +18,9 @@ OS:=$(shell uname)
 FLAGS=
 
 OPT_MINUS_OPENMP= -O3 -funroll-loops\
-	  -pipe -fno-strict-aliasing -march=native -mpclmul -DUSE_PDQSORT $(FLAGS) $(EXTRA)
+	  -pipe -fno-strict-aliasing -march=native -mpclmul -DUSE_PDQSORT \
+	-DNOT_THREADSAFE \
+	$(FLAGS) $(EXTRA)
 OPT=$(OPT_MINUS_OPENMP) -fopenmp
 XXFLAGS=-fno-rtti
 CXXFLAGS=$(OPT) $(XXFLAGS) -std=c++14 $(WARNINGS)
