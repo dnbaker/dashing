@@ -521,7 +521,7 @@ int dist_main(int argc, char *argv[]) {
                     if(cache_sketch && !isf) hlls[i].write(fpath, (reading_type == GZ ? 1: reading_type == AUTODETECT ? std::equal(suf.rbegin(), suf.rend(), fpath.rbegin()): false));
                 }
             }
-            LOG_INFO("Finished sketching genome at path %s. %d/%zu (%%%lf) complete\n", path.data(), ncomplete + 1, inpaths.size(), double(ncomplete + 1) / inpaths.size());
+            LOG_INFO("Finished sketching genome at path %s. %d/%zu (%%%lf) complete\n", path.data(), ncomplete + 1, inpaths.size(), 100. * (ncomplete + 1) / inpaths.size());
             ++ncomplete;
         }
     }
