@@ -94,7 +94,7 @@ void dist_usage(const char *arg) {
                          "-o\tOutput for genome size estimates [stdout]\n"
                          "-I\tUse Ertl's Improved Estimator\n"
                          "-E\tUse Ertl's Original Estimator\n"
-                         "-J\tUse Ertl's JMLE Estimator with inclusion/exclusion [default\tUses Ertl-MLE]\n"
+                         "-J\tUse Ertl's JMLE Estimator [default\tUses Ertl-MLE]\n"
                          "-O\tOutput for genome distance matrix [stdout]\n"
                          "-L\tClamp estimates below expected variance to 0. [Default: do not clamp]\n"
                          "-e\tEmit in scientific notation\n"
@@ -126,9 +126,9 @@ void sketch_usage(const char *arg) {
                          "-L\tClamp estimates below expected variance to 0. [Default: do not clamp]\n"
                          "-P\tSet prefix for sketch file locations [empty]\n"
                          "-x\tSet suffix in sketch file names [empty]\n"
-                         "-E\tUse Flajolet with inclusion/exclusion quantitation method for hll. [Default: Ertl Joint MLE]\n"
-                         "-I\tUse Ertl improved estimator with inclusion/exclusion quantitation method for hll. This has low error but introduces bias. [Default: Ertl Joint MLE]\n"
-                         "-J\tUse Ertl MLE with inclusion/exclusion quantitation method for hll [Default: Ertl Joint MLE, which is *different* and probably better.].\n"
+                         "-E\tUse Flajolet with inclusion/exclusion quantitation method for hll. [Default: Ertl MLE]\n"
+                         "-I\tUse Ertl Improved estimator [Default: Ertl MLE]\n"
+                         "-J\tUse Ertl JMLE\n"
                          "-z\tWrite gzip compressed. (Or zstd-compressed, if compiled with zlibWrapper.\n"
                 , arg);
     std::exit(EXIT_FAILURE);
@@ -425,7 +425,7 @@ int dist_main(int argc, char *argv[]) {
     FILE *ofp(stdout), *pairofp(stdout);
     sketching_method sm = EXACT;
     std::vector<std::string> querypaths;
-    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:T:gDazLfICbMEeHhZBNymqW?")) >= 0) {
+    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:T:gDazLfICbMEeHJhZBNymqW?")) >= 0) {
         switch(co) {
             case 'C': canon = false;                   break;
             case 'D': sketch_query_by_seq = false;     break;
@@ -453,6 +453,7 @@ int dist_main(int argc, char *argv[]) {
             case 'g': entropy_minimization = true;     break;
             case 'k': k = std::atoi(optarg);           break;
             case 'm': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
+            case 'J': jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
             case 'o': if((ofp = fopen(optarg, "w")) == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
             case 'p': nthreads = std::atoi(optarg);    break;
             case 'q': nhashes = std::atoi(optarg);     break;
@@ -520,7 +521,7 @@ int dist_main(int argc, char *argv[]) {
                     if(cache_sketch && !isf) hlls[i].write(fpath, (reading_type == GZ ? 1: reading_type == AUTODETECT ? std::equal(suf.rbegin(), suf.rend(), fpath.rbegin()): false));
                 }
             }
-            LOG_INFO("Finished sketching genome at path %s. %d/%zu (%%%lf) complete\n", path.data(), ncomplete + 1, inpaths.size(), double(ncomplete + 1) / inpaths.size());
+            LOG_INFO("Finished sketching genome at path %s. %d/%zu (%%%lf) complete\n", path.data(), ncomplete + 1, inpaths.size(), 100. * (ncomplete + 1) / inpaths.size());
             ++ncomplete;
         }
     }
