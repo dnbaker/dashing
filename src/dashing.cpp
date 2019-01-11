@@ -353,6 +353,25 @@ void dist_loop(std::FILE *ofp, std::vector<hll_t> &hlls, const std::vector<std::
     for(size_t i = 0; i < hlls.size(); ++i) {
         hll_t &h1(hlls[i]); // TODO: consider working backwards and pop_back'ing.
         std::vector<FType> &dists = dps[i & 1];
+#if ENABLE_COMPUTED_GOTO
+        static constexpr void *TYPES[] {&&mash, &&ji, &&sizes};
+        goto *TYPES[emit_fmt];
+        mash:
+            #pragma omp parallel for
+            for(size_t j = i + 1; j < hlls.size(); ++j)
+                dists[j - i - 1] = dist_index(jaccard_index(hlls[j], h1), ksinv);
+            goto next_step;
+        ji:
+            #pragma omp parallel for
+            for(size_t j = i + 1; j < hlls.size(); ++j)
+                dists[j - i - 1] = jaccard_index(hlls[j], h1);
+           goto next_step;
+        sizes:
+            #pragma omp parallel for
+            for(size_t j = i + 1; j < hlls.size(); ++j)
+                dists[j - i - 1] = union_size(hlls[j], h1);
+        next_step:
+#else
         switch(emit_fmt) {
             case MASH_DIST: {
                 #pragma omp parallel for
@@ -375,6 +394,7 @@ void dist_loop(std::FILE *ofp, std::vector<hll_t> &hlls, const std::vector<std::
             default:
                 __builtin_unreachable();
         }
+#endif
         h1.free();
 #if !NDEBUG
         LOG_DEBUG("Finished chunk %zu of %zu\n", i + 1, hlls.size());
