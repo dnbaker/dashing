@@ -8,7 +8,7 @@ CLHASH_CHECKOUT = "&& git checkout master"
 WARNINGS=-Wall -Wextra -Wno-char-subscripts \
 		 -Wpointer-arith -Wwrite-strings -Wdisabled-optimization \
 		 -Wformat -Wcast-align -Wno-unused-function -Wno-unused-parameter \
-		 -pedantic -Wunused-variable -Winline -Wno-attributes\
+		 -pedantic -Wunused-variable -Winline -Wno-attributes -Wno-pedantic\
 		# -Wduplicated-branches -Wdangling-else  # -Wsuggest-attribute=malloc   # -Wconversion
 EXTRA?=
 INCPLUS?=
@@ -19,7 +19,7 @@ FLAGS=
 
 OPT_MINUS_OPENMP= -O3 -funroll-loops\
 	  -pipe -fno-strict-aliasing -march=native -mpclmul -DUSE_PDQSORT \
-	-DNOT_THREADSAFE \
+	-DNOT_THREADSAFE -DENABLE_COMPUTED_GOTO \
 	$(FLAGS) $(EXTRA)
 OPT=$(OPT_MINUS_OPENMP) -fopenmp
 XXFLAGS=-fno-rtti
