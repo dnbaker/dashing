@@ -97,19 +97,22 @@ test/%.zo: test/%.cpp
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(OBJ) -DNDEBUG $< -o $@ $(LIB)
 
 
+bonsai/zlib/libz.a:
+	cd bonsai/zlib && ./configure && make libz.a
+
 zobj: $(ALL_ZOBJS)
 
 STATIC_GOMP?=$(shell $(CXX) --print-file-name=libgomp.a)
 
 %: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
-%_s: src/%.cpp $(ALL_ZOBJS) $(DEPS)
+%_s: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a
 	ln -sf $(STATIC_GOMP) && \
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -static-libstdc++ -static-libgcc bonsai/zlib/libz.a  -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
-%_s128: src/%.cpp $(ALL_ZOBJS) $(DEPS)
+%_s128: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a
 	ln -sf $(STATIC_GOMP) && \
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mno-avx2 -msse2 -static-libstdc++ -static-libgcc bonsai/zlib/libz.a  -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
-%_s512: src/%.cpp $(ALL_ZOBJS) $(DEPS)
+%_s512: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a
 	ln -sf $(STATIC_GOMP) && \
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mavx512dq -mavx512vl -mavx512bw -static-libstdc++ -static-libgcc bonsai/zlib/libz.a  -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 %_d: src/%.cpp $(ALL_ZOBJS) $(DEPS)
