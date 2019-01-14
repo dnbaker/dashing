@@ -641,7 +641,8 @@ int dist_main(int argc, char *argv[]) {
             str.back() = '\n';
             str.write(fileno(pairofp)); str.free();
         } else { // emit_fmt == UPPER_TRIANGULAR
-            str.sprintf("%zu\n", inpaths.size());
+            std::fprintf(pairofp, "%zu\n", inpaths.size());
+            std::fflush(pairofp);
         }
 
         auto fn_ptr = emit_float ? dist_loop<float> : dist_loop<double>;
