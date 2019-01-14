@@ -26,6 +26,13 @@ enum EmissionType {
     SIZES     = 2
 };
 
+enum EmissionFormat {
+    FULL_TSV = 0,
+    BINARY   = 1,
+    UPPER_TRIANGULAR = 2,
+    PHYLIP_UPPER_TRIANGULAR = 2
+};
+
 void main_usage(char **argv) {
     std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options. [Subcommands: sketch, dist, setdist, hll, printmat.]\n",
                  *argv, *argv);
@@ -296,8 +303,8 @@ int sketch_main(int argc, char *argv[]) {
 
 
 template<typename FType, typename=typename std::enable_if<std::is_floating_point<FType>::value>::type>
-size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks::string &str, const std::vector<std::string> &inpaths, bool write_binary, bool use_scientific, const size_t buffer_flush_size=1ull<<18) {
-    if(write_binary) {
+size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks::string &str, const std::vector<std::string> &inpaths, EmissionFormat emit_fmt, bool use_scientific, const size_t buffer_flush_size=BUFFER_FLUSH_SIZE) {
+    if(emit_fmt == BINARY) {
 #if !NDEBUG
         for(size_t i = 0; i < hs - index - 1; ++i) {
             std::fprintf(stderr, "index: %zu. value: %lf\n", i + index, ptr[i]);
@@ -310,19 +317,29 @@ size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks:
             std::fprintf(stderr, "written %zd bytes instead of expected %zd\n", i, nbytes);
         }
     } else {
-        const char *const fmt(use_scientific ? "%e\t": "%f\t");
-#if !NDEBUG
-        std::fprintf(stderr, "format is '%s'. use_scientific = %s\n", fmt, use_scientific ? "true": "false");
-#endif
-        str += inpaths[index];
-        str.putc_('\t');
-        {
-            u64 k;
-            for(k = 0; k < index + 1;  ++k, str.putsn_("-\t", 2));
-            for(k = 0; k < hs - index - 1; str.sprintf(fmt, ptr[k++]));
+        auto &strref = inpaths[index];
+        str += strref;
+        if(emit_fmt == FULL_TSV) {
+            const char *const fmt(use_scientific ? "%e\t": "%f\t");
+            str.putc_('\t');
+            {
+                u64 k;
+                for(k = 0; k < index + 1;  ++k, str.putsn_("-\t", 2));
+                for(k = 0; k < hs - index - 1; str.sprintf(fmt, ptr[k++]));
+            }
+        } else { // emit_fmt == UPPER_TRIANGULAR
+            const char *const fmt(use_scientific ? "%e ": "%f ");
+            str.putc_(' '); // Pad to at least 10
+            if(strref.size() < 9) {
+                auto sz = 9 - strref.size();
+                str.resize(str.size() + sz);
+                for(;sz--;str.data()[str.len()++] = ' ');
+                str.terminate();
+            }
+            for(u64 k = 0; k < hs - index - 1; str.sprintf(fmt, ptr[k++]));
         }
         str.back() = '\n';
-        if(str.size() >= 1 << 18) str.flush(pairfi);
+        if(str.size() >= BUFFER_FLUSH_SIZE) str.flush(pairfi);
     }
     return index;
 }
@@ -338,7 +355,7 @@ typename std::common_type<FType1, FType2>::type dist_index(FType1 ji, FType2 ksi
 }
 
 template<typename FType, typename=typename std::enable_if<std::is_floating_point<FType>::value>::type>
-void dist_loop(std::FILE *ofp, std::vector<hll_t> &hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType emit_fmt, bool write_binary, int nthreads, const size_t buffer_flush_size=1ull<<18) {
+void dist_loop(std::FILE *ofp, std::vector<hll_t> &hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size=BUFFER_FLUSH_SIZE) {
 #if !NDEBUG
     std::fprintf(stderr, "value for use_scientific is %s\n", use_scientific ? "t": "f");
 #endif
@@ -355,7 +372,7 @@ void dist_loop(std::FILE *ofp, std::vector<hll_t> &hlls, const std::vector<std::
         std::vector<FType> &dists = dps[i & 1];
 #if ENABLE_COMPUTED_GOTO
         static constexpr void *TYPES[] {&&mash, &&ji, &&sizes};
-        goto *TYPES[emit_fmt];
+        goto *TYPES[result_type];
         mash:
             #pragma omp parallel for
             for(size_t j = i + 1; j < hlls.size(); ++j)
@@ -372,7 +389,7 @@ void dist_loop(std::FILE *ofp, std::vector<hll_t> &hlls, const std::vector<std::
                 dists[j - i - 1] = union_size(hlls[j], h1);
         next_step:
 #else
-        switch(emit_fmt) {
+        switch(result_type) {
             case MASH_DIST: {
                 #pragma omp parallel for
                 for(size_t j = i + 1; j < hlls.size(); ++j)
@@ -404,10 +421,10 @@ void dist_loop(std::FILE *ofp, std::vector<hll_t> &hlls, const std::vector<std::
 #endif
         submitter = std::async(std::launch::async, submit_emit_dists<FType>,
                                pairfi, dists.data(), hlls.size(), i,
-                               std::ref(str), std::ref(inpaths), write_binary, use_scientific, buffer_flush_size);
+                               std::ref(str), std::ref(inpaths), emit_fmt, use_scientific, buffer_flush_size);
     }
     submitter.get();
-    if(!write_binary) str.flush(pairfi);
+    if(emit_fmt != BINARY) str.flush(pairfi);
 }
 
 namespace {
@@ -433,11 +450,12 @@ enum CompReading: unsigned {
 int dist_main(int argc, char *argv[]) {
     int wsz(0), k(31), sketch_size(10), use_scientific(false), co, cache_sketch(false),
         nthreads(1), mincount(30), nhashes(4);
-    bool canon(true), presketched_only(false), write_binary(false),
+    bool canon(true), presketched_only(false),
          emit_float(false),
          clamp(false), sketch_query_by_seq(true), entropy_minimization(false);
+    EmissionFormat emit_fmt = FULL_TSV;
     double factor = 1.;
-    EmissionType emit_fmt(JI);
+    EmissionType result_type(JI);
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = static_cast<hll::JointEstimationMethod>(hll::EstimationMethod::ERTL_MLE);
     std::string spacing, paths_file, suffix, prefix, pairofp_labels;
@@ -445,7 +463,7 @@ int dist_main(int argc, char *argv[]) {
     FILE *ofp(stdout), *pairofp(stdout);
     sketching_method sm = EXACT;
     std::vector<std::string> querypaths;
-    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:T:gDazLfICbMEeHJhZBNymqW?")) >= 0) {
+    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:T:gDazLfICbMEeHJhZBNyUmqW?")) >= 0) {
         switch(co) {
             case 'C': canon = false;                   break;
             case 'D': sketch_query_by_seq = false;     break;
@@ -454,7 +472,7 @@ int dist_main(int argc, char *argv[]) {
             case 'H': presketched_only = true;         break;
             case 'I': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
             case 'L': clamp = true;                    break;
-            case 'M': emit_fmt = MASH_DIST;            break;
+            case 'M': result_type = MASH_DIST;            break;
             case 'N': sm = BY_FNAME;                   break;
             case 'O': if((pairofp = fopen(optarg, "wb")) == nullptr)
                           LOG_EXIT("Could not open file at %s for writing.\n", optarg);
@@ -464,9 +482,9 @@ int dist_main(int argc, char *argv[]) {
             case 'Q': querypaths.emplace_back(optarg); break;
             case 'S': sketch_size = std::atoi(optarg); break;
             case 'W': cache_sketch = true;             break;
-            case 'Z': emit_fmt = SIZES;                break;
+            case 'Z': result_type = SIZES;                break;
             case 'a': reading_type = AUTODETECT;       break;
-            case 'b': write_binary = true;             break;
+            case 'b': emit_fmt = BINARY;                    break;
             case 'c': mincount = std::atoi(optarg);    break;
             case 'e': use_scientific = true;           break;
             case 'f': emit_float = true;               break;
@@ -482,6 +500,7 @@ int dist_main(int argc, char *argv[]) {
             case 'x': suffix = optarg;                 break;
             case 'y': sm = CBF;                        break;
             case 'z': reading_type = GZ;               break;
+            case 'U': emit_fmt = UPPER_TRIANGULAR;          break;
             case 'h': case '?': dist_usage(*argv);
         }
     }
@@ -541,19 +560,18 @@ int dist_main(int argc, char *argv[]) {
                     if(cache_sketch && !isf) hlls[i].write(fpath, (reading_type == GZ ? 1: reading_type == AUTODETECT ? std::equal(suf.rbegin(), suf.rend(), fpath.rbegin()): false));
                 }
             }
-            LOG_INFO("Finished sketching genome at path %s. %d/%zu (%%%lf) complete\n", path.data(), ncomplete + 1, inpaths.size(), 100. * (ncomplete + 1) / inpaths.size());
             ++ncomplete;
         }
     }
     kseqs.free();
     ks::string str("#Path\tSize (est.)\n");
     assert(str == "#Path\tSize (est.)\n");
-    str.resize(1 << 18);
+    str.resize(BUFFER_FLUSH_SIZE);
     {
         const int fn(fileno(ofp));
         for(size_t i(0); i < hlls.size(); ++i) {
             str.sprintf("%s\t%lf\n", inpaths[i].data(), hlls[i].report());
-            if(str.size() >= 1 << 18) str.flush(fn);
+            if(str.size() >= BUFFER_FLUSH_SIZE) str.flush(fn);
         }
         str.flush(fn);
     }
@@ -606,7 +624,7 @@ int dist_main(int argc, char *argv[]) {
         output.flush(fn);
         kseq_destroy_stack(ks);
     } else {
-        if(write_binary) {
+        if(emit_fmt == BINARY) {
             std::string name = emit_float ? dm::more_magic::MAGIC_NUMBER<float>().name(): dm::more_magic::MAGIC_NUMBER<double>().name();
             name += '\n';
             LOG_DEBUG("About to add magic to file. First, what's my offset? %ld\n", std::ftell(pairofp));
@@ -617,18 +635,20 @@ int dist_main(int argc, char *argv[]) {
 #endif
             std::fwrite(&hs, sizeof(hs), 1, pairofp);
             std::fflush(pairofp);
-        } else {
+        } else if(emit_fmt == FULL_TSV) {
             str.sprintf("##Names \t");
             for(const auto &path: inpaths) str.sprintf("%s\t", path.data());
             str.back() = '\n';
             str.write(fileno(pairofp)); str.free();
+        } else { // emit_fmt == UPPER_TRIANGULAR
+            str.sprintf("%zu\n", inpaths.size());
         }
 
         auto fn_ptr = emit_float ? dist_loop<float> : dist_loop<double>;
         static constexpr uint32_t buffer_flush_size = BUFFER_FLUSH_SIZE;
-        fn_ptr(pairofp, hlls, inpaths, use_scientific, k, emit_fmt, write_binary, nthreads, buffer_flush_size);
+        fn_ptr(pairofp, hlls, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size);
     }
-    if(write_binary) {
+    if(emit_fmt == BINARY) {
         if(pairofp_labels.empty()) pairofp_labels = "unspecified";
         std::FILE *fp = std::fopen(pairofp_labels.data(), "wb");
         if(fp == nullptr) RUNTIME_ERROR(std::string("Could not open file at ") + pairofp_labels);
@@ -675,25 +695,30 @@ int print_binary_main(int argc, char *argv[]) {
 
 int setdist_main(int argc, char *argv[]) {
     int wsz(0), k(31), use_scientific(false), co;
-    bool canon(true), emit_jaccard(true);
-    unsigned bufsize(1 << 18);
+    bool canon(true);
+    EmissionFormat emit_fmt = FULL_TSV;
+    EmissionType emit_type = JI;
+    unsigned bufsize(BUFFER_FLUSH_SIZE);
     int nt(1);
     std::string spacing, paths_file;
     FILE *ofp(stdout), *pairofp(stdout);
     omp_set_num_threads(1);
-    while((co = getopt(argc, argv, "F:c:p:o:O:S:B:k:CMeh?")) >= 0) {
+    while((co = getopt(argc, argv, "F:c:p:o:O:S:B:k:s:fCMeZh?")) >= 0) {
         switch(co) {
             case 'B': std::stringstream(optarg) << bufsize; break;
-            case 'k': k = std::atoi(optarg); break;
+            case 'k': k = std::atoi(optarg);                break;
             case 'p': omp_set_num_threads((nt = std::atoi(optarg))); break;
-            case 's': spacing = optarg; break;
-            case 'C': canon = false; break;
-            case 'w': wsz = std::atoi(optarg); break;
-            case 'F': paths_file = optarg; break;
-            case 'o': ofp = fopen(optarg, "w"); break;
+            case 's': spacing = optarg;             break;
+            case 'C': canon = false;                break;
+            case 'w': wsz = std::atoi(optarg);      break;
+            case 'F': paths_file = optarg;          break;
+            case 'o': ofp = fopen(optarg, "w");     break;
             case 'O': pairofp = fopen(optarg, "w"); break;
-            case 'e': use_scientific = true; break;
-            case 'J': emit_jaccard = false; break;
+            case 'e': use_scientific = true;        break;
+            case 'U': emit_fmt = UPPER_TRIANGULAR;       break;
+            case 'M': emit_type = MASH_DIST;        break;
+            case 'Z': emit_type = SIZES;            break;
+            case 'b': emit_fmt = BINARY;                 break;
             case 'h': case '?': dist_usage(*argv);
         }
     }
@@ -723,7 +748,7 @@ int setdist_main(int argc, char *argv[]) {
         const int fn(fileno(ofp));
         for(size_t i(0); i < nhashes; ++i) {
             str.sprintf("%s\t%zu\n", inpaths[i].data(), kh_size(&hashes[i]));
-            if(str.size() > 1 << 17) str.flush(fn);
+            if(str.size() > BUFFER_FLUSH_SIZE) str.flush(fn);
         }
         str.flush(fn);
     }
@@ -736,24 +761,23 @@ int setdist_main(int argc, char *argv[]) {
     str.back() = '\n';
     str.write(fileno(pairofp)); str.free();
     setvbuf(pairofp, rdbuf.data(), _IOLBF, rdbuf.size());
-    const char *const fmt(use_scientific ? "\t%e": "\t%f");
     const double ksinv = 1./static_cast<double>(k);
     for(size_t i = 0; i < nhashes; ++i) {
         const khash_t(all) *h1(&hashes[i]);
         size_t j;
 #define DO_LOOP(val) for(j = i + 1; j < nhashes; ++j) dists[j - i - 1] = (val)
-        if(emit_jaccard) {
+        if(emit_type == JI) {
             #pragma omp parallel for
             DO_LOOP(jaccard_index(&hashes[j], h1));
-        } else {
+        } else if(emit_type == MASH_DIST) {
             #pragma omp parallel for
             DO_LOOP(dist_index(jaccard_index(&hashes[j], h1), ksinv));
+        } else {
+            #pragma omp parallel for
+            DO_LOOP(union_size(&hashes[j], h1));
         }
 #undef DO_LOOP
-
-        for(j = 0; j < i + 1; fputc('\t', pairofp), fputc('-', pairofp), ++j);
-        for(j = 0; j < nhashes - i - 1; fprintf(pairofp, fmt, dists[j++]));
-        fputc('\n', pairofp);
+        submit_emit_dists<double>(fileno(pairofp), dists.data(), hashes.size(), i, str, inpaths, emit_fmt, use_scientific);
         std::free(h1->keys); std::free(h1->vals); std::free(h1->flags);
     }
     return EXIT_SUCCESS;

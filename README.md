@@ -11,7 +11,7 @@ cd dashing && make update dashing
 ```
 
 Dashing is written in C++14, which means that it requires a relatively new compiler.
-Dashing is tested under gcc`{6-9}`, but fails for gcc4, which is installed by default on many machines.
+Dashing is tested under gcc`{5.4-9}`, but fails for gcc4, which is installed by default on many machines.
 For OSX, we recommend using Homebrew to install gcc-8.
 On Linux, we recommend package managers. (For instance, our Travis-CI Ubuntu example upgrades to a sufficiently new GCC using `sudo update-alternatives`.
 
@@ -46,3 +46,8 @@ This comes at significant runtime and memory costs, but is useful for establishi
 
 ## hll
 The hll command simply estimates the number of unique elements in a set of files. This can be useful for estimating downstream database sizes based on spacing schemes.
+
+## union
+The union command takes a set of pre-sketched HLLs and performs unions between them. Currently, the sketches must be of the same size.
+We may modify this in future releases to allow a merger of different sizes by flattening larger sketches to the smallest sketch size discovered.
+This would involve a loss of precision from the larger models.
