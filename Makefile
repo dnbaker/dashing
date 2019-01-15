@@ -27,7 +27,7 @@ CXXFLAGS=$(OPT) $(XXFLAGS) -std=c++14 $(WARNINGS)
 CXXFLAGS_MINUS_OPENMP=$(OPT_MINUS_OPENMP) $(XXFLAGS) -std=c++1z $(WARNINGS) -Wno-cast-align -Wno-gnu-zero-variadic-macro-arguments
 CCFLAGS=$(OPT) $(CFLAGS) -std=c11 $(WARNINGS)
 LIB=-lz
-LD=-L. $(EXTRA_LD) -Lbonsai/zlib -Lbonsai/zstd/lib
+LD=-L. $(EXTRA_LD) -Lbonsai/zlib
 
 ifneq (,$(findstring g++,$(CXX)))
 	ifeq ($(shell uname),Darwin)

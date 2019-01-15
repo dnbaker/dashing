@@ -319,8 +319,8 @@ size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks:
     } else {
         auto &strref = inpaths[index];
         str += strref;
+        char fmt []{'%', use_scientific ? 'e': 'f', '\t'};
         if(emit_fmt == FULL_TSV) {
-            const char *const fmt(use_scientific ? "%e\t": "%f\t");
             str.putc_('\t');
             {
                 u64 k;
@@ -328,14 +328,10 @@ size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks:
                 for(k = 0; k < hs - index - 1; str.sprintf(fmt, ptr[k++]));
             }
         } else { // emit_fmt == UPPER_TRIANGULAR
-            const char *const fmt(use_scientific ? "%e ": "%f ");
+            fmt[2] = ' ';
             str.putc_(' '); // Pad to at least 10
-            if(strref.size() < 9) {
-                auto sz = 9 - strref.size();
-                str.resize(str.size() + sz);
-                for(;sz--;str.data()[str.len()++] = ' ');
-                str.terminate();
-            }
+            if(strref.size() < 9)
+                str.append(9 - strref.size(), ' ');
             for(u64 k = 0; k < hs - index - 1; str.sprintf(fmt, ptr[k++]));
         }
         str.back() = '\n';
