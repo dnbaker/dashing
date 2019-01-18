@@ -523,8 +523,10 @@ int dist_main(int argc, char *argv[]) {
         for(size_t i = 0; i < hlls.size(); ++i) {
             const std::string &path(inpaths[i]);
             static const std::string suf = ".gz";
-            if(presketched_only) hlls[i].read(path);
-            else {
+            if(presketched_only)  {
+                hlls[i].read(path);
+                hlls[i].set_jestim(jestim);
+            } else {
                 const std::string fpath(hll_fname(path.data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix));
                 const bool isf = isfile(fpath);
                 if(cache_sketch && isf) {
