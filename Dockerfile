@@ -6,7 +6,7 @@ WORKDIR /tmp
 USER root
 
 # Install basics
-ENV PACKAGES git make ca-certificates zlib1g-dev build-essential curl wget cmake
+ENV PACKAGES git make ca-certificates zlib1g-dev build-essential curl wget cmake apt-utils
 
 ### don't modify things below here for version updates etc.
 
