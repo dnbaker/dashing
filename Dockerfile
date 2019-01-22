@@ -32,6 +32,10 @@ WORKDIR /
 RUN git clone https://github.com/dnbaker/dashing/
 WORKDIR /dashing
 RUN pwd
-RUN make update dashing
+RUN make update dashing 
+RUN cp /dashing/dashing /bin
+
+# Test that getting help on dashing command works
+RUN dashing -h
 
 WORKDIR /
