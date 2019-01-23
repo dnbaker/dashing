@@ -320,8 +320,8 @@ size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks:
     } else {
         auto &strref = inpaths[index];
         str += strref;
-        char fmt []{'%', use_scientific ? 'e': 'f', '\t'};
         if(emit_fmt == FULL_TSV) {
+            const char *fmt = use_scientific ? "\t%e": "\t%f";
             str.putc_('\t');
             {
                 u64 k;
@@ -329,7 +329,7 @@ size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks:
                 for(k = 0; k < hs - index - 1; str.sprintf(fmt, ptr[k++]));
             }
         } else { // emit_fmt == UPPER_TRIANGULAR
-            fmt[2] = ' ';
+            const char *fmt = use_scientific ? " %e": " %f";
             str.putc_(' '); // Pad to at least 10
             if(strref.size() < 9)
                 str.append(9 - strref.size(), ' ');
@@ -591,7 +591,7 @@ int dist_main(int argc, char *argv[]) {
         const int fn = fileno(pairofp);
         output.resize(1 << 16);
         Encoder<score::Lex> enc(sp);
-        const char *fmt = use_scientific ? "\t%e": "\t%lf";
+        const char *fmt = use_scientific ? "\t%e": "\t%f";
         for(const auto &path: querypaths) {
             gzFile fp = gzopen(path.data(), "rb");
             kseq_assign(&ks, fp);
