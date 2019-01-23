@@ -320,7 +320,7 @@ size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks:
     } else {
         auto &strref = inpaths[index];
         str += strref;
-        char fmt []{'%', use_scientific ? 'e': 'f', '\t'};
+        char fmt []{'%', use_scientific ? 'e': 'f', '\t', '\0'};
         if(emit_fmt == FULL_TSV) {
             str.putc_('\t');
             {
