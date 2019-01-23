@@ -778,7 +778,7 @@ int setdist_main(int argc, char *argv[]) {
         }
 #undef DO_LOOP
         submit_emit_dists<double>(fileno(pairofp), dists.data(), hashes.size(), i, str, inpaths, emit_fmt, use_scientific);
-        str.flush(fileno(pairofp));
+        if(emit_fmt != BINARY) str.flush(fileno(pairofp));
         std::free(h1->keys); std::free(h1->vals); std::free(h1->flags);
     }
     return EXIT_SUCCESS;
