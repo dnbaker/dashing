@@ -322,20 +322,18 @@ size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks:
         str += strref;
         if(emit_fmt == FULL_TSV) {
             const char *fmt = use_scientific ? "\t%e": "\t%f";
-            str.putc_('\t');
             {
                 u64 k;
-                for(k = 0; k < index + 1;  ++k, str.putsn_("-\t", 2));
+                for(k = 0; k < index + 1;  ++k, str.putsn_("\t-", 2));
                 for(k = 0; k < hs - index - 1; str.sprintf(fmt, ptr[k++]));
             }
         } else { // emit_fmt == UPPER_TRIANGULAR
             const char *fmt = use_scientific ? " %e": " %f";
-            str.putc_(' '); // Pad to at least 10
             if(strref.size() < 9)
                 str.append(9 - strref.size(), ' ');
             for(u64 k = 0; k < hs - index - 1; str.sprintf(fmt, ptr[k++]));
         }
-        str.back() = '\n';
+        str.putc_('\n');
         if(str.size() >= BUFFER_FLUSH_SIZE) str.flush(pairfi);
     }
     return index;
@@ -635,7 +633,7 @@ int dist_main(int argc, char *argv[]) {
             std::fwrite(&hs, sizeof(hs), 1, pairofp);
             std::fflush(pairofp);
         } else if(emit_fmt == FULL_TSV) {
-            str.sprintf("##Names \t");
+            str.sprintf("##Names\t");
             for(const auto &path: inpaths) str.sprintf("%s\t", path.data());
             str.back() = '\n';
             str.write(fileno(pairofp)); str.free();
@@ -644,9 +642,8 @@ int dist_main(int argc, char *argv[]) {
             std::fflush(pairofp);
         }
 
-        auto fn_ptr = emit_float ? dist_loop<float> : dist_loop<double>;
         static constexpr uint32_t buffer_flush_size = BUFFER_FLUSH_SIZE;
-        fn_ptr(pairofp, hlls, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size);
+        dist_loop<float>(pairofp, hlls, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size);
     }
     if(emit_fmt == BINARY) {
         if(pairofp_labels.empty()) pairofp_labels = "unspecified";
@@ -880,6 +877,8 @@ int main(int argc, char *argv[]) {
     else {
         for(const char *const *p(argv + 1); *p; ++p)
             if(std::string(*p) == "-h" || std::string(*p) == "--help") main_usage(argv);
+        std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options. [Subcommands: sketch, dist, setdist, hll, printmat.]\n",
+                     *argv, *argv);
         RUNTIME_ERROR(std::string("Invalid subcommand ") + argv[1] + " provided.");
     }
 }
