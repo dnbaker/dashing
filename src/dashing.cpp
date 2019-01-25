@@ -740,7 +740,7 @@ int setdist_main(int argc, char *argv[]) {
     }
     LOG_DEBUG("Filled genomes. Now analyzing data.\n");
     ks::string str;
-    str.sprintf("#Path\tSize (est.)\n");
+    str.sprintf("#Path\tCardinality (exact)\n");
     {
         const int fn(fileno(ofp));
         for(size_t i(0); i < nhashes; ++i) {
@@ -753,7 +753,7 @@ int setdist_main(int argc, char *argv[]) {
     if(ofp != stdout) std::fclose(ofp);
     std::vector<double> dists(nhashes - 1);
     str.clear();
-    str.sprintf("##Names \t");
+    str.sprintf("##Names\t");
     for(auto &path: inpaths) str.sprintf("%s\t", path.data());
     str.back() = '\n';
     str.write(fileno(pairofp)); str.free();
