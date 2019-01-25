@@ -20,6 +20,7 @@ using hll::hll_t;
 #endif
 
 namespace bns {
+static const char *executable = nullptr;
 enum EmissionType {
     MASH_DIST = 0,
     JI        = 1,
@@ -110,6 +111,7 @@ void dist_usage(const char *arg) {
                          "-g\tUse entropy minimization (rather than lexical)\n"
                          "-F\tGet paths to genomes from file rather than positional arguments\n"
                          "-M\tEmit Mash distance (default: jaccard index)\n"
+                         "-T\tpostprocess binary format to human-readable TSV (not upper triangular)\n"
                          "-Z\tEmit genome sizes (default: jaccard index)\n"
                 , arg);
     std::exit(EXIT_FAILURE);
@@ -446,47 +448,45 @@ int dist_main(int argc, char *argv[]) {
     int wsz(0), k(31), sketch_size(10), use_scientific(false), co, cache_sketch(false),
         nthreads(1), mincount(30), nhashes(4);
     bool canon(true), presketched_only(false),
-         emit_float(false),
-         clamp(false), sketch_query_by_seq(true), entropy_minimization(false);
+         emit_float(true),
+         clamp(false), sketch_query_by_seq(true), entropy_minimization(false), postprocess_binary(false);
     EmissionFormat emit_fmt = FULL_TSV;
     double factor = 1.;
     EmissionType result_type(JI);
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = static_cast<hll::JointEstimationMethod>(hll::EstimationMethod::ERTL_MLE);
-    std::string spacing, paths_file, suffix, prefix, pairofp_labels;
+    std::string spacing, paths_file, suffix, prefix, pairofp_labels, pairofp_path;
     CompReading reading_type = CompReading::UNCOMPRESSED;
     FILE *ofp(stdout), *pairofp(stdout);
     sketching_method sm = EXACT;
     std::vector<std::string> querypaths;
-    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:T:gDazLfICbMEeHJhZBNyUmqW?")) >= 0) {
+    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:TgDazLfICbMEeHJhZBNyUmqW?")) >= 0) {
         switch(co) {
+            case 'T': postprocess_binary = true;  [[fallthrough]];
+            case 'b': emit_fmt = BINARY;               break;
             case 'C': canon = false;                   break;
             case 'D': sketch_query_by_seq = false;     break;
             case 'E': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
             case 'F': paths_file = optarg;             break;
             case 'H': presketched_only = true;         break;
             case 'I': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
+            case 'J': jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
             case 'L': clamp = true;                    break;
             case 'M': result_type = MASH_DIST;            break;
             case 'N': sm = BY_FNAME;                   break;
-            case 'O': if((pairofp = fopen(optarg, "wb")) == nullptr)
-                          LOG_EXIT("Could not open file at %s for writing.\n", optarg);
-                      pairofp_labels = std::string(optarg) + ".labels";
-                      break;
             case 'P': prefix = optarg;                 break;
             case 'Q': querypaths.emplace_back(optarg); break;
             case 'S': sketch_size = std::atoi(optarg); break;
+            case 'U': emit_fmt = UPPER_TRIANGULAR;          break;
             case 'W': cache_sketch = true;             break;
             case 'Z': result_type = SIZES;                break;
             case 'a': reading_type = AUTODETECT;       break;
-            case 'b': emit_fmt = BINARY;                    break;
             case 'c': mincount = std::atoi(optarg);    break;
             case 'e': use_scientific = true;           break;
             case 'f': emit_float = true;               break;
             case 'g': entropy_minimization = true;     break;
             case 'k': k = std::atoi(optarg);           break;
             case 'm': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
-            case 'J': jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
             case 'o': if((ofp = fopen(optarg, "w")) == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
             case 'p': nthreads = std::atoi(optarg);    break;
             case 'q': nhashes = std::atoi(optarg);     break;
@@ -495,7 +495,11 @@ int dist_main(int argc, char *argv[]) {
             case 'x': suffix = optarg;                 break;
             case 'y': sm = CBF;                        break;
             case 'z': reading_type = GZ;               break;
-            case 'U': emit_fmt = UPPER_TRIANGULAR;          break;
+            case 'O': if((pairofp = fopen(optarg, "wb")) == nullptr)
+                          LOG_EXIT("Could not open file at %s for writing.\n", optarg);
+                      pairofp_labels = std::string(optarg) + ".labels";
+                      pairofp_path = optarg;
+                      break;
             case 'h': case '?': dist_usage(*argv);
         }
     }
@@ -653,6 +657,23 @@ int dist_main(int argc, char *argv[]) {
         std::fclose(fp);
     }
     if(pairofp != stdout) std::fclose(pairofp);
+    if(postprocess_binary) {
+        if(pairofp == stdout) {
+            std::fprintf(stderr, "Can't postprocess binary written to a pipe\n");
+            std::exit(1);
+        }
+        std::fprintf(stderr, "Making tmpfile name\n");
+        std::string tmpfile = ks::sprintf("% " PRIu64".tmp", std::mt19937_64(137)()).data();
+        std::fprintf(stderr, "Made tmpfile name. ex: %s\n", executable);
+        LOG_ASSERT(executable);
+        ks::string cmd = ks::sprintf("%s printmat %s -o %s %s", executable, use_scientific ? "-s": "", tmpfile.data(), pairofp_path.data());
+        std::fprintf(stderr, "Made command: %s\n", cmd.data());
+        if(std::system(cmd.data())) throw std::runtime_error(std::string("Failed to execute ") + cmd.data());
+        cmd.clear();
+        cmd.sprintf("mv %s %s", tmpfile.data(), pairofp_path.data());
+        std::fprintf(stderr, "About to perform '%s'\n", cmd.data());
+        if(std::system(cmd.data())) throw std::runtime_error(std::string("Failed to execute ") + cmd.data());
+    }
     return EXIT_SUCCESS;
 }
 
@@ -866,7 +887,9 @@ int union_main(int argc, char *argv[]) {
 
 using namespace bns;
 
+
 int main(int argc, char *argv[]) {
+    bns::executable = argv[0];
     std::ios_base::sync_with_stdio(false);
     if(argc == 1) main_usage(argv);
     if(std::strcmp(argv[1], "sketch") == 0) return sketch_main(argc - 1, argv + 1);
