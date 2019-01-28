@@ -631,9 +631,7 @@ int dist_main(int argc, char *argv[]) {
             LOG_DEBUG("About to add magic to file. First, what's my offset? %ld\n", std::ftell(pairofp));
             std::fputs(name.data(), pairofp);
             const uint64_t hs(hlls.size());
-#if !NDEBUG
-            std::fprintf(stderr, "Number of sketches: %zu\n", hs);
-#endif
+            LOG_DEBUG("Number of sketches: %zu\n", hlls.size());
             std::fwrite(&hs, sizeof(hs), 1, pairofp);
             std::fflush(pairofp);
         } else if(emit_fmt == FULL_TSV) {
@@ -662,16 +660,16 @@ int dist_main(int argc, char *argv[]) {
             std::fprintf(stderr, "Can't postprocess binary written to a pipe\n");
             std::exit(1);
         }
-        std::fprintf(stderr, "Making tmpfile name\n");
+        LOG_DEBUG("Making tmpfile name\n");
         std::string tmpfile = ks::sprintf("% " PRIu64".tmp", std::mt19937_64(137)()).data();
-        std::fprintf(stderr, "Made tmpfile name. ex: %s\n", executable);
+        LOG_DEBUG("Made tmpfile name. ex: %s\n", executable);
         LOG_ASSERT(executable);
         ks::string cmd = ks::sprintf("%s printmat %s -o %s %s", executable, use_scientific ? "-s": "", tmpfile.data(), pairofp_path.data());
-        std::fprintf(stderr, "Made command: %s\n", cmd.data());
+        LOG_DEBUG("Made command: %s\n", cmd.data());
         if(std::system(cmd.data())) throw std::runtime_error(std::string("Failed to execute ") + cmd.data());
         cmd.clear();
         cmd.sprintf("mv %s %s", tmpfile.data(), pairofp_path.data());
-        std::fprintf(stderr, "About to perform '%s'\n", cmd.data());
+        LOG_DEBUG("About to perform '%s'\n", cmd.data());
         if(std::system(cmd.data())) throw std::runtime_error(std::string("Failed to execute ") + cmd.data());
     }
     return EXIT_SUCCESS;
@@ -699,7 +697,7 @@ int print_binary_main(int argc, char *argv[]) {
     if(outpath.empty()) outpath = "/dev/stdout";
 #define INNER(type) \
         dm::DistanceMatrix<type> mat(argv[optind]);\
-        LOG_INFO("Name of found: %s\n", dm::DistanceMatrix<type>::magic_string());\
+        LOG_DEBUG("Name of found: %s\n", dm::DistanceMatrix<type>::magic_string());\
         if((fp = std::fopen(outpath.data(), "wb")) == nullptr) RUNTIME_ERROR(ks::sprintf("Could not open file at %s", outpath.data()).data());\
         mat.printf(fp, use_scientific);
     try {

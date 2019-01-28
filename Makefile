@@ -93,10 +93,6 @@ test/%.zo: test/%.cpp
 %.do: %.cpp
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c $< -o $@ $(LIB)
 
-%: src/%.cpp libzstd.a $(OBJ) $(DEPS)
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(OBJ) -DNDEBUG $< -o $@ $(LIB)
-
-
 bonsai/zlib/libz.a:
 	cd bonsai/zlib && ./configure && make libz.a
 
@@ -106,6 +102,9 @@ STATIC_GOMP?=$(shell $(CXX) --print-file-name=libgomp.a)
 
 %: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+
+%_d: src/%.cpp $(ALL_ZOBJS) $(DEPS)
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -fsanitize=address -fsanitize=undefined -fsanitize=leak $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
 %_256: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mavx2 -msse4.1 -msse2 -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
@@ -127,8 +126,6 @@ STATIC_GOMP?=$(shell $(CXX) --print-file-name=libgomp.a)
 %_s512: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a
 	ln -sf $(STATIC_GOMP) && \
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mavx512dq -mavx512vl -mavx512bw -static-libstdc++ -static-libgcc bonsai/zlib/libz.a  -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
-%_d: src/%.cpp $(ALL_ZOBJS) $(DEPS)
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -fsanitize=address -fsanitize=undefined -fsanitize=leak $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 %_di: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -fno-inline -O1 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 %_pg: src/%.cpp $(ALL_ZOBJS) $(DEPS)
