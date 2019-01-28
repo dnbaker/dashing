@@ -899,7 +899,7 @@ int main(int argc, char *argv[]) {
     else {
         for(const char *const *p(argv + 1); *p; ++p)
             if(std::string(*p) == "-h" || std::string(*p) == "--help") main_usage(argv);
-        std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options. [Subcommands: sketch, dist, setdist, hll, printmat.]\n",
+        std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options. [Subcommands: sketch, dist, setdist, hll, union, printmat.]\n",
                      *argv, *argv);
         RUNTIME_ERROR(std::string("Invalid subcommand ") + argv[1] + " provided.");
     }
