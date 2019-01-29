@@ -662,16 +662,16 @@ int dist_main(int argc, char *argv[]) {
         }
         LOG_DEBUG("Making tmpfile name\n");
         std::string tmpfile = ks::sprintf("% " PRIu64".tmp", std::mt19937_64(137)()).data();
-        LOG_DEBUG("Made tmpfile name. ex: %s\n", executable);
+        LOG_DEBUG("Made tmpfile name. tmpfile: %s. ex: %s\n", tmpfile.data(), executable);
         LOG_ASSERT(executable);
 #define POSTP_INNER(type, fptype, fpopen, fpclose) \
-        dm::DistanceMatrix<type> mat(argv[optind]);\
+        dm::DistanceMatrix<type> mat(pairofp_path.data());\
         LOG_DEBUG("Name of found: %s\n", dm::DistanceMatrix<type>::magic_string());\
         fptype fp;\
         if((fp = fpopen(tmpfile.data(), "wb")) == nullptr) RUNTIME_ERROR(ks::sprintf("Could not open file at %s", tmpfile.data()).data());\
         mat.printf(fp, use_scientific, &inpaths);\
         fpclose(fp);
-        if(false) {
+        if(reading_type == GZ || reading_type == AUTODETECT) {
             try {
                 POSTP_INNER(float, gzFile, gzopen, gzclose);
             } catch(const std::runtime_error &re) {
