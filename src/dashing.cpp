@@ -664,11 +664,27 @@ int dist_main(int argc, char *argv[]) {
         std::string tmpfile = ks::sprintf("% " PRIu64".tmp", std::mt19937_64(137)()).data();
         LOG_DEBUG("Made tmpfile name. ex: %s\n", executable);
         LOG_ASSERT(executable);
-        ks::string cmd = ks::sprintf("%s printmat %s -o %s %s", executable, use_scientific ? "-s": "", tmpfile.data(), pairofp_path.data());
-        LOG_DEBUG("Made command: %s\n", cmd.data());
-        if(std::system(cmd.data())) throw std::runtime_error(std::string("Failed to execute ") + cmd.data());
-        cmd.clear();
-        cmd.sprintf("mv %s %s", tmpfile.data(), pairofp_path.data());
+#define POSTP_INNER(type, fptype, fpopen, fpclose) \
+        dm::DistanceMatrix<type> mat(argv[optind]);\
+        LOG_DEBUG("Name of found: %s\n", dm::DistanceMatrix<type>::magic_string());\
+        fptype fp;\
+        if((fp = fpopen(tmpfile.data(), "wb")) == nullptr) RUNTIME_ERROR(ks::sprintf("Could not open file at %s", tmpfile.data()).data());\
+        mat.printf(fp, use_scientific, &inpaths);\
+        fpclose(fp);
+        if(false) {
+            try {
+                POSTP_INNER(float, gzFile, gzopen, gzclose);
+            } catch(const std::runtime_error &re) {
+                POSTP_INNER(double, gzFile, gzopen, gzclose);
+            }
+        } else {
+            try {
+                POSTP_INNER(float, std::FILE *, fopen, fclose);
+            } catch(const std::runtime_error &re) {
+                POSTP_INNER(double, std::FILE *, fopen, fclose);
+            }
+        }
+        ks::string cmd = ks::sprintf("mv %s %s", tmpfile.data(), pairofp_path.data());
         LOG_DEBUG("About to perform '%s'\n", cmd.data());
         if(std::system(cmd.data())) throw std::runtime_error(std::string("Failed to execute ") + cmd.data());
     }
@@ -695,15 +711,15 @@ int print_binary_main(int argc, char *argv[]) {
     }
     std::FILE *fp;
     if(outpath.empty()) outpath = "/dev/stdout";
-#define INNER(type) \
+#define PRINTMAT_INNER(type) \
         dm::DistanceMatrix<type> mat(argv[optind]);\
         LOG_DEBUG("Name of found: %s\n", dm::DistanceMatrix<type>::magic_string());\
         if((fp = std::fopen(outpath.data(), "wb")) == nullptr) RUNTIME_ERROR(ks::sprintf("Could not open file at %s", outpath.data()).data());\
         mat.printf(fp, use_scientific);
     try {
-        INNER(float);
+        PRINTMAT_INNER(float);
     } catch(const std::runtime_error &re) {
-        INNER(double);
+        PRINTMAT_INNER(double);
     }
     std::fclose(fp);
     return EXIT_SUCCESS;
