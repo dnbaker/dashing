@@ -510,10 +510,8 @@ int dist_main(int argc, char *argv[]) {
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
                                                        : std::vector<std::string>(argv + optind, argv + argc));
     detail::sort_paths_by_fsize(inpaths);
-    if(inpaths.empty()) {
-        std::fprintf(stderr, "No paths. See usage.\n");
-        dist_usage(*argv);
-    }
+    if(inpaths.empty())
+        std::fprintf(stderr, "No paths. See usage.\n"), dist_usage(*argv);
     std::vector<sketch::cm::ccm_t> cms;
     std::vector<hll_t> hlls;
     KSeqBufferHolder kseqs(nthreads);
