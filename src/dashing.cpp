@@ -5,8 +5,10 @@
 #include "bonsai/bonsai/include/database.h"
 #include "bonsai/bonsai/include/bitmap.h"
 #include "bonsai/bonsai/include/setcmp.h"
-#include "hll/hll.h"
+#include "hll/bbmh.h"
+#include "hll/mh.h"
 #include "hll/ccm.h"
+#include "khset/khset.h"
 #include "distmat/distmat.h"
 #include <sstream>
 #include <sys/stat.h>
@@ -39,6 +41,85 @@ enum EmissionFormat: unsigned {
     UPPER_TRIANGULAR = 2,
     PHYLIP_UPPER_TRIANGULAR = 2,
     FULL_TSV = 3,
+};
+
+static const char *sketch_names [] {
+    "HLL",
+    "BLOOM_FILTER",
+    "RANGE_MINHASH",
+    "FULL_KHASH_SET",
+    "COUNTING_RANGE_MINHASH",
+    "HYPERMINHASH16",
+    "HYPERMINHASH32",
+    "TF_IDF_COUNTING_RANGE_MINHASH",
+    "BB_MINHASH",
+    "COUNTING_BB_MINHASH",
+};
+
+struct khset64_t: public kh::khset64_t {
+    void addh(uint64_t v) {this->insert(v);}
+    khset64_t(): kh::khset64_t() {}
+    khset64_t(size_t reservesz): kh::khset64_t(reservesz) {}
+    double jaccard_index(const khset64_t &other) const {
+        auto p1 = this, p2 = &other;
+        if(size() > other.size())
+            std::swap(p1, p2);
+        size_t olap = 0;
+        p1->for_each([&](auto v) {olap += p2->contains(v);});
+        return static_cast<double>(olap) / (p1->size() + p2->size() - olap);
+    }
+};
+
+using CBBMinHashType = mh::CountingBBitMinHasher<uint64_t, uint32_t>; // Is counting to 65536 enough for a transcriptome? Maybe we can use 16...
+template<typename SketchType>
+struct FinalSketch {
+    using final_type = SketchType;
+};
+#define FINAL_OVERLOAD(type) \
+template<> struct FinalSketch<type> { \
+    using final_type = typename type::final_type;}
+FINAL_OVERLOAD(mh::CountingRangeMinHash<uint64_t>);
+FINAL_OVERLOAD(mh::RangeMinHash<uint64_t>);
+FINAL_OVERLOAD(mh::BBitMinHasher<uint64_t>);
+FINAL_OVERLOAD(CBBMinHashType);
+template<typename T>struct SketchFileSuffux {static constexpr const char *suffix = ".sketch";};
+#define SSS(type, suf) template<> struct SketchFileSuffux<type> {static constexpr const char *suffix = suf;}
+SSS(mh::CountingRangeMinHash<uint64_t>, ".crmh");
+SSS(mh::RangeMinHash<uint64_t>, ".rmh");
+SSS(khset64_t, ".khs");
+SSS(bf::bf_t, ".bf");
+SSS(mh::BBitMinHasher<uint64_t>, ".bmh");
+SSS(CBBMinHashType, ".cbmh");
+SSS(mh::HyperMinHash<uint64_t>, ".hmh");
+SSS(hll::hll_t, ".hll");
+
+using CRMFinal = mh::FinalCRMinHash<uint64_t, std::greater<uint64_t>, uint32_t>;
+template<typename T>
+double similarity(const T &a, const T &b) {
+    return jaccard_index(a, b);
+}
+template<>
+double similarity<CRMFinal>(const CRMFinal &a, const CRMFinal &b) {
+    return a.histogram_intersection(b);
+}
+
+template<typename T>
+double union_size(const T &a, const T &b) {
+    return hll::union_size(a, b);
+}
+
+
+enum Sketch {
+    HLL,
+    BLOOM_FILTER,
+    RANGE_MINHASH,
+    FULL_KHASH_SET,
+    COUNTING_RANGE_MINHASH,
+    HYPERMINHASH16,
+    HYPERMINHASH32,
+    TF_IDF_COUNTING_RANGE_MINHASH, // TODO. I'm willing to make two passes through the data for this.
+    BB_MINHASH, // TODO
+    COUNTING_BB_MINHASH, // TODO
 };
 
 void main_usage(char **argv) {
@@ -156,7 +237,8 @@ bool fname_is_fq(const std::string &path) {
     return path.find(fq1) != std::string::npos || path.find(fq2) != std::string::npos;
 }
 
-std::string hll_fname(const char *path, size_t sketch_p, int wsz, int k, int csz, const std::string &spacing, const std::string &suffix="", const std::string &prefix="") {
+template<typename SketchType>
+std::string make_fname(const char *path, size_t sketch_p, int wsz, int k, int csz, const std::string &spacing, const std::string &suffix="", const std::string &prefix="") {
     std::string ret(prefix);
     {
         const char *p;
@@ -178,7 +260,7 @@ std::string hll_fname(const char *path, size_t sketch_p, int wsz, int k, int csz
         ret += '.';
     }
     ret += std::to_string(sketch_p);
-    ret += ".hll";
+    ret += SketchFileSuffux<SketchType>::suffix;
     return ret;
 }
 
@@ -285,7 +367,7 @@ int sketch_main(int argc, char *argv[]) {
     for(size_t i = 0; i < inpaths.size(); ++i) {\
         const int tid = omp_get_thread_num();\
         std::string &fname = fnames[tid];\
-        fname = hll_fname(inpaths[i].data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix);\
+        fname = make_fname<hll_t>(inpaths[i].data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix);\
         if(write_gz) fname += ".gz";\
         if(skip_cached && isfile(fname)) continue;\
         Encoder<MinType> enc(nullptr, 0, sp, nullptr, canon);\
@@ -380,36 +462,36 @@ void dist_loop(std::FILE *ofp, std::vector<hll_t> &hlls, const std::vector<std::
         mash:
             #pragma omp parallel for
             for(size_t j = i + 1; j < hlls.size(); ++j)
-                dists[j - i - 1] = dist_index(jaccard_index(hlls[j], h1), ksinv);
+                dists[j - i - 1] = dist_index(similarity(hlls[j], h1), ksinv);
             goto next_step;
         ji:
             #pragma omp parallel for
             for(size_t j = i + 1; j < hlls.size(); ++j)
-                dists[j - i - 1] = jaccard_index(hlls[j], h1);
+                dists[j - i - 1] = similarity(hlls[j], h1);
            goto next_step;
         sizes:
             #pragma omp parallel for
             for(size_t j = i + 1; j < hlls.size(); ++j)
-                dists[j - i - 1] = union_size(hlls[j], h1);
+                dists[j - i - 1] = bns::union_size(hlls[j], h1);
         next_step:
 #else
         switch(result_type) {
             case MASH_DIST: {
                 #pragma omp parallel for
                 for(size_t j = i + 1; j < hlls.size(); ++j)
-                    dists[j - i - 1] = dist_index(jaccard_index(hlls[j], h1), ksinv);
+                    dists[j - i - 1] = dist_index(similarity(hlls[j], h1), ksinv);
                 break;
             }
             case JI: {
                 #pragma omp parallel for
                 for(size_t j = i + 1; j < hlls.size(); ++j)
-                    dists[j - i - 1] = jaccard_index(hlls[j], h1);
+                    dists[j - i - 1] = similarity(hlls[j], h1);
                 break;
             }
             case SIZES: {
                 #pragma omp parallel for
                 for(size_t j = i + 1; j < hlls.size(); ++j)
-                    dists[j - i - 1] = union_size(hlls[j], h1);
+                    dists[j - i - 1] = bns::union_size(hlls[j], h1);
                 break;
             }
             default:
@@ -456,7 +538,7 @@ int dist_main(int argc, char *argv[]) {
         nthreads(1), mincount(30), nhashes(4);
     bool canon(true), presketched_only(false),
          emit_float(true),
-         clamp(false), sketch_query_by_seq(true), entropy_minimization(false), postprocess_binary(false);
+         clamp(false), sketch_query_by_seq(true), entropy_minimization(false);
     EmissionFormat emit_fmt = UT_TSV;
     double factor = 1.;
     EmissionType result_type(JI);
@@ -469,7 +551,7 @@ int dist_main(int argc, char *argv[]) {
     std::vector<std::string> querypaths;
     while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:TgDazLfICbMEeHJhZBNyUmqW?")) >= 0) {
         switch(co) {
-            case 'T': postprocess_binary = true; emit_fmt = FULL_TSV; break; // This also sets the emit_fmt bit for BINARY
+            case 'T': emit_fmt = FULL_TSV; break; // This also sets the emit_fmt bit for BINARY
             case 'b': emit_fmt = BINARY;               break;
             case 'C': canon = false;                   break;
             case 'D': sketch_query_by_seq = false;     break;
@@ -550,7 +632,7 @@ int dist_main(int argc, char *argv[]) {
                 hlls[i].read(path);
                 hlls[i].set_jestim(jestim);
             } else {
-                const std::string fpath(hll_fname(path.data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix));
+                const std::string fpath(make_fname<hll_t>(path.data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix));
                 const bool isf = isfile(fpath);
                 if(cache_sketch && isf) {
                     LOG_DEBUG("Sketch found at %s with size %zu, %u\n", fpath.data(), size_t(1ull << sketch_size), sketch_size);
