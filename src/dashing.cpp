@@ -19,6 +19,12 @@ using hll::hll_t;
 #define BUFFER_FLUSH_SIZE (1u << 18)
 #endif
 
+#if ZWRAP_USE_ZSTD
+#define COMPRESSED_FILE_SUFFIX ".zst"
+#else
+#define COMPRESSED_FILE_SUFFIX ".gz"
+#endif
+
 namespace bns {
 static const char *executable = nullptr;
 enum EmissionType {
@@ -27,11 +33,12 @@ enum EmissionType {
     SIZES     = 2
 };
 
-enum EmissionFormat {
-    FULL_TSV = 0,
+enum EmissionFormat: unsigned {
+    UT_TSV = 0,
     BINARY   = 1,
     UPPER_TRIANGULAR = 2,
-    PHYLIP_UPPER_TRIANGULAR = 2
+    PHYLIP_UPPER_TRIANGULAR = 2,
+    FULL_TSV = 3,
 };
 
 void main_usage(char **argv) {
@@ -307,7 +314,7 @@ int sketch_main(int argc, char *argv[]) {
 
 template<typename FType, typename=typename std::enable_if<std::is_floating_point<FType>::value>::type>
 size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks::string &str, const std::vector<std::string> &inpaths, EmissionFormat emit_fmt, bool use_scientific, const size_t buffer_flush_size=BUFFER_FLUSH_SIZE) {
-    if(emit_fmt == BINARY) {
+    if(emit_fmt & BINARY) {
 #if !NDEBUG
         for(size_t i = 0; i < hs - index - 1; ++i) {
             std::fprintf(stderr, "index: %zu. value: %lf\n", i + index, ptr[i]);
@@ -322,7 +329,7 @@ size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks:
     } else {
         auto &strref = inpaths[index];
         str += strref;
-        if(emit_fmt == FULL_TSV) {
+        if(emit_fmt == UT_TSV) {
             const char *fmt = use_scientific ? "\t%e": "\t%f";
             {
                 u64 k;
@@ -421,7 +428,7 @@ void dist_loop(std::FILE *ofp, std::vector<hll_t> &hlls, const std::vector<std::
                                std::ref(str), std::ref(inpaths), emit_fmt, use_scientific, buffer_flush_size);
     }
     submitter.get();
-    if(emit_fmt != BINARY) str.flush(pairfi);
+    if(!(emit_fmt & BINARY)) str.flush(pairfi);
 }
 
 namespace {
@@ -450,7 +457,7 @@ int dist_main(int argc, char *argv[]) {
     bool canon(true), presketched_only(false),
          emit_float(true),
          clamp(false), sketch_query_by_seq(true), entropy_minimization(false), postprocess_binary(false);
-    EmissionFormat emit_fmt = FULL_TSV;
+    EmissionFormat emit_fmt = UT_TSV;
     double factor = 1.;
     EmissionType result_type(JI);
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
@@ -462,7 +469,7 @@ int dist_main(int argc, char *argv[]) {
     std::vector<std::string> querypaths;
     while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:TgDazLfICbMEeHJhZBNyUmqW?")) >= 0) {
         switch(co) {
-            case 'T': postprocess_binary = true;  [[fallthrough]];
+            case 'T': postprocess_binary = true; emit_fmt = FULL_TSV; break; // This also sets the emit_fmt bit for BINARY
             case 'b': emit_fmt = BINARY;               break;
             case 'C': canon = false;                   break;
             case 'D': sketch_query_by_seq = false;     break;
@@ -623,7 +630,7 @@ int dist_main(int argc, char *argv[]) {
         output.flush(fn);
         kseq_destroy_stack(ks);
     } else {
-        if(emit_fmt == BINARY) {
+        if(emit_fmt & BINARY) {
             std::string name = emit_float ? dm::more_magic::MAGIC_NUMBER<float>().name(): dm::more_magic::MAGIC_NUMBER<double>().name();
             name += '\n';
             LOG_DEBUG("About to add magic to file. First, what's my offset? %ld\n", std::ftell(pairofp));
@@ -632,7 +639,7 @@ int dist_main(int argc, char *argv[]) {
             LOG_DEBUG("Number of sketches: %zu\n", hlls.size());
             std::fwrite(&hs, sizeof(hs), 1, pairofp);
             std::fflush(pairofp);
-        } else if(emit_fmt == FULL_TSV) {
+        } else if(emit_fmt == UT_TSV) {
             str.sprintf("##Names\t");
             for(const auto &path: inpaths) str.sprintf("%s\t", path.data());
             str.back() = '\n';
@@ -645,7 +652,7 @@ int dist_main(int argc, char *argv[]) {
         static constexpr uint32_t buffer_flush_size = BUFFER_FLUSH_SIZE;
         dist_loop<float>(pairofp, hlls, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size);
     }
-    if(emit_fmt == BINARY) {
+    if(emit_fmt & BINARY) {
         if(pairofp_labels.empty()) pairofp_labels = "unspecified";
         std::FILE *fp = std::fopen(pairofp_labels.data(), "wb");
         if(fp == nullptr) RUNTIME_ERROR(std::string("Could not open file at ") + pairofp_labels);
@@ -653,7 +660,7 @@ int dist_main(int argc, char *argv[]) {
         std::fclose(fp);
     }
     if(pairofp != stdout) std::fclose(pairofp);
-    if(postprocess_binary) {
+    if(emit_fmt == FULL_TSV) {
         if(pairofp == stdout) {
             std::fprintf(stderr, "Can't postprocess binary written to a pipe\n");
             std::exit(1);
@@ -670,6 +677,10 @@ int dist_main(int argc, char *argv[]) {
         mat.printf(fp, use_scientific, &inpaths);\
         fpclose(fp);
         if(reading_type == GZ || reading_type == AUTODETECT) {
+            if(pairofp_path.find(COMPRESSED_FILE_SUFFIX) == std::string::npos) {
+                pairofp_path += COMPRESSED_FILE_SUFFIX;
+                LOG_WARNING("Output file emitted in compressed form, but filename does not contain .gz or zst. Renaming to %s", pairofp_path.data());
+            }
             try {
                 POSTP_INNER(float, gzFile, gzopen, gzclose);
             } catch(const std::runtime_error &re) {
@@ -726,7 +737,7 @@ int print_binary_main(int argc, char *argv[]) {
 int setdist_main(int argc, char *argv[]) {
     int wsz(0), k(31), use_scientific(false), co;
     bool canon(true);
-    EmissionFormat emit_fmt = FULL_TSV;
+    EmissionFormat emit_fmt = UT_TSV;
     EmissionType emit_type = JI;
     unsigned bufsize(BUFFER_FLUSH_SIZE);
     int nt(1);
@@ -760,7 +771,7 @@ int setdist_main(int argc, char *argv[]) {
     KSeqBufferHolder h(nt);
     std::vector<khash_t(all)> hashes;
     while(hashes.size() < inpaths.size()) hashes.emplace_back(khash_t(all){0, 0, 0, 0, 0, 0, 0});
-    for(auto hash: hashes) kh_resize(all, &hash, 1 << 20); // Try to reduce the number of allocations.
+    for(auto hash: hashes) kh_resize(all, &hash, 1 << 12); // Try to reduce the number of allocations.
     const size_t nhashes(hashes.size());
     if(wsz < sp.c_) wsz = sp.c_;
     if(inpaths.size() == 0) {
@@ -808,7 +819,7 @@ int setdist_main(int argc, char *argv[]) {
         }
 #undef DO_LOOP
         submit_emit_dists<double>(fileno(pairofp), dists.data(), hashes.size(), i, str, inpaths, emit_fmt, use_scientific);
-        if(emit_fmt != BINARY) str.flush(fileno(pairofp));
+        if(!(emit_fmt & BINARY)) str.flush(fileno(pairofp));
         std::free(h1->keys); std::free(h1->vals); std::free(h1->flags);
     }
     return EXIT_SUCCESS;
