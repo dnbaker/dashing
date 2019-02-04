@@ -43,6 +43,7 @@ enum EmissionFormat: unsigned {
     FULL_TSV = 3,
 };
 
+#if EXTRA_SKETCH_NAMES
 static const char *sketch_names [] {
     "HLL",
     "BLOOM_FILTER",
@@ -55,6 +56,7 @@ static const char *sketch_names [] {
     "BB_MINHASH",
     "COUNTING_BB_MINHASH",
 };
+#endif
 
 struct khset64_t: public kh::khset64_t {
     void addh(uint64_t v) {this->insert(v);}
