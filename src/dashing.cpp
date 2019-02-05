@@ -310,6 +310,7 @@ int sketch_main(int argc, char *argv[]) {
         if(use_filter.size() && use_filter[i]) {\
             auto &cm = cms[tid];\
             enc.for_each([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            cm.clear();  \
         } else {\
             enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
         }\
