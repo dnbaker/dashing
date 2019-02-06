@@ -731,7 +731,10 @@ int print_binary_main(int argc, char *argv[]) {
     for(char **p(argv); *p; ++p) if(std::strcmp(*p, "-h") && std::strcmp(*p, "--help") == 0) goto usage;
     if(argc == 1) {
         usage:
-        std::fprintf(stderr, "%s printmat <path to binary file> [- to read from stdin]\n", argv ? static_cast<const char *>(*argv): "dashing");
+        std::fprintf(stderr, "%s printmat <path to binary file> [- to read from stdin]\n"
+                             "-o\tSpecify output file (default: stdout)\n"
+                             "-s\tEmit in scientific notation\n",
+                     argv ? static_cast<const char *>(*argv): "dashing");
         std::exit(EXIT_FAILURE);
     }
     while((c = getopt(argc, argv, ":o:sh?")) >= 0) {
