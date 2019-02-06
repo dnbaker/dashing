@@ -198,11 +198,16 @@ void dist_usage(const char *arg) {
                          "-L\tClamp estimates below expected variance to 0. [Default: do not clamp]\n"
                          "-e\tEmit in scientific notation\n"
                          "-f\tReport results as float. (Only important for binary format.) This halves the memory footprint at the cost of precision loss.\n"
-                         "-g\tUse entropy minimization (rather than lexical)\n"
                          "-F\tGet paths to genomes from file rather than positional arguments\n"
                          "-M\tEmit Mash distance (default: jaccard index)\n"
                          "-T\tpostprocess binary format to human-readable TSV (not upper triangular)\n"
                          "-Z\tEmit genome sizes (default: jaccard index)\n"
+                         "-N\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
+                         "-y\tFilter all input data by count-min sketch.\n"
+                         "-q\tSet count-min number of hashes. Default: [4]\n"
+                         "-c\tSet minimum count for kmers to pass count-min filtering.\n"
+                         "-t\tSet count-min sketch size (log2). Default: ceil(log2(max_filesize)) + 2\n"
+                         "-R\tSet seed for seeds for count-min sketches\n"
                 , arg);
     std::exit(EXIT_FAILURE);
 }
@@ -212,24 +217,38 @@ void dist_usage(const char *arg) {
 void sketch_usage(const char *arg) {
     std::fprintf(stderr, "Usage: %s <opts> [genomes if not provided from a file with -F]\n"
                          "Flags:\n"
-                         "-h/-?:\tUsage\n"
+                         "-h/-?:\tEmit usage\n"
+                         "\n"
+                         "Sketch options --\n"
                          "-k\tSet kmer size [31]\n"
-                         "-p\tSet number of threads [1]\n"
                          "-s\tadd a spacer of the format <int>x<int>,<int>x<int>,"
                          "..., where the first integer corresponds to the space "
                          "between bases repeated the second integer number of times\n"
                          "-w\tSet window size [max(size of spaced kmer, [parameter])]\n"
                          "-S\tSet sketch size [10, for 2**10 bytes each]\n"
-                         "-F\tGet paths to genomes from file rather than positional arguments\n"
-                         "-c\tCache sketches/use cached sketches\n"
                          "-C\tDo not canonicalize. [Default: canonicalize]\n"
                          "-L\tClamp estimates below expected variance to 0. [Default: do not clamp]\n"
+                         "Run options --\n"
+                         "-p\tSet number of threads [1]\n"
                          "-P\tSet prefix for sketch file locations [empty]\n"
                          "-x\tSet suffix in sketch file names [empty]\n"
+                         "-F\tGet paths to genomes from file rather than positional arguments\n"
+                         "-c\tCache sketches/use cached sketches (save sketches to disk in directory of the file [default] or in folder specified by -P\n"
+                         "-z\tWrite gzip compressed. (Or zstd-compressed, if compiled with zlibWrapper.\n"
+                         "Estimation methods --\n"
                          "-E\tUse Flajolet with inclusion/exclusion quantitation method for hll. [Default: Ertl MLE]\n"
                          "-I\tUse Ertl Improved estimator [Default: Ertl MLE]\n"
                          "-J\tUse Ertl JMLE\n"
-                         "-z\tWrite gzip compressed. (Or zstd-compressed, if compiled with zlibWrapper.\n"
+                         "Filtering Options --\n"
+                         "Default: consume all kmers. Alternate options: \n"
+                         "-f\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
+                         "-B\tFilter all input data by count-min sketch.\n"
+                         "Options for count-min filtering --\n"
+                         "-H\tSet count-min number of hashes. Default: [4]\n"
+                         "-q\tSet count-min sketch size (log2). Default: ceil(log2(max_filesize)) + 2\n"
+                         "-n\tProvide minimum expected count for fastq data. If unspecified, all kmers are passed.\n"
+                         "-R\tSet seed for seeds for count-min sketches\n"
+                         "----\n"
                 , arg);
     std::exit(EXIT_FAILURE);
 }
@@ -274,7 +293,7 @@ enum sketching_method {
 
 
 size_t fsz2countcm(uint64_t fsz, double factor=1.) {
-    return roundup(size_t(std::log2(fsz * factor))) + 2; // plus 2 to account for the fact that the file is likely compressed
+    return std::log2(roundup(size_t(fsz * factor))) + 2; // plus 2 to account for the fact that the file is likely compressed
 }
 
 size_t fsz2count(uint64_t fsz) {
@@ -295,7 +314,7 @@ size_t fsz2count(uint64_t fsz) {
 
 // Main functions
 int sketch_main(int argc, char *argv[]) {
-    int wsz(0), k(31), sketch_size(10), skip_cached(false), co, nthreads(1), mincount(-1), nhashes(1), cmsketchsize(-1);
+    int wsz(0), k(31), sketch_size(10), skip_cached(false), co, nthreads(1), mincount(1), nhashes(1), cmsketchsize(-1);
     bool canon(true), write_to_dev_null(false), write_gz(false), clamp(false);
     bool entropy_minimization = false;
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
@@ -357,7 +376,7 @@ int sketch_main(int argc, char *argv[]) {
             for(const auto &path: inpaths) use_filter.emplace_back(fname_is_fq(path));
         auto nbits = std::log2(mincount) + 1;
         while(cms.size() < unsigned(nthreads))
-            cms.emplace_back(nbits, cmsketchsize, nhashes, cms.size() * 1337u + seedseedseed);
+            cms.emplace_back(nbits, cmsketchsize, nhashes, (cms.size() ^ seedseedseed) * 1337uL);
     }
     KSeqBufferHolder kseqs(nthreads);
     if(wsz < sp.c_) wsz = sp.c_;
@@ -377,6 +396,7 @@ int sketch_main(int argc, char *argv[]) {
         if(use_filter.size() && use_filter[i]) {\
             auto &cm = cms[tid];\
             enc.for_each([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            cm.clear();  \
         } else {\
             enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
         }\
@@ -537,7 +557,7 @@ enum CompReading: unsigned {
 
 int dist_main(int argc, char *argv[]) {
     int wsz(0), k(31), sketch_size(10), use_scientific(false), co, cache_sketch(false),
-        nthreads(1), mincount(30), nhashes(4);
+        nthreads(1), mincount(30), nhashes(4), cmsketchsize(-1);
     bool canon(true), presketched_only(false),
          emit_float(true),
          clamp(false), sketch_query_by_seq(true), entropy_minimization(false);
@@ -551,9 +571,10 @@ int dist_main(int argc, char *argv[]) {
     FILE *ofp(stdout), *pairofp(stdout);
     sketching_method sm = EXACT;
     std::vector<std::string> querypaths;
-    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:TgDazLfICbMEeHJhZBNyUmqW?")) >= 0) {
+    uint64_t seedseedseed = 1337u;
+    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:TgDazLfICbMEeHJhZBNyUmqW?")) >= 0) {
         switch(co) {
-            case 'T': emit_fmt = FULL_TSV; break; // This also sets the emit_fmt bit for BINARY
+            case 'T': emit_fmt = FULL_TSV;             break; // This also sets the emit_fmt bit for BINARY
             case 'b': emit_fmt = BINARY;               break;
             case 'C': canon = false;                   break;
             case 'D': sketch_query_by_seq = false;     break;
@@ -563,14 +584,15 @@ int dist_main(int argc, char *argv[]) {
             case 'I': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
             case 'J': jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
             case 'L': clamp = true;                    break;
-            case 'M': result_type = MASH_DIST;            break;
+            case 'M': result_type = MASH_DIST;         break;
             case 'N': sm = BY_FNAME;                   break;
             case 'P': prefix = optarg;                 break;
             case 'Q': querypaths.emplace_back(optarg); break;
+            case 'R': seedseedseed = std::strtoull(optarg, nullptr, 10); break;
             case 'S': sketch_size = std::atoi(optarg); break;
-            case 'U': emit_fmt = UPPER_TRIANGULAR;          break;
+            case 'U': emit_fmt = UPPER_TRIANGULAR;     break;
             case 'W': cache_sketch = true;             break;
-            case 'Z': result_type = SIZES;                break;
+            case 'Z': result_type = SIZES;             break;
             case 'a': reading_type = AUTODETECT;       break;
             case 'c': mincount = std::atoi(optarg);    break;
             case 'e': use_scientific = true;           break;
@@ -581,6 +603,7 @@ int dist_main(int argc, char *argv[]) {
             case 'o': if((ofp = fopen(optarg, "w")) == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
             case 'p': nthreads = std::atoi(optarg);    break;
             case 'q': nhashes = std::atoi(optarg);     break;
+            case 't': cmsketchsize = std::atoi(optarg); break;
             case 's': spacing = optarg;                break;
             case 'w': wsz = std::atoi(optarg);         break;
             case 'x': suffix = optarg;                 break;
@@ -608,14 +631,14 @@ int dist_main(int argc, char *argv[]) {
     KSeqBufferHolder kseqs(nthreads);
     switch(sm) {
         case CBF: case BY_FNAME: {
-            const auto cmsketchsize = fsz2countcm(
+            if(cmsketchsize < 0) {
+                cmsketchsize = fsz2countcm(
                 std::accumulate(inpaths.begin(), inpaths.end(), 0u,
-                                [](unsigned x, const auto &y) ->unsigned {return std::max(x, (unsigned)posix_fsize(y.data()));}),
-                factor
-            );
+                                [](unsigned x, const auto &y) ->unsigned {return std::max(x, (unsigned)posix_fsize(y.data()));}), factor);
+            }
             unsigned nbits = std::log2(mincount) + 1;
             while(cms.size() < static_cast<unsigned>(nthreads))
-                cms.emplace_back(nbits, cmsketchsize, nhashes, cms.size() * 1337u);
+                cms.emplace_back(nbits, cmsketchsize, nhashes, (cms.size() ^ seedseedseed) * 1337uL);
             break;
         }
         case EXACT: default: break;
@@ -792,7 +815,10 @@ int print_binary_main(int argc, char *argv[]) {
     for(char **p(argv); *p; ++p) if(std::strcmp(*p, "-h") && std::strcmp(*p, "--help") == 0) goto usage;
     if(argc == 1) {
         usage:
-        std::fprintf(stderr, "%s printmat <path to binary file> [- to read from stdin]\n", argv ? static_cast<const char *>(*argv): "dashing");
+        std::fprintf(stderr, "%s printmat <path to binary file> [- to read from stdin]\n"
+                             "-o\tSpecify output file (default: stdout)\n"
+                             "-s\tEmit in scientific notation\n",
+                     argv ? static_cast<const char *>(*argv): "dashing");
         std::exit(EXIT_FAILURE);
     }
     while((c = getopt(argc, argv, ":o:sh?")) >= 0) {
