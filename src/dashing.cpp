@@ -124,6 +124,7 @@ void dist_usage(const char *arg) {
                          "-q\tSet count-min number of hashes. Default: [4]\n"
                          "-c\tSet minimum count for kmers to pass count-min filtering.\n"
                          "-t\tSet count-min sketch size (log2). Default: ceil(log2(max_filesize)) + 2\n"
+                         "-R\tSet seed for seeds for count-min sketches\n"
                 , arg);
     std::exit(EXIT_FAILURE);
 }
@@ -162,7 +163,8 @@ void sketch_usage(const char *arg) {
                          "Options for count-min filtering --\n"
                          "-H\tSet count-min number of hashes. Default: [4]\n"
                          "-q\tSet count-min sketch size (log2). Default: ceil(log2(max_filesize)) + 2\n"
-                         "-n\tProvide minimum expected count for fastq data. Default: -1 (passing all reads)\n"
+                         "-n\tProvide minimum expected count for fastq data. If unspecified, all kmers are passed.\n"
+                         "-R\tSet seed for seeds for count-min sketches\n"
                          "----\n"
                 , arg);
     std::exit(EXIT_FAILURE);
@@ -228,7 +230,7 @@ size_t fsz2count(uint64_t fsz) {
 
 // Main functions
 int sketch_main(int argc, char *argv[]) {
-    int wsz(0), k(31), sketch_size(10), skip_cached(false), co, nthreads(1), mincount(-1), nhashes(1), cmsketchsize(-1);
+    int wsz(0), k(31), sketch_size(10), skip_cached(false), co, nthreads(1), mincount(1), nhashes(1), cmsketchsize(-1);
     bool canon(true), write_to_dev_null(false), write_gz(false), clamp(false);
     bool entropy_minimization = false;
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
@@ -290,7 +292,7 @@ int sketch_main(int argc, char *argv[]) {
             for(const auto &path: inpaths) use_filter.emplace_back(fname_is_fq(path));
         auto nbits = std::log2(mincount) + 1;
         while(cms.size() < unsigned(nthreads))
-            cms.emplace_back(nbits, cmsketchsize, nhashes, cms.size() * 1337u + seedseedseed);
+            cms.emplace_back(nbits, cmsketchsize, nhashes, (cms.size() ^ seedseedseed) * 1337uL);
     }
     KSeqBufferHolder kseqs(nthreads);
     if(wsz < sp.c_) wsz = sp.c_;
@@ -485,7 +487,8 @@ int dist_main(int argc, char *argv[]) {
     FILE *ofp(stdout), *pairofp(stdout);
     sketching_method sm = EXACT;
     std::vector<std::string> querypaths;
-    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:t:TgDazLfICbMEeHJhZBNyUmqW?")) >= 0) {
+    uint64_t seedseedseed = 1337u;
+    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:TgDazLfICbMEeHJhZBNyUmqW?")) >= 0) {
         switch(co) {
             case 'T': emit_fmt = FULL_TSV;             break; // This also sets the emit_fmt bit for BINARY
             case 'b': emit_fmt = BINARY;               break;
@@ -501,6 +504,7 @@ int dist_main(int argc, char *argv[]) {
             case 'N': sm = BY_FNAME;                   break;
             case 'P': prefix = optarg;                 break;
             case 'Q': querypaths.emplace_back(optarg); break;
+            case 'R': seedseedseed = std::strtoull(optarg, nullptr, 10); break;
             case 'S': sketch_size = std::atoi(optarg); break;
             case 'U': emit_fmt = UPPER_TRIANGULAR;     break;
             case 'W': cache_sketch = true;             break;
@@ -550,7 +554,7 @@ int dist_main(int argc, char *argv[]) {
             }
             unsigned nbits = std::log2(mincount) + 1;
             while(cms.size() < static_cast<unsigned>(nthreads))
-                cms.emplace_back(nbits, cmsketchsize, nhashes, cms.size() * 1337u); // Give each count-min different seeds so we don't permit the same errors.
+                cms.emplace_back(nbits, cmsketchsize, nhashes, (cms.size() ^ seedseedseed) * 1337uL);
             break;
         }
         case EXACT: default: break;
