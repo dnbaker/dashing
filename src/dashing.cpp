@@ -274,11 +274,11 @@ int sketch_main(int argc, char *argv[]) {
     std::vector<cm::ccm_t> cms;
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
                                                        : std::vector<std::string>(argv + optind, argv + argc));
-    detail::sort_paths_by_fsize(inpaths);
     if(inpaths.empty()) {
         std::fprintf(stderr, "No paths. See usage.\n");
         sketch_usage(*argv);
     }
+    detail::sort_paths_by_fsize(inpaths);
     if(sm != EXACT) {
         if(cmsketchsize < 0) {
             cmsketchsize = fsz2countcm(
