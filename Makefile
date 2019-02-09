@@ -94,7 +94,7 @@ test/%.zo: test/%.cpp
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c $< -o $@ $(LIB)
 
 bonsai/zlib/libz.a:
-	cd bonsai/zlib && ./configure && make libz.a
+	+cd bonsai/zlib && ./configure && make libz.a
 
 zobj: $(ALL_ZOBJS)
 
@@ -117,7 +117,7 @@ STATIC_GOMP?=$(shell $(CXX) --print-file-name=libgomp.a)
 
 %_128: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mno-avx2 -msse2 -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
-%_s: src/%.cpp $(ALL_ZOBJS) $(DEPS)
+%_s: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a
 	ln -sf $(STATIC_GOMP) && \
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -static-libstdc++ -static-libgcc bonsai/zlib/libz.a  -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 %_s128: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a
