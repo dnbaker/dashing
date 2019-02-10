@@ -654,10 +654,7 @@ int dist_main(int argc, char *argv[]) {
         kseq_destroy_stack(ks);
     } else {
         if(emit_fmt & BINARY) {
-            std::string name = emit_float ? dm::more_magic::MAGIC_NUMBER<float>().name(): dm::more_magic::MAGIC_NUMBER<double>().name();
-            name += '\n';
-            LOG_DEBUG("About to add magic to file. First, what's my offset? %ld\n", std::ftell(pairofp));
-            std::fputs(name.data(), pairofp);
+            std::fputc(uint8_t(emit_float ? dm::more_magic::MAGIC_NUMBER<float>::magic_number: dm::more_magic::MAGIC_NUMBER<double>::magic_number), pairofp);
             const uint64_t hs(hlls.size());
             LOG_DEBUG("Number of sketches: %zu\n", hlls.size());
             std::fwrite(&hs, sizeof(hs), 1, pairofp);
@@ -694,6 +691,8 @@ int dist_main(int argc, char *argv[]) {
         LOG_ASSERT(executable);
 #define POSTP_INNER(type, fptype, fpopen, fpclose) \
         dm::DistanceMatrix<type> mat(pairofp_path.data());\
+        mat.set_default_value(result_type == JI ? 1.: 0.);\
+        if(result_type == SIZES) LOG_WARNING("The diagonal row of this matrix will be 0 instead of the actual size of the genome, which would be the result of the union of it with itself."); \
         LOG_DEBUG("Name of found: %s\n", dm::DistanceMatrix<type>::magic_string());\
         fptype fp;\
         if((fp = fpopen(tmpfile.data(), "wb")) == nullptr) RUNTIME_ERROR(ks::sprintf("Could not open file at %s", tmpfile.data()).data());\
