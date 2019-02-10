@@ -114,7 +114,6 @@ void dist_usage(const char *arg) {
                          "-O\tOutput for genome distance matrix [stdout]\n"
                          "-L\tClamp estimates below expected variance to 0. [Default: do not clamp]\n"
                          "-e\tEmit in scientific notation\n"
-                         "-f\tReport results as float. (Only important for binary format.) This halves the memory footprint at the cost of precision loss.\n"
                          "-F\tGet paths to genomes from file rather than positional arguments\n"
                          "-M\tEmit Mash distance (default: jaccard index)\n"
                          "-T\tpostprocess binary format to human-readable TSV (not upper triangular)\n"
@@ -335,11 +334,6 @@ int sketch_main(int argc, char *argv[]) {
 template<typename FType, typename=typename std::enable_if<std::is_floating_point<FType>::value>::type>
 size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks::string &str, const std::vector<std::string> &inpaths, EmissionFormat emit_fmt, bool use_scientific, const size_t buffer_flush_size=BUFFER_FLUSH_SIZE) {
     if(emit_fmt & BINARY) {
-#if !NDEBUG
-        for(size_t i = 0; i < hs - index - 1; ++i) {
-            std::fprintf(stderr, "index: %zu. value: %lf\n", i + index, ptr[i]);
-        }
-#endif
         const ssize_t nbytes = sizeof(FType) * (hs - index - 1);
         LOG_DEBUG("Writing %zd bytes for %zu items\n", nbytes, (hs - index - 1));
         ssize_t i = ::write(pairfi, ptr, nbytes);
@@ -475,7 +469,6 @@ int dist_main(int argc, char *argv[]) {
     int wsz(0), k(31), sketch_size(10), use_scientific(false), co, cache_sketch(false),
         nthreads(1), mincount(30), nhashes(4), cmsketchsize(-1);
     bool canon(true), presketched_only(false),
-         emit_float(true),
          clamp(false), sketch_query_by_seq(true), entropy_minimization(false);
     EmissionFormat emit_fmt = UT_TSV;
     double factor = 1.;
@@ -488,7 +481,7 @@ int dist_main(int argc, char *argv[]) {
     sketching_method sm = EXACT;
     std::vector<std::string> querypaths;
     uint64_t seedseedseed = 1337u;
-    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:TgDazLfICbMEeHJhZBNyUmqW?")) >= 0) {
+    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:TgDazLICbMEeHJhZBNyUmqW?")) >= 0) {
         switch(co) {
             case 'T': emit_fmt = FULL_TSV;             break; // This also sets the emit_fmt bit for BINARY
             case 'b': emit_fmt = BINARY;               break;
@@ -512,7 +505,6 @@ int dist_main(int argc, char *argv[]) {
             case 'a': reading_type = AUTODETECT;       break;
             case 'c': mincount = std::atoi(optarg);    break;
             case 'e': use_scientific = true;           break;
-            case 'f': emit_float = true;               break;
             case 'g': entropy_minimization = true;     break;
             case 'k': k = std::atoi(optarg);           break;
             case 'm': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
@@ -539,7 +531,9 @@ int dist_main(int argc, char *argv[]) {
     Spacer sp(k, wsz, sv);
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
                                                        : std::vector<std::string>(argv + optind, argv + argc));
-    detail::sort_paths_by_fsize(inpaths);
+    if(!presketched_only) {
+        detail::sort_paths_by_fsize(inpaths);
+    }
     if(inpaths.empty())
         std::fprintf(stderr, "No paths. See usage.\n"), dist_usage(*argv);
     std::vector<sketch::cm::ccm_t> cms;
@@ -654,7 +648,7 @@ int dist_main(int argc, char *argv[]) {
         kseq_destroy_stack(ks);
     } else {
         if(emit_fmt & BINARY) {
-            std::fputc(uint8_t(emit_float ? dm::more_magic::MAGIC_NUMBER<float>::magic_number: dm::more_magic::MAGIC_NUMBER<double>::magic_number), pairofp);
+            std::fputc(uint8_t(dm::more_magic::MAGIC_NUMBER<float>::magic_number), pairofp);
             const uint64_t hs(hlls.size());
             LOG_DEBUG("Number of sketches: %zu\n", hlls.size());
             std::fwrite(&hs, sizeof(hs), 1, pairofp);
