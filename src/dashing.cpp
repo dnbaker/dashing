@@ -381,9 +381,8 @@ INLINE void perform_core_op(T &dists, std::vector<hll::hll_t> &hlls, const Func 
     h1.free();
 }
 
-//#if ENABLE_COMPUTED_GOTO
-#if 0
-#define CORE_ITER(zomg) {\
+#if ENABLE_COMPUTED_GOTO
+#define CORE_ITER(zomg) do {{\
         static constexpr void *TYPES[] {&&mash##zomg, &&ji##zomg, &&sizes##zomg};\
         goto *TYPES[result_type];\
         mash##zomg:\
@@ -394,8 +393,8 @@ INLINE void perform_core_op(T &dists, std::vector<hll::hll_t> &hlls, const Func 
            goto next_step##zomg;\
         sizes##zomg:\
             perform_core_op(dists, hlls, hll::union_size<hll::hll_t>, i);\
-        next_step##zomg: \
-    }
+        next_step##zomg: ;\
+    } } while(0);
 #else
 #define CORE_ITER(zomg) do {\
         switch(result_type) {\
@@ -429,7 +428,7 @@ void dist_loop(std::FILE *ofp, std::vector<hll_t> &hlls, const std::vector<std::
         ks::string str;
         for(size_t i = 0; i < hlls.size(); ++i) {
             std::vector<FType> &dists = dps[i & 1];
-            CORE_ITER(1);
+            CORE_ITER(_a);
 #if !NDEBUG
             LOG_DEBUG("Finished chunk %zu of %zu\n", i + 1, hlls.size());
             if(i) LOG_DEBUG("Finished writing row %zu\n", submitter.get());
@@ -445,7 +444,7 @@ void dist_loop(std::FILE *ofp, std::vector<hll_t> &hlls, const std::vector<std::
         for(size_t i = 0; i < hlls.size(); ++i) {
             auto span = dm.row_span(i);
             auto &dists = span.first;
-            CORE_ITER(2);
+            CORE_ITER(_b);
         }
         if(emit_fmt == FULL_TSV) dm.printf(ofp, use_scientific, &inpaths);
         else {
