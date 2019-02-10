@@ -22,17 +22,17 @@ RUN apt-get install -y software-properties-common
 
 # Install gcc6 specifically
 RUN add-apt-repository ppa:ubuntu-toolchain-r/test
-RUN apt-get update && apt-get install -y g++-6 
+RUN apt-get update && apt-get install -y g++-6
 RUN g++ --version
 
-# Install 
+# Install
 RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-6 60 --slave /usr/bin/g++ g++ /usr/bin/g++-6
 
 WORKDIR /
 RUN git clone https://github.com/dnbaker/dashing/
 WORKDIR /dashing
 RUN pwd
-RUN make update dashing 
+RUN make update dashing
 RUN cp /dashing/dashing /bin
 
 # Test that getting help on dashing command works
