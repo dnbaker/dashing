@@ -129,19 +129,20 @@ SSS(mh::HyperMinHash<uint64_t>, ".hmh");
 SSS(hll::hll_t, ".hll");
 
 using CRMFinal = mh::FinalCRMinHash<uint64_t, std::greater<uint64_t>, uint32_t>;
-template<typename T>
-double similarity(const T &a, const T &b) {
+template<typename T> INLINE double similarity(const T &a, const T &b) {
     return jaccard_index(a, b);
 }
-template<>
-double similarity<CRMFinal>(const CRMFinal &a, const CRMFinal &b) {
+
+template<> INLINE double similarity<CRMFinal>(const CRMFinal &a, const CRMFinal &b) {
     return a.histogram_intersection(b);
 }
 
 namespace us {
-template<typename T> double union_size(const T &a, const T &b);
+template<typename T> INLINE double union_size(const T &a, const T &b) {
+    throw NotImplementedError(std::string("union_size not available for type ") + __PRETTY_FUNCTION__);
+}
 
-template<> double union_size<hll::hllbase_t<>> (const hll::hllbase_t<> &a, const hll::hllbase_t<> &b) {
+template<> INLINE double union_size<hll::hllbase_t<>> (const hll::hllbase_t<> &a, const hll::hllbase_t<> &b) {
     return a.union_size(b);
 }
 }
@@ -181,7 +182,8 @@ inline void swap(path_size &a, path_size &b) {
 }
 
 void sort_paths_by_fsize(std::vector<std::string> &paths) {
-    std::vector<unsigned> fsizes(paths.size());
+    uint32_t *fsizes = static_cast<uint32_t *>(std::malloc(paths.size() * sizeof(uint32_t)));
+    if(!fsizes) throw std::bad_alloc();
     #pragma omp parallel for
     for(size_t i = 0; i < paths.size(); ++i)
         fsizes[i] = posix_fsize(paths[i].data());
@@ -189,6 +191,7 @@ void sort_paths_by_fsize(std::vector<std::string> &paths) {
     #pragma omp parallel for
     for(size_t i = 0; i < paths.size(); ++i)
         ps[i] = path_size(paths[i], fsizes[i]);
+    std::free(fsizes);
     std::sort(ps.begin(), ps.end(), [](const auto &x, const auto &y) {return x.size > y.size;});
     paths.clear();
     for(const auto &p: ps) paths.emplace_back(std::move(p.path));
@@ -517,7 +520,7 @@ INLINE void perform_core_op(T &dists, std::vector<SketchType> &hlls, const Func 
         static constexpr void *TYPES[] {&&mash##zomg, &&ji##zomg, &&sizes##zomg};\
         goto *TYPES[result_type];\
         mash##zomg:\
-            perform_core_op(dists, hlls, [ksinv](const auto &x, const auto &y) {return dist_index(jaccard_index(x, y), ksinv);}, i);\
+            perform_core_op(dists, hlls, [ksinv](const auto &x, const auto &y) {return dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
             goto next_step##zomg;\
         ji##zomg:\
             perform_core_op(dists, hlls, similarity<const SketchType>, i);\
@@ -530,7 +533,7 @@ INLINE void perform_core_op(T &dists, std::vector<SketchType> &hlls, const Func 
 #define CORE_ITER(zomg) do {\
         switch(result_type) {\
             case MASH_DIST: {\
-                perform_core_op(dists, hlls, [ksinv](const auto &x, const auto &y) {return dist_index(jaccard_index(x, y), ksinv);}, i);\
+                perform_core_op(dists, hlls, [ksinv](const auto &x, const auto &y) {return dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
                 break;\
             }\
             case JI: {\
