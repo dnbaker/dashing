@@ -28,6 +28,7 @@ using hll::hll_t;
 #endif
 
 namespace bns {
+using sketch::common::WangHash;
 static const char *executable = nullptr;
 enum EmissionType {
     MASH_DIST = 0,
@@ -137,9 +138,12 @@ double similarity<CRMFinal>(const CRMFinal &a, const CRMFinal &b) {
     return a.histogram_intersection(b);
 }
 
-template<typename T>
-double union_size(const T &a, const T &b) {
-    return hll::union_size(a, b);
+namespace us {
+template<typename T> double union_size(const T &a, const T &b);
+
+template<> double union_size<hll::hllbase_t<>> (const hll::hllbase_t<> &a, const hll::hllbase_t<> &b) {
+    return a.union_size(b);
+}
 }
 
 
@@ -216,7 +220,6 @@ void dist_usage(const char *arg) {
                          "-O\tOutput for genome distance matrix [stdout]\n"
                          "-L\tClamp estimates below expected variance to 0. [Default: do not clamp]\n"
                          "-e\tEmit in scientific notation\n"
-                         "-f\tReport results as float. (Only important for binary format.) This halves the memory footprint at the cost of precision loss.\n"
                          "-F\tGet paths to genomes from file rather than positional arguments\n"
                          "-M\tEmit Mash distance (default: jaccard index)\n"
                          "-T\tpostprocess binary format to human-readable TSV (not upper triangular)\n"
@@ -462,11 +465,6 @@ int sketch_main(int argc, char *argv[]) {
 template<typename FType, typename=typename std::enable_if<std::is_floating_point<FType>::value>::type>
 size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks::string &str, const std::vector<std::string> &inpaths, EmissionFormat emit_fmt, bool use_scientific, const size_t buffer_flush_size=BUFFER_FLUSH_SIZE) {
     if(emit_fmt & BINARY) {
-#if !NDEBUG
-        for(size_t i = 0; i < hs - index - 1; ++i) {
-            std::fprintf(stderr, "index: %zu. value: %lf\n", i + index, ptr[i]);
-        }
-#endif
         const ssize_t nbytes = sizeof(FType) * (hs - index - 1);
         LOG_DEBUG("Writing %zd bytes for %zu items\n", nbytes, (hs - index - 1));
         ssize_t i = ::write(pairfi, ptr, nbytes);
@@ -490,7 +488,7 @@ size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks:
             for(u64 k = 0; k < hs - index - 1; str.sprintf(fmt, ptr[k++]));
         }
         str.putc_('\n');
-        if(str.size() >= BUFFER_FLUSH_SIZE) str.flush(pairfi);
+        str.flush(pairfi);
     }
     return index;
 }
@@ -505,77 +503,86 @@ typename std::common_type<FType1, FType2>::type dist_index(FType1 ji, FType2 ksi
     return ji ? -std::log(2. * ji / (1. + ji)) * ksinv: 1.;
 }
 
-template<typename FType, typename=typename std::enable_if<std::is_floating_point<FType>::value>::type>
-void dist_loop(std::FILE *ofp, std::vector<hll_t> &hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size=BUFFER_FLUSH_SIZE) {
-#if !NDEBUG
-    std::fprintf(stderr, "value for use_scientific is %s\n", use_scientific ? "t": "f");
+template<typename SketchType, typename T, typename Func>
+INLINE void perform_core_op(T &dists, std::vector<SketchType> &hlls, const Func &func, size_t i) {
+    auto &h1 = hlls[i];
+    #pragma omp parallel for
+    for(size_t j = i + 1; j < hlls.size(); ++j)
+        dists[j - i - 1] = func(hlls[j], h1);
+    h1.free();
+}
+
+#if ENABLE_COMPUTED_GOTO
+#define CORE_ITER(zomg) do {{\
+        static constexpr void *TYPES[] {&&mash##zomg, &&ji##zomg, &&sizes##zomg};\
+        goto *TYPES[result_type];\
+        mash##zomg:\
+            perform_core_op(dists, hlls, [ksinv](const auto &x, const auto &y) {return dist_index(jaccard_index(x, y), ksinv);}, i);\
+            goto next_step##zomg;\
+        ji##zomg:\
+            perform_core_op(dists, hlls, similarity<const SketchType>, i);\
+           goto next_step##zomg;\
+        sizes##zomg:\
+            perform_core_op(dists, hlls, us::union_size<SketchType>, i);\
+        next_step##zomg: ;\
+    } } while(0);
+#else
+#define CORE_ITER(zomg) do {\
+        switch(result_type) {\
+            case MASH_DIST: {\
+                perform_core_op(dists, hlls, [ksinv](const auto &x, const auto &y) {return dist_index(jaccard_index(x, y), ksinv);}, i);\
+                break;\
+            }\
+            case JI: {\
+            perform_core_op(dists, hlls, similarity<const SketchType>, i);\
+                break;\
+            }\
+            case SIZES: {\
+            perform_core_op(dists, hlls, us::union_size<SketchType>, i);\
+                break;\
+            }\
+            default:\
+                __builtin_unreachable();\
+        } } while(0)
 #endif
-    std::array<std::vector<FType>, 2> dps;
-    dps[0].resize(hlls.size() - 1);
-    dps[1].resize(hlls.size() - 2);
-    ks::string str;
+
+template<typename FType, typename SketchType, typename=typename std::enable_if<std::is_floating_point<FType>::value>::type>
+void dist_loop(std::FILE *ofp, std::vector<SketchType> &hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size=BUFFER_FLUSH_SIZE) {
     const FType ksinv = 1./ k;
-    std::future<size_t> submitter;
     const int pairfi = fileno(ofp);
     omp_set_num_threads(nthreads);
-    for(size_t i = 0; i < hlls.size(); ++i) {
-        hll_t &h1(hlls[i]); // TODO: consider working backwards and pop_back'ing.
-        std::vector<FType> &dists = dps[i & 1];
-#if ENABLE_COMPUTED_GOTO
-        static constexpr void *TYPES[] {&&mash, &&ji, &&sizes};
-        goto *TYPES[result_type];
-        mash:
-            #pragma omp parallel for
-            for(size_t j = i + 1; j < hlls.size(); ++j)
-                dists[j - i - 1] = dist_index(similarity(hlls[j], h1), ksinv);
-            goto next_step;
-        ji:
-            #pragma omp parallel for
-            for(size_t j = i + 1; j < hlls.size(); ++j)
-                dists[j - i - 1] = similarity(hlls[j], h1);
-           goto next_step;
-        sizes:
-            #pragma omp parallel for
-            for(size_t j = i + 1; j < hlls.size(); ++j)
-                dists[j - i - 1] = bns::union_size(hlls[j], h1);
-        next_step:
-#else
-        switch(result_type) {
-            case MASH_DIST: {
-                #pragma omp parallel for
-                for(size_t j = i + 1; j < hlls.size(); ++j)
-                    dists[j - i - 1] = dist_index(similarity(hlls[j], h1), ksinv);
-                break;
-            }
-            case JI: {
-                #pragma omp parallel for
-                for(size_t j = i + 1; j < hlls.size(); ++j)
-                    dists[j - i - 1] = similarity(hlls[j], h1);
-                break;
-            }
-            case SIZES: {
-                #pragma omp parallel for
-                for(size_t j = i + 1; j < hlls.size(); ++j)
-                    dists[j - i - 1] = bns::union_size(hlls[j], h1);
-                break;
-            }
-            default:
-                __builtin_unreachable();
-        }
-#endif
-        h1.free();
+    if((emit_fmt & BINARY) == 0) {
+        std::future<size_t> submitter;
+        std::array<std::vector<FType>, 2> dps;
+        dps[0].resize(hlls.size() - 1);
+        dps[1].resize(hlls.size() - 2);
+        ks::string str;
+        for(size_t i = 0; i < hlls.size(); ++i) {
+            std::vector<FType> &dists = dps[i & 1];
+            CORE_ITER(_a);
 #if !NDEBUG
-        LOG_DEBUG("Finished chunk %zu of %zu\n", i + 1, hlls.size());
-        if(i) LOG_DEBUG("Finished writing row %zu\n", submitter.get());
+            LOG_DEBUG("Finished chunk %zu of %zu\n", i + 1, hlls.size());
+            if(i) LOG_DEBUG("Finished writing row %zu\n", submitter.get());
 #else
-        if(i) submitter.get();
+            if(i) submitter.get();
 #endif
-        submitter = std::async(std::launch::async, submit_emit_dists<FType>,
-                               pairfi, dists.data(), hlls.size(), i,
-                               std::ref(str), std::ref(inpaths), emit_fmt, use_scientific, buffer_flush_size);
+            submitter = std::async(std::launch::async, submit_emit_dists<FType>,
+                                   pairfi, dists.data(), hlls.size(), i,
+                                   std::ref(str), std::ref(inpaths), emit_fmt, use_scientific, buffer_flush_size);
+        }
+    } else {
+        dm::DistanceMatrix<float> dm(hlls.size());
+        for(size_t i = 0; i < hlls.size(); ++i) {
+            auto span = dm.row_span(i);
+            auto &dists = span.first;
+            CORE_ITER(_b);
+        }
+        if(emit_fmt == FULL_TSV) dm.printf(ofp, use_scientific, &inpaths);
+        else {
+            assert(emit_fmt == BINARY);
+            dm.write(ofp);
+        }
     }
-    submitter.get();
-    if(!(emit_fmt & BINARY)) str.flush(pairfi);
 }
 
 namespace {
@@ -589,7 +596,7 @@ enum CompReading: unsigned {
     do {\
         Encoder<MinType> enc(nullptr, 0, sp, nullptr, canon);\
         if(cms.empty()) {\
-            hll_t &h = hlls[i];\
+            auto &h = hlls[i];\
             enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
         } else {\
             sketch::cm::ccm_t &cm = cms[tid];\
@@ -602,7 +609,6 @@ int dist_main(int argc, char *argv[]) {
     int wsz(0), k(31), sketch_size(10), use_scientific(false), co, cache_sketch(false),
         nthreads(1), mincount(30), nhashes(4), cmsketchsize(-1);
     bool canon(true), presketched_only(false),
-         emit_float(true),
          clamp(false), sketch_query_by_seq(true), entropy_minimization(false);
     EmissionFormat emit_fmt = UT_TSV;
     double factor = 1.;
@@ -615,7 +621,7 @@ int dist_main(int argc, char *argv[]) {
     sketching_method sm = EXACT;
     std::vector<std::string> querypaths;
     uint64_t seedseedseed = 1337u;
-    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:TgDazLfICbMEeHJhZBNyUmqW?")) >= 0) {
+    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:TgDazLICbMEeHJhZBNyUmqW?")) >= 0) {
         switch(co) {
             case 'T': emit_fmt = FULL_TSV;             break; // This also sets the emit_fmt bit for BINARY
             case 'b': emit_fmt = BINARY;               break;
@@ -639,7 +645,6 @@ int dist_main(int argc, char *argv[]) {
             case 'a': reading_type = AUTODETECT;       break;
             case 'c': mincount = std::atoi(optarg);    break;
             case 'e': use_scientific = true;           break;
-            case 'f': emit_float = true;               break;
             case 'g': entropy_minimization = true;     break;
             case 'k': k = std::atoi(optarg);           break;
             case 'm': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
@@ -666,7 +671,9 @@ int dist_main(int argc, char *argv[]) {
     Spacer sp(k, wsz, sv);
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
                                                        : std::vector<std::string>(argv + optind, argv + argc));
-    detail::sort_paths_by_fsize(inpaths);
+    if(!presketched_only) {
+        detail::sort_paths_by_fsize(inpaths);
+    }
     if(inpaths.empty())
         std::fprintf(stderr, "No paths. See usage.\n"), dist_usage(*argv);
     std::vector<sketch::cm::ccm_t> cms;
@@ -780,21 +787,21 @@ int dist_main(int argc, char *argv[]) {
         output.flush(fn);
         kseq_destroy_stack(ks);
     } else {
+#if 0
         if(emit_fmt & BINARY) {
-            std::string name = emit_float ? dm::more_magic::MAGIC_NUMBER<float>().name(): dm::more_magic::MAGIC_NUMBER<double>().name();
-            name += '\n';
-            LOG_DEBUG("About to add magic to file. First, what's my offset? %ld\n", std::ftell(pairofp));
-            std::fputs(name.data(), pairofp);
+            std::fputc(uint8_t(dm::more_magic::MAGIC_NUMBER<float>::magic_number), pairofp);
             const uint64_t hs(hlls.size());
             LOG_DEBUG("Number of sketches: %zu\n", hlls.size());
             std::fwrite(&hs, sizeof(hs), 1, pairofp);
             std::fflush(pairofp);
-        } else if(emit_fmt == UT_TSV) {
+        } else 
+#endif
+        if(emit_fmt == UT_TSV) {
             str.sprintf("##Names\t");
             for(const auto &path: inpaths) str.sprintf("%s\t", path.data());
             str.back() = '\n';
             str.write(fileno(pairofp)); str.free();
-        } else { // emit_fmt == UPPER_TRIANGULAR
+        } else if(emit_fmt == UPPER_TRIANGULAR) { // emit_fmt == UPPER_TRIANGULAR
             std::fprintf(pairofp, "%zu\n", inpaths.size());
             std::fflush(pairofp);
         }
@@ -802,26 +809,31 @@ int dist_main(int argc, char *argv[]) {
         static constexpr uint32_t buffer_flush_size = BUFFER_FLUSH_SIZE;
         dist_loop<float>(pairofp, hlls, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size);
     }
-    if(emit_fmt & BINARY) {
+    std::future<void> label_future;
+    if(emit_fmt == BINARY) {
         if(pairofp_labels.empty()) pairofp_labels = "unspecified";
-        std::FILE *fp = std::fopen(pairofp_labels.data(), "wb");
-        if(fp == nullptr) RUNTIME_ERROR(std::string("Could not open file at ") + pairofp_labels);
-        for(const auto &path: inpaths) std::fwrite(path.data(), path.size(), 1, fp), std::fputc('\n', fp);
-        std::fclose(fp);
+        label_future = std::async(std::launch::async, [&inpaths](const std::string &labels) {
+            std::FILE *fp = std::fopen(labels.data(), "wb");
+            if(fp == nullptr) RUNTIME_ERROR(std::string("Could not open file at ") + labels);
+            for(const auto &path: inpaths) std::fwrite(path.data(), path.size(), 1, fp), std::fputc('\n', fp);
+            std::fclose(fp);
+        }, pairofp_labels);
     }
     if(pairofp != stdout) std::fclose(pairofp);
+#if 0
     if(emit_fmt == FULL_TSV) {
         if(pairofp == stdout) {
             std::fprintf(stderr, "Can't postprocess binary written to a pipe\n");
             std::exit(1);
         }
         LOG_DEBUG("Making tmpfile name\n");
-        std::string tmpfile = ks::sprintf("% " PRIu64".tmp", std::mt19937_64(137)()).data();
+        std::string tmpfile = std::to_string(std::accumulate(argv, argv + argc, uint64_t(137), [](uint64_t hv, const char *s) {return std::hash<std::string>()(std::string(s)) ^ hv;})) + ".tmp";
         LOG_DEBUG("Made tmpfile name. tmpfile: %s. ex: %s\n", tmpfile.data(), executable);
         LOG_ASSERT(executable);
-#define POSTP_INNER(type, fptype, fpopen, fpclose) \
-        dm::DistanceMatrix<type> mat(pairofp_path.data());\
-        LOG_DEBUG("Name of found: %s\n", dm::DistanceMatrix<type>::magic_string());\
+#define POSTP_INNER(fptype, fpopen, fpclose) \
+        dm::DistanceMatrix<float> mat(pairofp_path.data());\
+        mat.set_default_value(result_type == JI ? 1.: 0.);\
+        if(result_type == SIZES) LOG_WARNING("The diagonal row of this matrix will be 0 instead of the actual size of the genome, which would be the result of the union of it with itself."); \
         fptype fp;\
         if((fp = fpopen(tmpfile.data(), "wb")) == nullptr) RUNTIME_ERROR(ks::sprintf("Could not open file at %s", tmpfile.data()).data());\
         mat.printf(fp, use_scientific, &inpaths);\
@@ -831,22 +843,15 @@ int dist_main(int argc, char *argv[]) {
                 pairofp_path += COMPRESSED_FILE_SUFFIX;
                 LOG_WARNING("Output file emitted in compressed form, but filename does not contain .gz or zst. Renaming to %s", pairofp_path.data());
             }
-            try {
-                POSTP_INNER(float, gzFile, gzopen, gzclose);
-            } catch(const std::runtime_error &re) {
-                POSTP_INNER(double, gzFile, gzopen, gzclose);
-            }
+            POSTP_INNER(gzFile, gzopen, gzclose);
         } else {
-            try {
-                POSTP_INNER(float, std::FILE *, fopen, fclose);
-            } catch(const std::runtime_error &re) {
-                POSTP_INNER(double, std::FILE *, fopen, fclose);
-            }
+            POSTP_INNER(std::FILE *, fopen, fclose);
         }
         ks::string cmd = ks::sprintf("mv %s %s", tmpfile.data(), pairofp_path.data());
         LOG_DEBUG("About to perform '%s'\n", cmd.data());
         if(std::system(cmd.data())) throw std::runtime_error(std::string("Failed to execute ") + cmd.data());
     }
+#endif
     return EXIT_SUCCESS;
 }
 
