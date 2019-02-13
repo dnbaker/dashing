@@ -783,7 +783,6 @@ int setdist_main(int argc, char *argv[]) {
     KSeqBufferHolder h(nt);
     std::vector<khash_t(all)> hashes;
     while(hashes.size() < inpaths.size()) hashes.emplace_back(khash_t(all){0, 0, 0, 0, 0, 0, 0});
-    for(auto hash: hashes) kh_resize(all, &hash, 1 << 12); // Try to reduce the number of allocations.
     const size_t nhashes(hashes.size());
     if(wsz < sp.c_) wsz = sp.c_;
     if(inpaths.size() == 0) {
@@ -927,7 +926,6 @@ using namespace bns;
 
 int main(int argc, char *argv[]) {
     bns::executable = argv[0];
-    std::ios_base::sync_with_stdio(false);
     if(argc == 1) main_usage(argv);
     if(std::strcmp(argv[1], "sketch") == 0) return sketch_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "dist") == 0) return dist_main(argc - 1, argv + 1);
