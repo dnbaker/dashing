@@ -528,7 +528,7 @@ int dist_main(int argc, char *argv[]) {
             case 'e': use_scientific = true;           break;
             case 'g': entropy_minimization = true;     break;
             case 'k': k = std::atoi(optarg);           break;
-            //case 'l': result_type = FULL_MASH_DIST;    break;
+            case 'l': result_type = FULL_MASH_DIST;    break;
             case 'm': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
             case 'o': if((ofp = fopen(optarg, "w")) == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
             case 'p': nthreads = std::atoi(optarg);    break;
@@ -755,7 +755,7 @@ int setdist_main(int argc, char *argv[]) {
             case 'o': ofp = fopen(optarg, "w");     break;
             case 'O': pairofp = fopen(optarg, "w"); break;
             case 'e': use_scientific = true;        break;
-            //case 'l': emit_type = FULL_MASH_DIST;   break;
+            case 'l': emit_type = FULL_MASH_DIST;   break;
             case 'M': emit_type = MASH_DIST;        break;
             case 'Z': emit_type = SIZES;            break;
             case 'U': emit_fmt = UPPER_TRIANGULAR;  break;
@@ -798,32 +798,64 @@ int setdist_main(int argc, char *argv[]) {
     if(ofp != stdout) std::fclose(ofp);
     std::vector<float> dists(nhashes - 1);
     str.clear();
-    str.sprintf("##Names\t");
-    for(auto &path: inpaths) str.sprintf("%s\t", path.data());
-    str.back() = '\n';
-    str.write(fileno(pairofp)); str.free();
-    setvbuf(pairofp, rdbuf.data(), _IOLBF, rdbuf.size());
     const double ksinv = 1./static_cast<double>(k);
-    for(size_t i = 0; i < nhashes; ++i) {
-        const khash_t(all) *h1(&hashes[i]);
-        size_t j;
+    if((emit_fmt & BINARY) == 0) {
+        if(emit_fmt == UPPER_TRIANGULAR) throw sketch::common::NotImplementedError("Not Implemented: upper triangular phylip for setdist.");
+        str.sprintf("##Names\t");
+        for(auto &path: inpaths) str.sprintf("%s\t", path.data());
+        str.back() = '\n';
+            str.write(fileno(pairofp)); str.free();
+        setvbuf(pairofp, rdbuf.data(), _IOLBF, rdbuf.size());
+        for(size_t i = 0; i < nhashes; ++i) {
+            const khash_t(all) *h1(&hashes[i]);
+            size_t j;
 #define DO_LOOP(val) for(j = i + 1; j < nhashes; ++j) dists[j - i - 1] = (val)
-        if(emit_type == JI) {
-            #pragma omp parallel for
-            DO_LOOP(jaccard_index(&hashes[j], h1));
-        } else if(emit_type == MASH_DIST) {
-            #pragma omp parallel for
-            DO_LOOP(dist_index(jaccard_index(&hashes[j], h1), ksinv));
-        //} else if(emit_type == FULL_MASH_DIST) {
-        //    #pragma omp parallel for
-        //    DO_LOOP(full_dist_index(jaccard_index(&hashes[j], h1), ksinv));
-        } else {
-            #pragma omp parallel for
-            DO_LOOP(union_size(&hashes[j], h1));
-        }
+            if(emit_type == JI) {
+                #pragma omp parallel for
+                DO_LOOP(jaccard_index(&hashes[j], h1));
+            } else if(emit_type == MASH_DIST) {
+                #pragma omp parallel for
+                DO_LOOP(dist_index(jaccard_index(&hashes[j], h1), ksinv));
+            } else if(emit_type == FULL_MASH_DIST) {
+                #pragma omp parallel for
+                DO_LOOP(full_dist_index(jaccard_index(&hashes[j], h1), ksinv));
+            } else {
+                #pragma omp parallel for
+                DO_LOOP(union_size(&hashes[j], h1));
+            }
 #undef DO_LOOP
-        submit_emit_dists<float>(fileno(pairofp), dists.data(), hashes.size(), i, str, inpaths, emit_fmt, use_scientific);
-        std::free(h1->keys); std::free(h1->vals); std::free(h1->flags);
+            submit_emit_dists<float>(fileno(pairofp), dists.data(), hashes.size(), i, str, inpaths, emit_fmt, use_scientific);
+            std::free(h1->keys); std::free(h1->vals); std::free(h1->flags);
+        }
+    } else {
+        dm::DistanceMatrix<float> dm(nhashes);
+        for(size_t i = 0; i < nhashes; ++i) {
+            auto span = dm.row_span(i);
+            auto &dists = span.first;
+            auto h1 = &hashes[i];
+            size_t j;
+#define DO_LOOP(val) for(j = i + 1; j < nhashes; ++j) dists[j - i - 1] = (val)
+            if(emit_type == JI) {
+                #pragma omp parallel for
+                DO_LOOP(jaccard_index(&hashes[j], h1));
+            } else if(emit_type == MASH_DIST) {
+                #pragma omp parallel for
+                DO_LOOP(dist_index(jaccard_index(&hashes[j], h1), ksinv));
+            } else if(emit_type == FULL_MASH_DIST) {
+                #pragma omp parallel for
+                DO_LOOP(full_dist_index(jaccard_index(&hashes[j], h1), ksinv));
+            } else {
+                #pragma omp parallel for
+                DO_LOOP(union_size(&hashes[j], h1));
+            }
+#undef DO_LOOP
+            std::free(h1->keys); std::free(h1->vals); std::free(h1->flags);
+        }
+        if(emit_fmt == FULL_TSV) dm.printf(ofp, use_scientific, &inpaths);
+        else {
+            assert(emit_fmt == BINARY);
+            dm.write(ofp);
+        }
     }
     return EXIT_SUCCESS;
 }
