@@ -693,7 +693,7 @@ int dist_main(int argc, char *argv[]) {
         }, pairofp_labels);
     }
     if(pairofp != stdout) std::fclose(pairofp);
-    label_future.get();
+    if(label_future.valid()) label_future.get();
     return EXIT_SUCCESS;
 }
 
