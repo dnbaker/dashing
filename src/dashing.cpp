@@ -117,7 +117,7 @@ void dist_usage(const char *arg) {
                          "-e\tEmit in scientific notation\n"
                          "-F\tGet paths to genomes from file rather than positional arguments\n"
                          "-M\tEmit Mash distance (default: jaccard index)\n"
-                         "-l\tEmit full (not approximate) Mash distance. default: jaccard index\n"
+                         //"-l\tEmit full (not approximate) Mash distance. default: jaccard index\n"
                          "-T\tpostprocess binary format to human-readable TSV (not upper triangular)\n"
                          "-Z\tEmit genome sizes (default: jaccard index)\n"
                          "-N\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
@@ -396,7 +396,7 @@ INLINE void perform_core_op(T &dists, std::vector<hll::hll_t> &hlls, const Func 
 
 #if ENABLE_COMPUTED_GOTO
 #define CORE_ITER(zomg) do {{\
-        static constexpr void *TYPES[] {&&mash##zomg, &&ji##zomg, &&sizes##zomg, &&full_mash##zomg};\
+        static constexpr void *TYPES[] {&&mash##zomg, &&ji##zomg, &&sizes##zomg};\
         goto *TYPES[result_type];\
         mash##zomg:\
             perform_core_op(dists, hlls, [ksinv](const auto &x, const auto &y) {return dist_index(jaccard_index(x, y), ksinv);}, i);\
@@ -407,8 +407,6 @@ INLINE void perform_core_op(T &dists, std::vector<hll::hll_t> &hlls, const Func 
         sizes##zomg:\
             perform_core_op(dists, hlls, hll::union_size<hll::hll_t>, i);\
            goto next_step##zomg;\
-        full_mash##zomg:\
-            perform_core_op(dists, hlls, [ksinv](const auto &x, const auto &y) {return full_dist_index(jaccard_index(x, y), ksinv);}, i);\
         next_step##zomg: ;\
     } } while(0);
 #else
@@ -426,8 +424,6 @@ INLINE void perform_core_op(T &dists, std::vector<hll::hll_t> &hlls, const Func 
             perform_core_op(dists, hlls, hll::union_size<hll::hll_t>, i);\
                 break;\
             }\
-            case FULL_MASH_DIST:\
-                perform_core_op(dists, hlls, [ksinv](const auto &x, const auto &y) {return full_dist_index(jaccard_index(x, y), ksinv);}, i);\
             default:\
                 __builtin_unreachable();\
         } } while(0)
@@ -534,7 +530,7 @@ int dist_main(int argc, char *argv[]) {
             case 'e': use_scientific = true;           break;
             case 'g': entropy_minimization = true;     break;
             case 'k': k = std::atoi(optarg);           break;
-            case 'l': result_type = FULL_MASH_DIST;    break;
+            //case 'l': result_type = FULL_MASH_DIST;    break;
             case 'm': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
             case 'o': if((ofp = fopen(optarg, "w")) == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
             case 'p': nthreads = std::atoi(optarg);    break;
@@ -770,7 +766,7 @@ int setdist_main(int argc, char *argv[]) {
             case 'o': ofp = fopen(optarg, "w");     break;
             case 'O': pairofp = fopen(optarg, "w"); break;
             case 'e': use_scientific = true;        break;
-            case 'l': emit_type = FULL_MASH_DIST;   break;
+            //case 'l': emit_type = FULL_MASH_DIST;   break;
             case 'M': emit_type = MASH_DIST;        break;
             case 'Z': emit_type = SIZES;            break;
             case 'U': emit_fmt = UPPER_TRIANGULAR;  break;
@@ -829,9 +825,9 @@ int setdist_main(int argc, char *argv[]) {
         } else if(emit_type == MASH_DIST) {
             #pragma omp parallel for
             DO_LOOP(dist_index(jaccard_index(&hashes[j], h1), ksinv));
-        } else if(emit_type == FULL_MASH_DIST) {
-            #pragma omp parallel for
-            DO_LOOP(full_dist_index(jaccard_index(&hashes[j], h1), ksinv));
+        //} else if(emit_type == FULL_MASH_DIST) {
+        //    #pragma omp parallel for
+        //    DO_LOOP(full_dist_index(jaccard_index(&hashes[j], h1), ksinv));
         } else {
             #pragma omp parallel for
             DO_LOOP(union_size(&hashes[j], h1));
