@@ -349,7 +349,7 @@ size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks:
             const char *fmt = use_scientific ? "\t%e": "\t%f";
             {
                 u64 k;
-                for(k = 0; k < index + 1;  ++k, str.putsn_("\t-", 2));
+                for(k = 0; k < index + 1;  ++k, kputsn_("\t-", 2, reinterpret_cast<kstring_t *>(&str)));
                 for(k = 0; k < hs - index - 1; str.sprintf(fmt, ptr[k++]));
             }
         } else { // emit_fmt == UPPER_TRIANGULAR
@@ -394,7 +394,7 @@ INLINE void perform_core_op(T &dists, std::vector<hll::hll_t> &hlls, const Func 
     h1.free();
 }
 
-#if ENABLE_COMPUTED_GOTO
+#ifdef ENABLE_COMPUTED_GOTO
 #define CORE_ITER(zomg) do {{\
         static constexpr void *TYPES[] {&&mash##zomg, &&ji##zomg, &&sizes##zomg};\
         goto *TYPES[result_type];\
@@ -443,16 +443,13 @@ void dist_loop(std::FILE *ofp, std::vector<hll_t> &hlls, const std::vector<std::
         for(size_t i = 0; i < hlls.size(); ++i) {
             std::vector<FType> &dists = dps[i & 1];
             CORE_ITER(_a);
-#if !NDEBUG
             LOG_DEBUG("Finished chunk %zu of %zu\n", i + 1, hlls.size());
-            if(i) LOG_DEBUG("Finished writing row %zu\n", submitter.get());
-#else
             if(i) submitter.get();
-#endif
             submitter = std::async(std::launch::async, submit_emit_dists<FType>,
                                    pairfi, dists.data(), hlls.size(), i,
                                    std::ref(str), std::ref(inpaths), emit_fmt, use_scientific, buffer_flush_size);
         }
+        submitter.get();
     } else {
         dm::DistanceMatrix<float> dm(hlls.size());
         for(size_t i = 0; i < hlls.size(); ++i) {
@@ -504,6 +501,7 @@ int dist_main(int argc, char *argv[]) {
     sketching_method sm = EXACT;
     std::vector<std::string> querypaths;
     uint64_t seedseedseed = 1337u;
+    if(argc == 1) dist_usage(*argv);
     while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:TgDazlLICbMEeHJhZBNyUmqW?")) >= 0) {
         switch(co) {
             case 'T': emit_fmt = FULL_TSV;             break; // This also sets the emit_fmt bit for BINARY
@@ -671,15 +669,6 @@ int dist_main(int argc, char *argv[]) {
         output.flush(fn);
         kseq_destroy_stack(ks);
     } else {
-#if 0
-        if(emit_fmt & BINARY) {
-            std::fputc(uint8_t(dm::more_magic::MAGIC_NUMBER<float>::magic_number), pairofp);
-            const uint64_t hs(hlls.size());
-            LOG_DEBUG("Number of sketches: %zu\n", hlls.size());
-            std::fwrite(&hs, sizeof(hs), 1, pairofp);
-            std::fflush(pairofp);
-        } else 
-#endif
         if(emit_fmt == UT_TSV) {
             str.sprintf("##Names\t");
             for(const auto &path: inpaths) str.sprintf("%s\t", path.data());
@@ -689,7 +678,7 @@ int dist_main(int argc, char *argv[]) {
             std::fprintf(pairofp, "%zu\n", inpaths.size());
             std::fflush(pairofp);
         }
-
+        // binary formats don't have headers we handle here
         static constexpr uint32_t buffer_flush_size = BUFFER_FLUSH_SIZE;
         dist_loop<float>(pairofp, hlls, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size);
     }
@@ -704,6 +693,7 @@ int dist_main(int argc, char *argv[]) {
         }, pairofp_labels);
     }
     if(pairofp != stdout) std::fclose(pairofp);
+    label_future.get();
     return EXIT_SUCCESS;
 }
 
@@ -753,12 +743,11 @@ int setdist_main(int argc, char *argv[]) {
     int nt(1);
     std::string spacing, paths_file;
     FILE *ofp(stdout), *pairofp(stdout);
-    omp_set_num_threads(1);
     while((co = getopt(argc, argv, "F:c:p:o:O:S:B:k:s:lTfCMeZh?")) >= 0) {
         switch(co) {
             case 'B': std::stringstream(optarg) << bufsize; break;
             case 'k': k = std::atoi(optarg);                break;
-            case 'p': omp_set_num_threads((nt = std::atoi(optarg))); break;
+            case 'p': nt = std::atoi(optarg);       break;
             case 's': spacing = optarg;             break;
             case 'C': canon = false;                break;
             case 'w': wsz = std::atoi(optarg);      break;
@@ -775,6 +764,7 @@ int setdist_main(int argc, char *argv[]) {
             case 'h': case '?': dist_usage(*argv);
         }
     }
+    omp_set_num_threads(nt);
     std::vector<char> rdbuf(bufsize);
     spvec_t sv(parse_spacing(spacing.data(), k));
     Spacer sp(k, wsz, sv);
