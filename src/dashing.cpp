@@ -30,7 +30,8 @@ static const char *executable = nullptr;
 enum EmissionType {
     MASH_DIST = 0,
     JI        = 1,
-    SIZES     = 2
+    SIZES     = 2,
+    FULL_MASH_DIST = 3
 };
 
 enum EmissionFormat: unsigned {
@@ -116,6 +117,7 @@ void dist_usage(const char *arg) {
                          "-e\tEmit in scientific notation\n"
                          "-F\tGet paths to genomes from file rather than positional arguments\n"
                          "-M\tEmit Mash distance (default: jaccard index)\n"
+                         "-l\tEmit full (not approximate) Mash distance. default: jaccard index\n"
                          "-T\tpostprocess binary format to human-readable TSV (not upper triangular)\n"
                          "-Z\tEmit genome sizes (default: jaccard index)\n"
                          "-N\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
@@ -372,6 +374,17 @@ typename std::common_type<FType1, FType2>::type dist_index(FType1 ji, FType2 ksi
     return ji ? -std::log(2. * ji / (1. + ji)) * ksinv: 1.;
 }
 
+template<typename FType1, typename FType2,
+         typename=typename std::enable_if<
+            std::is_floating_point<FType1>::value && std::is_floating_point<FType2>::value
+          >::type
+         >
+typename std::common_type<FType1, FType2>::type full_dist_index(FType1 ji, FType2 ksinv) {
+    return 1. - std::pow(2.*ji/(1. + ji), ksinv);
+    // Adapter from Mash https://github.com/Marbl/Mash
+}
+
+
 template<typename T, typename Func>
 INLINE void perform_core_op(T &dists, std::vector<hll::hll_t> &hlls, const Func &func, size_t i) {
     auto &h1 = hlls[i];
@@ -383,7 +396,7 @@ INLINE void perform_core_op(T &dists, std::vector<hll::hll_t> &hlls, const Func 
 
 #if ENABLE_COMPUTED_GOTO
 #define CORE_ITER(zomg) do {{\
-        static constexpr void *TYPES[] {&&mash##zomg, &&ji##zomg, &&sizes##zomg};\
+        static constexpr void *TYPES[] {&&mash##zomg, &&ji##zomg, &&sizes##zomg, &&full_mash##zomg};\
         goto *TYPES[result_type];\
         mash##zomg:\
             perform_core_op(dists, hlls, [ksinv](const auto &x, const auto &y) {return dist_index(jaccard_index(x, y), ksinv);}, i);\
@@ -393,6 +406,9 @@ INLINE void perform_core_op(T &dists, std::vector<hll::hll_t> &hlls, const Func 
            goto next_step##zomg;\
         sizes##zomg:\
             perform_core_op(dists, hlls, hll::union_size<hll::hll_t>, i);\
+           goto next_step##zomg;\
+        full_mash##zomg:\
+            perform_core_op(dists, hlls, [ksinv](const auto &x, const auto &y) {return full_dist_index(jaccard_index(x, y), ksinv);}, i);\
         next_step##zomg: ;\
     } } while(0);
 #else
@@ -410,6 +426,8 @@ INLINE void perform_core_op(T &dists, std::vector<hll::hll_t> &hlls, const Func 
             perform_core_op(dists, hlls, hll::union_size<hll::hll_t>, i);\
                 break;\
             }\
+            case FULL_MASH_DIST:\
+                perform_core_op(dists, hlls, [ksinv](const auto &x, const auto &y) {return full_dist_index(jaccard_index(x, y), ksinv);}, i);\
             default:\
                 __builtin_unreachable();\
         } } while(0)
@@ -490,7 +508,7 @@ int dist_main(int argc, char *argv[]) {
     sketching_method sm = EXACT;
     std::vector<std::string> querypaths;
     uint64_t seedseedseed = 1337u;
-    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:TgDazLICbMEeHJhZBNyUmqW?")) >= 0) {
+    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:TgDazlLICbMEeHJhZBNyUmqW?")) >= 0) {
         switch(co) {
             case 'T': emit_fmt = FULL_TSV;             break; // This also sets the emit_fmt bit for BINARY
             case 'b': emit_fmt = BINARY;               break;
@@ -516,6 +534,7 @@ int dist_main(int argc, char *argv[]) {
             case 'e': use_scientific = true;           break;
             case 'g': entropy_minimization = true;     break;
             case 'k': k = std::atoi(optarg);           break;
+            case 'l': result_type = FULL_MASH_DIST;    break;
             case 'm': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
             case 'o': if((ofp = fopen(optarg, "w")) == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
             case 'p': nthreads = std::atoi(optarg);    break;
@@ -689,38 +708,6 @@ int dist_main(int argc, char *argv[]) {
         }, pairofp_labels);
     }
     if(pairofp != stdout) std::fclose(pairofp);
-#if 0
-    if(emit_fmt == FULL_TSV) {
-        if(pairofp == stdout) {
-            std::fprintf(stderr, "Can't postprocess binary written to a pipe\n");
-            std::exit(1);
-        }
-        LOG_DEBUG("Making tmpfile name\n");
-        std::string tmpfile = std::to_string(std::accumulate(argv, argv + argc, uint64_t(137), [](uint64_t hv, const char *s) {return std::hash<std::string>()(std::string(s)) ^ hv;})) + ".tmp";
-        LOG_DEBUG("Made tmpfile name. tmpfile: %s. ex: %s\n", tmpfile.data(), executable);
-        LOG_ASSERT(executable);
-#define POSTP_INNER(fptype, fpopen, fpclose) \
-        dm::DistanceMatrix<float> mat(pairofp_path.data());\
-        mat.set_default_value(result_type == JI ? 1.: 0.);\
-        if(result_type == SIZES) LOG_WARNING("The diagonal row of this matrix will be 0 instead of the actual size of the genome, which would be the result of the union of it with itself."); \
-        fptype fp;\
-        if((fp = fpopen(tmpfile.data(), "wb")) == nullptr) RUNTIME_ERROR(ks::sprintf("Could not open file at %s", tmpfile.data()).data());\
-        mat.printf(fp, use_scientific, &inpaths);\
-        fpclose(fp);
-        if(reading_type == GZ || reading_type == AUTODETECT) {
-            if(pairofp_path.find(COMPRESSED_FILE_SUFFIX) == std::string::npos) {
-                pairofp_path += COMPRESSED_FILE_SUFFIX;
-                LOG_WARNING("Output file emitted in compressed form, but filename does not contain .gz or zst. Renaming to %s", pairofp_path.data());
-            }
-            POSTP_INNER(gzFile, gzopen, gzclose);
-        } else {
-            POSTP_INNER(std::FILE *, fopen, fclose);
-        }
-        ks::string cmd = ks::sprintf("mv %s %s", tmpfile.data(), pairofp_path.data());
-        LOG_DEBUG("About to perform '%s'\n", cmd.data());
-        if(std::system(cmd.data())) throw std::runtime_error(std::string("Failed to execute ") + cmd.data());
-    }
-#endif
     return EXIT_SUCCESS;
 }
 
@@ -771,7 +758,7 @@ int setdist_main(int argc, char *argv[]) {
     std::string spacing, paths_file;
     FILE *ofp(stdout), *pairofp(stdout);
     omp_set_num_threads(1);
-    while((co = getopt(argc, argv, "F:c:p:o:O:S:B:k:s:fCMeZh?")) >= 0) {
+    while((co = getopt(argc, argv, "F:c:p:o:O:S:B:k:s:lTfCMeZh?")) >= 0) {
         switch(co) {
             case 'B': std::stringstream(optarg) << bufsize; break;
             case 'k': k = std::atoi(optarg);                break;
@@ -783,10 +770,12 @@ int setdist_main(int argc, char *argv[]) {
             case 'o': ofp = fopen(optarg, "w");     break;
             case 'O': pairofp = fopen(optarg, "w"); break;
             case 'e': use_scientific = true;        break;
-            case 'U': emit_fmt = UPPER_TRIANGULAR;       break;
+            case 'l': emit_type = FULL_MASH_DIST;   break;
             case 'M': emit_type = MASH_DIST;        break;
             case 'Z': emit_type = SIZES;            break;
-            case 'b': emit_fmt = BINARY;                 break;
+            case 'U': emit_fmt = UPPER_TRIANGULAR;  break;
+            case 'b': emit_fmt = BINARY;            break;
+            case 'T': emit_fmt = FULL_TSV;          break;
             case 'h': case '?': dist_usage(*argv);
         }
     }
@@ -822,7 +811,7 @@ int setdist_main(int argc, char *argv[]) {
     }
     // TODO: Emit overlaps and symmetric differences.
     if(ofp != stdout) std::fclose(ofp);
-    std::vector<double> dists(nhashes - 1);
+    std::vector<float> dists(nhashes - 1);
     str.clear();
     str.sprintf("##Names\t");
     for(auto &path: inpaths) str.sprintf("%s\t", path.data());
@@ -840,13 +829,15 @@ int setdist_main(int argc, char *argv[]) {
         } else if(emit_type == MASH_DIST) {
             #pragma omp parallel for
             DO_LOOP(dist_index(jaccard_index(&hashes[j], h1), ksinv));
+        } else if(emit_type == FULL_MASH_DIST) {
+            #pragma omp parallel for
+            DO_LOOP(full_dist_index(jaccard_index(&hashes[j], h1), ksinv));
         } else {
             #pragma omp parallel for
             DO_LOOP(union_size(&hashes[j], h1));
         }
 #undef DO_LOOP
-        submit_emit_dists<double>(fileno(pairofp), dists.data(), hashes.size(), i, str, inpaths, emit_fmt, use_scientific);
-        if(!(emit_fmt & BINARY)) str.flush(fileno(pairofp));
+        submit_emit_dists<float>(fileno(pairofp), dists.data(), hashes.size(), i, str, inpaths, emit_fmt, use_scientific);
         std::free(h1->keys); std::free(h1->vals); std::free(h1->flags);
     }
     return EXIT_SUCCESS;
