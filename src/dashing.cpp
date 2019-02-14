@@ -111,9 +111,8 @@ void dist_usage(const char *arg) {
                          "-o\tOutput for genome size estimates [stdout]\n"
                          "-I\tUse Ertl's Improved Estimator\n"
                          "-E\tUse Ertl's Original Estimator\n"
-                         "-J\tUse Ertl's JMLE Estimator [default\tUses Ertl-MLE]\n"
+                         "-J\tUse Ertl's JMLE Estimator [default:Uses Ertl-MLE]\n"
                          "-O\tOutput for genome distance matrix [stdout]\n"
-                         "-L\tClamp estimates below expected variance to 0. [Default: do not clamp]\n"
                          "-e\tEmit in scientific notation\n"
                          "-F\tGet paths to genomes from file rather than positional arguments\n"
                          "-M\tEmit Mash distance (default: jaccard index)\n"
@@ -145,7 +144,6 @@ void sketch_usage(const char *arg) {
                          "-w\tSet window size [max(size of spaced kmer, [parameter])]\n"
                          "-S\tSet sketch size [10, for 2**10 bytes each]\n"
                          "-C\tDo not canonicalize. [Default: canonicalize]\n"
-                         "-L\tClamp estimates below expected variance to 0. [Default: do not clamp]\n"
                          "Run options --\n"
                          "-p\tSet number of threads [1]\n"
                          "-P\tSet prefix for sketch file locations [empty]\n"
@@ -232,14 +230,14 @@ size_t fsz2count(uint64_t fsz) {
 // Main functions
 int sketch_main(int argc, char *argv[]) {
     int wsz(0), k(31), sketch_size(10), skip_cached(false), co, nthreads(1), mincount(1), nhashes(1), cmsketchsize(-1);
-    bool canon(true), write_to_dev_null(false), write_gz(false), clamp(false);
+    bool canon(true), write_to_dev_null(false), write_gz(false);
     bool entropy_minimization = false;
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = static_cast<hll::JointEstimationMethod>(hll::EstimationMethod::ERTL_MLE);
     std::string spacing, paths_file, suffix, prefix;
     sketching_method sm = EXACT;
     uint64_t seedseedseed = 1337u;
-    while((co = getopt(argc, argv, "n:P:F:c:p:x:R:s:S:k:w:H:q:JBfjLzEDIcCeh?")) >= 0) {
+    while((co = getopt(argc, argv, "n:P:F:c:p:x:R:s:S:k:w:H:q:JBfjzEDIcCeh?")) >= 0) {
         switch(co) {
             case 'B': sm = CBF; break;
             case 'C': canon = false; break;
@@ -248,7 +246,6 @@ int sketch_main(int argc, char *argv[]) {
             case 'F': paths_file = optarg; break;
             case 'H': nhashes = std::atoi(optarg); break;
             case 'I': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
-            case 'L': clamp = true; break;
             case 'P': prefix = optarg; break;
             case 'R': seedseedseed = std::strtoull(optarg, nullptr, 10); break;
             case 'S': sketch_size = std::atoi(optarg); break;
@@ -298,7 +295,7 @@ int sketch_main(int argc, char *argv[]) {
     KSeqBufferHolder kseqs(nthreads);
     if(wsz < sp.c_) wsz = sp.c_;
     std::vector<hll_t> hlls;
-    while(hlls.size() < (u32)nthreads) hlls.emplace_back(sketch_size, estim, jestim, 1, clamp);
+    while(hlls.size() < (u32)nthreads) hlls.emplace_back(sketch_size, estim, jestim, 1);
     std::vector<std::string> fnames(nthreads);
 
 #define MAIN_SKETCH_LOOP(MinType)\
@@ -489,7 +486,7 @@ int dist_main(int argc, char *argv[]) {
     int wsz(0), k(31), sketch_size(10), use_scientific(false), co, cache_sketch(false),
         nthreads(1), mincount(30), nhashes(4), cmsketchsize(-1);
     bool canon(true), presketched_only(false),
-         clamp(false), sketch_query_by_seq(true), entropy_minimization(false);
+         sketch_query_by_seq(true), entropy_minimization(false);
     EmissionFormat emit_fmt = UT_TSV;
     double factor = 1.;
     EmissionType result_type(JI);
@@ -502,7 +499,7 @@ int dist_main(int argc, char *argv[]) {
     std::vector<std::string> querypaths;
     uint64_t seedseedseed = 1337u;
     if(argc == 1) dist_usage(*argv);
-    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:TgDazlLICbMEeHJhZBNyUmqW?")) >= 0) {
+    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:TgDazlICbMEeHJhZBNyUmqW?")) >= 0) {
         switch(co) {
             case 'T': emit_fmt = FULL_TSV;             break; // This also sets the emit_fmt bit for BINARY
             case 'b': emit_fmt = BINARY;               break;
@@ -513,7 +510,6 @@ int dist_main(int argc, char *argv[]) {
             case 'H': presketched_only = true;         break;
             case 'I': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
             case 'J': jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
-            case 'L': clamp = true;                    break;
             case 'M': result_type = MASH_DIST;         break;
             case 'N': sm = BY_FNAME;                   break;
             case 'P': prefix = optarg;                 break;
@@ -578,7 +574,7 @@ int dist_main(int argc, char *argv[]) {
     hlls.reserve(inpaths.size());
     std::atomic<uint32_t> ncomplete;
     ncomplete.store(0);
-    while(hlls.size() < inpaths.size()) hlls.emplace_back(hll_t(sketch_size, estim, jestim, 1, clamp));
+    while(hlls.size() < inpaths.size()) hlls.emplace_back(hll_t(sketch_size, estim, jestim, 1));
     {
         if(wsz < sp.c_) wsz = sp.c_;
         #pragma omp parallel for schedule(dynamic)
@@ -630,7 +626,7 @@ int dist_main(int argc, char *argv[]) {
             std::fprintf(pairofp, "\t%s", ip.data());
         std::fputc('\n', pairofp);
         std::fflush(pairofp);
-        hll_t hll(sketch_size, estim, jestim, 1, clamp);
+        hll_t hll(sketch_size, estim, jestim, 1);
         kseq_t ks = kseq_init_stack();
         std::vector<double> dists(inpaths.size());
         ks::string output;
