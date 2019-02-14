@@ -21,7 +21,7 @@ OPT_MINUS_OPENMP= -O3 -funroll-loops\
 	  -pipe -fno-strict-aliasing -march=native -mpclmul -DUSE_PDQSORT \
 	-DNOT_THREADSAFE -DENABLE_COMPUTED_GOTO \
 	$(FLAGS) $(EXTRA)
-OPT=$(OPT_MINUS_OPENMP) -fopenmp
+OPT=$(OPT_MINUS_OPENMP) -fopenmp -lgomp
 XXFLAGS=-fno-rtti
 CXXFLAGS=$(OPT) $(XXFLAGS) -std=c++14 $(WARNINGS)
 CXXFLAGS_MINUS_OPENMP=$(OPT_MINUS_OPENMP) $(XXFLAGS) -std=c++1z $(WARNINGS) -Wno-cast-align -Wno-gnu-zero-variadic-macro-arguments
