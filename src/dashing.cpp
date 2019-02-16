@@ -75,6 +75,15 @@ static const char *sketch_names [] {
 };
 static uint32_t bbnbits = 16;
 
+template<typename T>
+double cardinality_estimate(T &x);
+template<>
+double cardinality_estimate(hll::hll_t &x) {return x.report();}
+template<>
+double cardinality_estimate(mh::FinalBBitMinHash &x) {return x.est_cardinality_;}
+template<>
+double cardinality_estimate(mh::BBitMinHasher<uint64_t> &x) {return x.cardinality_estimate();}
+
 static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
     switch(sketch) {
         case HLL: return nblog2;
@@ -228,15 +237,17 @@ void dist_usage(const char *arg) {
                          "-e\tEmit in scientific notation\n"
                          "-F\tGet paths to genomes from file rather than positional arguments\n"
                          "-M\tEmit Mash distance (default: jaccard index)\n"
-                         //"-l\tEmit full (not approximate) Mash distance. default: jaccard index\n"
+                         "-l\tEmit full (not approximate) Mash distance. default: jaccard index\n"
                          "-T\tpostprocess binary format to human-readable TSV (not upper triangular)\n"
                          "-Z\tEmit genome sizes (default: jaccard index)\n"
                          "-N\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
+                         "-n\tAvoid sorting files by genome sizes. This avoids a computational step, but can result in degraded load-balancing.\n"
                          "-y\tFilter all input data by count-min sketch.\n"
                          "-q\tSet count-min number of hashes. Default: [4]\n"
                          "-c\tSet minimum count for kmers to pass count-min filtering.\n"
                          "-t\tSet count-min sketch size (log2). Default: ceil(log2(max_filesize)) + 2\n"
                          "-R\tSet seed for seeds for count-min sketches\n"
+                         "-b\tSet `b` for b-bit minwise hashing to <int>. Default: 16\n"
                 , arg);
     std::exit(EXIT_FAILURE);
 }
@@ -254,8 +265,9 @@ void sketch_usage(const char *arg) {
                          "..., where the first integer corresponds to the space "
                          "between bases repeated the second integer number of times\n"
                          "-w\tSet window size [max(size of spaced kmer, [parameter])]\n"
-                         "-S\tSet sketch size [10, for 2**10 bytes each]\n"
+                         "-S\tSet log2 sketch size in bytes [10, for 2**10 bytes each]\n"
                          "-C\tDo not canonicalize. [Default: canonicalize]\n"
+                         "-b\tSet `b` for b-bit minwise hashing to <int>. Default: 16\n"
                          "Run options --\n"
                          "-p\tSet number of threads [1]\n"
                          "-P\tSet prefix for sketch file locations [empty]\n"
@@ -270,7 +282,7 @@ void sketch_usage(const char *arg) {
                          "Filtering Options --\n"
                          "Default: consume all kmers. Alternate options: \n"
                          "-f\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
-                         "-B\tFilter all input data by count-min sketch.\n"
+                         "-b\tFilter all input data by count-min sketch.\n"
                          "Options for count-min filtering --\n"
                          "-H\tSet count-min number of hashes. Default: [4]\n"
                          "-q\tSet count-min sketch size (log2). Default: ceil(log2(max_filesize)) + 2\n"
@@ -396,9 +408,10 @@ int sketch_main(int argc, char *argv[]) {
     sketching_method sm = EXACT;
     Sketch sketch_type = HLL;
     uint64_t seedseedseed = 1337u;
-    while((co = getopt(argc, argv, "n:P:F:c:p:x:R:s:S:k:w:H:q:JBfjEIcCeh?")) >= 0) {
+    while((co = getopt(argc, argv, "n:P:F:c:p:x:R:s:S:k:w:H:q:B:JbfjEIcCeh?")) >= 0) {
         switch(co) {
-            case 'B': sm = CBF; break;
+            case 'B': bbnbits = std::atoi(optarg); break;
+            case 'b': sm = CBF; break;
             case 'C': canon = false; break;
             case 'E': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
             case 'F': paths_file = optarg; break;
@@ -423,8 +436,7 @@ int sketch_main(int argc, char *argv[]) {
     }
     nthreads = std::max(nthreads, 1);
     omp_set_num_threads(nthreads);
-    spvec_t sv(parse_spacing(spacing.data(), k));
-    Spacer sp(k, wsz, sv);
+    Spacer sp(k, wsz, parse_spacing(spacing.data(), k));
     std::vector<bool> use_filter;
     std::vector<cm::ccm_t> cms;
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
@@ -514,16 +526,33 @@ template<typename FType1, typename FType2,
             std::is_floating_point<FType1>::value && std::is_floating_point<FType2>::value
           >::type
          >
+typename std::common_type<FType1, FType2>::type containment_index(FType1 containment, FType2 ksinv) {
+    // Adapter from Mash https://github.com/Marbl/Mash
+    return containment ? -std::log(containment) * ksinv: 1.;
+}
+
+template<typename FType1, typename FType2,
+         typename=typename std::enable_if<
+            std::is_floating_point<FType1>::value && std::is_floating_point<FType2>::value
+          >::type
+         >
 typename std::common_type<FType1, FType2>::type full_dist_index(FType1 ji, FType2 ksinv) {
     return 1. - std::pow(2.*ji/(1. + ji), ksinv);
-    // Adapter from Mash https://github.com/Marbl/Mash
+}
+template<typename FType1, typename FType2,
+         typename=typename std::enable_if<
+            std::is_floating_point<FType1>::value && std::is_floating_point<FType2>::value
+          >::type
+         >
+typename std::common_type<FType1, FType2>::type full_containment_index(FType1 containment, FType2 ksinv) {
+    return 1. - std::pow(containment, ksinv);
 }
 
 template<typename SketchType, typename T, typename Func>
-INLINE void perform_core_op(T &dists, std::vector<SketchType> &hlls, const Func &func, size_t i) {
+INLINE void perform_core_op(T &dists, size_t nhlls, SketchType *hlls, const Func &func, size_t i) {
     auto &h1 = hlls[i];
     #pragma omp parallel for
-    for(size_t j = i + 1; j < hlls.size(); ++j)
+    for(size_t j = i + 1; j < nhlls; ++j)
         dists[j - i - 1] = func(hlls[j], h1);
     h1.free();
 }
@@ -533,16 +562,16 @@ INLINE void perform_core_op(T &dists, std::vector<SketchType> &hlls, const Func 
         static constexpr void *TYPES[] {&&mash##zomg, &&ji##zomg, &&sizes##zomg, &&full_mash##zomg};\
         goto *TYPES[result_type];\
         mash##zomg:\
-            perform_core_op(dists, hlls, [ksinv](const auto &x, const auto &y) {return dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
+            perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) {return dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
             goto next_step##zomg;\
         ji##zomg:\
-            perform_core_op(dists, hlls, similarity<const SketchType>, i);\
+            perform_core_op(dists, nsketches, hlls, similarity<const SketchType>, i);\
            goto next_step##zomg;\
         sizes##zomg:\
-            perform_core_op(dists, hlls, us::union_size<SketchType>, i);\
+            perform_core_op(dists, nsketches, hlls, us::union_size<SketchType>, i);\
            goto next_step##zomg;\
         full_mash##zomg:\
-            perform_core_op(dists, hlls, [ksinv](const auto &x, const auto &y) {return full_dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
+            perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) {return full_dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
            goto next_step##zomg;\
         next_step##zomg: ;\
     } } while(0);
@@ -550,49 +579,50 @@ INLINE void perform_core_op(T &dists, std::vector<SketchType> &hlls, const Func 
 #define CORE_ITER(zomg) do {\
         switch(result_type) {\
             case MASH_DIST: {\
-                perform_core_op(dists, hlls, [ksinv](const auto &x, const auto &y) {return dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
+                perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) {return dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
                 break;\
             }\
             case JI: {\
-            perform_core_op(dists, hlls, similarity<const SketchType>, i);\
+            perform_core_op(dists, nsketches, hlls, similarity<const SketchType>, i);\
                 break;\
             }\
             case SIZES: {\
-            perform_core_op(dists, hlls, us::union_size<SketchType>, i);\
+            perform_core_op(dists, nsketches, hlls, us::union_size<SketchType>, i);\
                 break;\
             }\
             case FULL_MASH_DIST:\
-                perform_core_op(dists, hlls, [ksinv](const auto &x, const auto &y) {return full_dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
+                perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) {return full_dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
                 break;\
             default:\
                 __builtin_unreachable();\
         } } while(0)
 #endif
 
-template<typename FType, typename SketchType, typename=typename std::enable_if<std::is_floating_point<FType>::value>::type>
-void dist_loop(std::FILE *ofp, std::vector<SketchType> &hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size=BUFFER_FLUSH_SIZE) {
-    const FType ksinv = 1./ k;
+template<typename SketchType>
+void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size=BUFFER_FLUSH_SIZE) {
+    const float ksinv = 1./ k;
     const int pairfi = fileno(ofp);
     omp_set_num_threads(nthreads);
+    const size_t nsketches = inpaths.size();
     if((emit_fmt & BINARY) == 0) {
         std::future<size_t> submitter;
-        std::array<std::vector<FType>, 2> dps;
-        dps[0].resize(hlls.size() - 1);
-        dps[1].resize(hlls.size() - 2);
+        std::array<std::vector<float>, 2> dps;
+        dps[0].resize(nsketches - 1);
+        dps[1].resize(nsketches - 2);
         ks::string str;
-        for(size_t i = 0; i < hlls.size(); ++i) {
-            std::vector<FType> &dists = dps[i & 1];
+        for(size_t i = 0; i < nsketches; ++i) {
+            std::vector<float> &dists = dps[i & 1];
             CORE_ITER(_a);
             LOG_DEBUG("Finished chunk %zu of %zu\n", i + 1, hlls.size());
             if(i) submitter.get();
-            submitter = std::async(std::launch::async, submit_emit_dists<FType>,
-                                   pairfi, dists.data(), hlls.size(), i,
+            submitter = std::async(std::launch::async, submit_emit_dists<float>,
+                                   pairfi, dists.data(), nsketches, i,
                                    std::ref(str), std::ref(inpaths), emit_fmt, use_scientific, buffer_flush_size);
         }
         submitter.get();
     } else {
-        dm::DistanceMatrix<float> dm(hlls.size());
-        for(size_t i = 0; i < hlls.size(); ++i) {
+        dm::DistanceMatrix<float> dm(nsketches);
+        for(size_t i = 0; i < nsketches; ++i) {
             auto span = dm.row_span(i);
             auto &dists = span.first;
             CORE_ITER(_b);
@@ -612,42 +642,165 @@ enum CompReading: unsigned {
     AUTODETECT
 };
 }
+
+template<typename T>
+T construct(unsigned p);
+template<> hll::hll_t construct<hll::hll_t>(unsigned p) {return hll::hll_t(p);}
+template<> mh::BBitMinHasher<uint64_t> construct<mh::BBitMinHasher<uint64_t>>(unsigned p) {return mh::BBitMinHasher<uint64_t>(p, bbnbits);}
+//dist_sketch_and_cmp<sketchtype>(inpaths, cms, kseqs, ofp, pairofp, sp, sketch_size, mincount, estim, jestim, cache_sketch, result_type, emit_fmt, presketched_only, nthreads,
+//use_scientific, suffix, prefix, canon, entropy_minimization, spacing);
+template<typename SketchType>
+void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sketch::cm::ccm_t> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,
+                         Spacer sp,
+                         unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,
+                         bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing) {
+    using final_type = typename FinalSketch<SketchType>::final_type;
+    std::vector<SketchType> sketches;
+    sketches.reserve(inpaths.size());
+    uint32_t sketch_size = bytesl2_to_arg(ssarg, SketchEnum<SketchType>::value);
+    while(sketches.size() < inpaths.size()) {
+        sketches.emplace_back(construct<SketchType>(sketch_size));
+        set_estim_and_jestim(sketches.back(), estim, jestim);
+    }
+    static constexpr bool samesketch = std::is_same<SketchType, final_type>::value;
+    final_type *final_sketches =
+        samesketch ? reinterpret_cast<final_type *>(sketches.data())
+                   : static_cast<final_type *>(std::malloc(sizeof(*final_sketches) * inpaths.size()));
+    CONST_IF(samesketch) {
+        if(final_sketches == nullptr) throw std::bad_alloc();
+    }
+#if 0
+    for(auto &&pair: map) {
+        *bcp++ = pair.first;
+        new(pp++) FinalType(std::move(pair.second));
+    }
+    {decltype(map) tmap(std::move(map));} // Free map now that it's not needed
+#endif
+
+    std::atomic<uint32_t> ncomplete;
+    ncomplete.store(0);
+    const unsigned k = sp.k_;
+    const unsigned wsz = sp.w_;
+    #pragma omp parallel for schedule(dynamic)
+    for(size_t i = 0; i < sketches.size(); ++i) {
+        const std::string &path(inpaths[i]);
+        auto &sketch = sketches[i];
+        if(presketched_only)  {
+            CONST_IF(samesketch) {
+                sketch.read(path);
+                set_estim_and_jestim(sketch, estim, jestim); // HLL is the only type that needs this, and it's the same
+            } else new(final_sketches + i) final_type(path.data()); // Read from path
+        } else {
+            const std::string fpath(make_fname<SketchType>(path.data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix));
+            const bool isf = isfile(fpath);
+            if(cache_sketch && isf) {
+                LOG_DEBUG("Sketch found at %s with size %zu, %u\n", fpath.data(), size_t(1ull << sketch_size), sketch_size);
+                CONST_IF(samesketch) {
+                    sketch.read(fpath);
+                    set_estim_and_jestim(sketch, estim, jestim);
+                } else {
+                    new(final_sketches + i) final_type(fpath);
+                }
+            } else {
+                const int tid = omp_get_thread_num();
 #define FILL_SKETCH_MIN(MinType) \
-    do {\
         Encoder<MinType> enc(nullptr, 0, sp, nullptr, canon);\
         if(cms.empty()) {\
-            auto &h = hlls[i];\
+            auto &h = sketch;\
             enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
         } else {\
             sketch::cm::ccm_t &cm = cms[tid];\
-            enc.for_each([&,mincount](u64 kmer){if(cm.addh(kmer) >= mincount) hlls[i].addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            enc.for_each([&,mincount](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
             cm.clear();\
-        } \
-    } while(0)
+        }
+                if(entropy_minimization) {
+                    FILL_SKETCH_MIN(score::Entropy);
+                } else {
+                    FILL_SKETCH_MIN(score::Lex);
+                }
+#undef FILL_SKETCH_MIN
+                CONST_IF(samesketch) {
+                    if(cache_sketch && !isf) sketch.write(fpath);
+                } else final_sketches[i].write(fpath);
+            }
+        }
+        ++ncomplete; // Atomic
+    }
+    kseqs.free();
+    ks::string str("#Path\tSize (est.)\n");
+    assert(str == "#Path\tSize (est.)\n");
+    str.resize(BUFFER_FLUSH_SIZE);
+    {
+        const int fn(fileno(ofp));
+        for(size_t i(0); i < sketches.size(); ++i) {
+            double card;
+            CONST_IF(samesketch) {
+                card = cardinality_estimate(sketches[i]);
+            } else {
+                card = cardinality_estimate(final_sketches[i]);
+            }
+            str.sprintf("%s\t%lf\n", inpaths[i].data(), card);
+            if(str.size() >= BUFFER_FLUSH_SIZE) str.flush(fn);
+        }
+        str.flush(fn);
+    }
+    if(ofp != stdout) std::fclose(ofp);
+    str.clear();
+    if(emit_fmt == UT_TSV) {
+        str.sprintf("##Names\t");
+        for(const auto &path: inpaths) str.sprintf("%s\t", path.data());
+        str.back() = '\n';
+        str.write(fileno(pairofp)); str.free();
+    } else if(emit_fmt == UPPER_TRIANGULAR) { // emit_fmt == UPPER_TRIANGULAR
+        std::fprintf(pairofp, "%zu\n", inpaths.size());
+        std::fflush(pairofp);
+    }
+    // binary formats don't have headers we handle here
+    static constexpr uint32_t buffer_flush_size = BUFFER_FLUSH_SIZE;
+    dist_loop<final_type>(pairofp, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size);
+    CONST_IF(!samesketch) {
+#if __cplusplus >= 201703L
+        std::destroy_n(
+#  ifdef USE_PAR_EX
+            std::execution::par_unseq,
+#  endif
+            final_sketches, inpaths.size());
+#else
+        std::for_each(final_sketches, final_sketches + inpaths.size(), [](auto &sketch) {
+            using destructor_type = typename std::decay<decltype(sketch)>::type;
+            sketch.~destructor_type();
+        });
+#endif
+        std::free(final_sketches);
+    }
+}
 
 int dist_main(int argc, char *argv[]) {
     int wsz(0), k(31), sketch_size(10), use_scientific(false), co, cache_sketch(false),
         nthreads(1), mincount(30), nhashes(4), cmsketchsize(-1);
     bool canon(true), presketched_only(false),
-         sketch_query_by_seq(true), entropy_minimization(false);
+entropy_minimization(false),
+         avoid_fsorting(false), use_bbmh(false);
+         // bool sketch_query_by_seq(true);
     EmissionFormat emit_fmt = UT_TSV;
     double factor = 1.;
     EmissionType result_type(JI);
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = static_cast<hll::JointEstimationMethod>(hll::EstimationMethod::ERTL_MLE);
     std::string spacing, paths_file, suffix, prefix, pairofp_labels, pairofp_path;
-    CompReading reading_type = CompReading::UNCOMPRESSED;
     FILE *ofp(stdout), *pairofp(stdout);
     sketching_method sm = EXACT;
     std::vector<std::string> querypaths;
     uint64_t seedseedseed = 1337u;
     if(argc == 1) dist_usage(*argv);
-    while((co = getopt(argc, argv, "Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:TgDazlICbMEeHJhZBNyUmqW?")) >= 0) {
+    while((co = getopt(argc, argv, "n:Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:8TgDazlICbMEeHJhZBNyUmqW?")) >= 0) {
         switch(co) {
+            case '8': use_bbmh = true;                 break;
             case 'T': emit_fmt = FULL_TSV;             break; // This also sets the emit_fmt bit for BINARY
+            case 'B': bbnbits = std::atoi(optarg);     break;
             case 'b': emit_fmt = BINARY;               break;
             case 'C': canon = false;                   break;
-            case 'D': sketch_query_by_seq = false;     break;
+            //case 'D': sketch_query_by_seq = false;     break;
             case 'E': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
             case 'F': paths_file = optarg;             break;
             case 'H': presketched_only = true;         break;
@@ -656,19 +809,20 @@ int dist_main(int argc, char *argv[]) {
             case 'M': result_type = MASH_DIST;         break;
             case 'N': sm = BY_FNAME;                   break;
             case 'P': prefix = optarg;                 break;
-            case 'Q': querypaths.emplace_back(optarg); break;
+            case 'Q': querypaths.emplace_back(optarg); LOG_EXIT("Error: querypaths method temporarily removed before integration into a separate subcommand."); break;
             case 'R': seedseedseed = std::strtoull(optarg, nullptr, 10); break;
             case 'S': sketch_size = std::atoi(optarg); break;
             case 'U': emit_fmt = UPPER_TRIANGULAR;     break;
             case 'W': cache_sketch = true;             break;
             case 'Z': result_type = SIZES;             break;
-            case 'a': reading_type = AUTODETECT;       break;
+            //case 'a': reading_type = AUTODETECT;       break;
             case 'c': mincount = std::atoi(optarg);    break;
             case 'e': use_scientific = true;           break;
-            case 'g': entropy_minimization = true;     break;
+            case 'g': entropy_minimization = true; LOG_WARNING("Entropy-based minimization is probably theoretically ill-founded, but it might be of practical value.\n"); break;
             case 'k': k = std::atoi(optarg);           break;
             case 'l': result_type = FULL_MASH_DIST;    break;
             case 'm': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
+            case 'n': avoid_fsorting = true;           break;
             case 'o': if((ofp = fopen(optarg, "w")) == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
             case 'p': nthreads = std::atoi(optarg);    break;
             case 'q': nhashes = std::atoi(optarg);     break;
@@ -677,7 +831,7 @@ int dist_main(int argc, char *argv[]) {
             case 'w': wsz = std::atoi(optarg);         break;
             case 'x': suffix = optarg;                 break;
             case 'y': sm = CBF;                        break;
-            case 'z': reading_type = GZ;               break;
+            //case 'z': reading_type = GZ;               break;
             case 'O': if((pairofp = fopen(optarg, "wb")) == nullptr)
                           LOG_EXIT("Could not open file at %s for writing.\n", optarg);
                       pairofp_labels = std::string(optarg) + ".labels";
@@ -687,18 +841,15 @@ int dist_main(int argc, char *argv[]) {
         }
     }
     if(nthreads < 0) nthreads = 1;
-    omp_set_num_threads(nthreads);
-    spvec_t sv(parse_spacing(spacing.data(), k));
-    Spacer sp(k, wsz, sv);
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
                                                        : std::vector<std::string>(argv + optind, argv + argc));
-    if(!presketched_only) {
-        detail::sort_paths_by_fsize(inpaths);
-    }
     if(inpaths.empty())
         std::fprintf(stderr, "No paths. See usage.\n"), dist_usage(*argv);
+    omp_set_num_threads(nthreads);
+    Spacer sp(k, wsz, parse_spacing(spacing.data(), k));
+    if(!presketched_only && !avoid_fsorting)
+        detail::sort_paths_by_fsize(inpaths);
     std::vector<sketch::cm::ccm_t> cms;
-    std::vector<hll_t> hlls;
     KSeqBufferHolder kseqs(nthreads);
     switch(sm) {
         case CBF: case BY_FNAME: {
@@ -714,113 +865,14 @@ int dist_main(int argc, char *argv[]) {
         }
         case EXACT: default: break;
     }
-    hlls.reserve(inpaths.size());
-    std::atomic<uint32_t> ncomplete;
-    ncomplete.store(0);
-    while(hlls.size() < inpaths.size()) hlls.emplace_back(hll_t(sketch_size, estim, jestim, 1));
-    {
-        if(wsz < sp.c_) wsz = sp.c_;
-        #pragma omp parallel for schedule(dynamic)
-        for(size_t i = 0; i < hlls.size(); ++i) {
-            const std::string &path(inpaths[i]);
-            static const std::string suf = ".gz";
-            if(presketched_only)  {
-                hlls[i].read(path);
-                hlls[i].set_jestim(jestim);
-            } else {
-                const std::string fpath(make_fname<hll_t>(path.data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix));
-                const bool isf = isfile(fpath);
-                if(cache_sketch && isf) {
-                    LOG_DEBUG("Sketch found at %s with size %zu, %u\n", fpath.data(), size_t(1ull << sketch_size), sketch_size);
-                    hlls[i].read(fpath);
-                } else {
-                    const int tid = omp_get_thread_num();
-                    if(entropy_minimization) {
-                        FILL_SKETCH_MIN(score::Entropy);
-                    } else {
-                        FILL_SKETCH_MIN(score::Lex);
-                    }
-#undef FILL_SKETCH_MIN
-                    if(cache_sketch && !isf) hlls[i].write(fpath, (reading_type == GZ ? 1: reading_type == AUTODETECT ? std::equal(suf.rbegin(), suf.rend(), fpath.rbegin()): false));
-                }
-            }
-            ++ncomplete;
-        }
-    }
-    kseqs.free();
-    ks::string str("#Path\tSize (est.)\n");
-    assert(str == "#Path\tSize (est.)\n");
-    str.resize(BUFFER_FLUSH_SIZE);
-    {
-        const int fn(fileno(ofp));
-        for(size_t i(0); i < hlls.size(); ++i) {
-            str.sprintf("%s\t%lf\n", inpaths[i].data(), hlls[i].report());
-            if(str.size() >= BUFFER_FLUSH_SIZE) str.flush(fn);
-        }
-        str.flush(fn);
-    }
-    if(ofp != stdout) std::fclose(ofp);
-    str.clear();
-    // TODO: make 'screen' emit binary if -'b' is provided.
-    // TODO: update 'screen'-like function to support entropy minimization.
-    if(querypaths.size()) { // Screen query against input paths rather than perform all-pairs
-        std::fprintf(pairofp, "#queryfile||seqname");
-        for(const auto &ip: inpaths)
-            std::fprintf(pairofp, "\t%s", ip.data());
-        std::fputc('\n', pairofp);
-        std::fflush(pairofp);
-        hll_t hll(sketch_size, estim, jestim, 1);
-        kseq_t ks = kseq_init_stack();
-        std::vector<double> dists(inpaths.size());
-        ks::string output;
-        const int fn = fileno(pairofp);
-        output.resize(1 << 16);
-        Encoder<score::Lex> enc(sp);
-        const char *fmt = use_scientific ? "\t%e": "\t%f";
-        for(const auto &path: querypaths) {
-            gzFile fp = gzopen(path.data(), "rb");
-            kseq_assign(&ks, fp);
-            if(sketch_query_by_seq) {
-                while(kseq_read(&ks) >= 0) {
-                    output.sprintf("%s||%s", path.data(), ks.name.s ? ks.name.s: const_cast<char *>("seq_without_name"));
-                    enc.for_each([&](u64 kmer) {hll.addh(kmer);}, ks.seq.s, ks.seq.l);
-                    #pragma omp parallel for
-                    for(size_t i = 0; i < hlls.size(); ++i)
-                        dists[i] = hll.jaccard_index(hlls[i]);
-                    for(size_t i(0); i < hlls.size(); output.sprintf(fmt, dists[i++]));
-                    output.putc_('\n');
-                    if(output.size() >= (1 << 16)) output.flush(fn);
-                    hll.clear();
-                }
-            } else {
-                output.sprintf("%s", path.data());
-                while(kseq_read(&ks) >= 0)
-                    enc.for_each([&](u64 kmer) {hll.addh(kmer);}, ks.seq.s, ks.seq.l);
-                #pragma omp parallel for
-                for(size_t i = 0; i < hlls.size(); ++i)
-                    dists[i] = hll.jaccard_index(hlls[i]);
-                for(size_t i(0); i < hlls.size(); output.sprintf(fmt, dists[i++]));
-                output.putc_('\n');
-                if(output.size() >= (1 << 16)) output.flush(fn);
-                hll.clear();
-            }
-        }
-        output.flush(fn);
-        kseq_destroy_stack(ks);
+#define CALL_DIST(sketchtype) \
+        dist_sketch_and_cmp<sketchtype>(inpaths, cms, kseqs, ofp, pairofp, sp, sketch_size, mincount, estim, jestim, cache_sketch, result_type, emit_fmt, presketched_only, nthreads, use_scientific, suffix, prefix, canon, entropy_minimization, spacing);
+    if(use_bbmh) {
+        CALL_DIST(mh::BBitMinHasher<uint64_t>);
     } else {
-        if(emit_fmt == UT_TSV) {
-            str.sprintf("##Names\t");
-            for(const auto &path: inpaths) str.sprintf("%s\t", path.data());
-            str.back() = '\n';
-            str.write(fileno(pairofp)); str.free();
-        } else if(emit_fmt == UPPER_TRIANGULAR) { // emit_fmt == UPPER_TRIANGULAR
-            std::fprintf(pairofp, "%zu\n", inpaths.size());
-            std::fflush(pairofp);
-        }
-        // binary formats don't have headers we handle here
-        static constexpr uint32_t buffer_flush_size = BUFFER_FLUSH_SIZE;
-        dist_loop<float>(pairofp, hlls, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size);
+        CALL_DIST(hll::hll_t);
     }
+
     std::future<void> label_future;
     if(emit_fmt == BINARY) {
         if(pairofp_labels.empty()) pairofp_labels = "unspecified";
