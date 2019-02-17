@@ -27,6 +27,7 @@ script:
   - cd ..
   - make dashing
   - ./dashing dist bonsai/bonsai/test/GCF_00*z
+  - ./dashing dist -8 bonsai/bonsai/test/GCF_00*z
 notifications:
     slack: jhu-genomics:BbHYSks7DhOolq80IYf6m9oe
     rooms:
