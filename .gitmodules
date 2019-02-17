@@ -6,3 +6,6 @@
 	path = distmat
 	url = https://github.com/dnbaker/distmat
     branch = master
+[submodule "khset"]
+	path = khset
+	url = https://github.com/dnbaker/khset

@@ -104,7 +104,9 @@ STATIC_GOMP?=$(shell $(CXX) --print-file-name=libgomp.a)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
 %_d: src/%.cpp $(ALL_ZOBJS) $(DEPS)
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -fsanitize=address -fsanitize=undefined -fsanitize=leak $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -O1
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g \
+    $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -O1 -fno-inline
+#-fsanitize=address -fsanitize=undefined -fsanitize=leak \
 
 %_256: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mavx2 -msse4.1 -msse2 -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
