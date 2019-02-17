@@ -613,7 +613,7 @@ void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> 
         for(size_t i = 0; i < nsketches; ++i) {
             std::vector<float> &dists = dps[i & 1];
             CORE_ITER(_a);
-            LOG_DEBUG("Finished chunk %zu of %zu\n", i + 1, hlls.size());
+            LOG_DEBUG("Finished chunk %zu of %zu\n", i + 1, nsketches);
             if(i) submitter.get();
             submitter = std::async(std::launch::async, submit_emit_dists<float>,
                                    pairfi, dists.data(), nsketches, i,
@@ -712,7 +712,8 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sk
             sketch::cm::ccm_t &cm = cms[tid];\
             enc.for_each([&,mincount](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
             cm.clear();\
-        }
+        }\
+        CONST_IF(!samesketch) new(final_sketches + i) final_type(std::move(sketch));
                 if(entropy_minimization) {
                     FILL_SKETCH_MIN(score::Entropy);
                 } else {
@@ -721,7 +722,7 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sk
 #undef FILL_SKETCH_MIN
                 CONST_IF(samesketch) {
                     if(cache_sketch && !isf) sketch.write(fpath);
-                } else final_sketches[i].write(fpath);
+                } else if(cache_sketch) final_sketches[i].write(fpath);
             }
         }
         ++ncomplete; // Atomic
