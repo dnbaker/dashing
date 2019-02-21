@@ -557,7 +557,7 @@ INLINE void perform_core_op(T &dists, size_t nhlls, SketchType *hlls, const Func
     h1.free();
 }
 
-#ifdef ENABLE_COMPUTED_GOTO
+#if defined(ENABLE_COMPUTED_GOTO) && !defined(__clang__)
 #define CORE_ITER(zomg) do {{\
         static constexpr void *TYPES[] {&&mash##zomg, &&ji##zomg, &&sizes##zomg, &&full_mash##zomg};\
         goto *TYPES[result_type];\
