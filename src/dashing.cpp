@@ -11,6 +11,7 @@
 #include "khset/khset.h"
 #include "distmat/distmat.h"
 #include <sstream>
+#include "getopt.h"
 #include <sys/stat.h>
 
 using namespace sketch;
@@ -27,6 +28,7 @@ using hll::hll_t;
 #define COMPRESSED_FILE_SUFFIX ".gz"
 #endif
 
+using option_struct = struct option;
 namespace bns {
 using sketch::common::WangHash;
 static const char *executable = nullptr;
@@ -325,7 +327,7 @@ std::string make_fname(const char *path, size_t sketch_p, int wsz, int k, int cs
     return ret;
 }
 
-enum sketching_method {
+enum sketching_method: int {
     EXACT = 0,
     CBF   = 1,
     BY_FNAME = 2
@@ -397,22 +399,70 @@ void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, co
     }
 #undef MAIN_SKETCH_LOOP
 }
+
+#ifndef no_argument
+#define no_argument 0
+#endif
+#ifndef required_argument
+#define required_argument 1
+#endif
+#ifndef optional_argument
+#define optional_argument 2
+#endif
+
+#define LO_ARG(LONG, SHORT) {LONG, required_argument, 0, SHORT},
+
+#define LO_NO(LONG, SHORT) {LONG, no_argument, 0, SHORT},
+
+#define LO_FLAG(LONG, SHORT, VAR, VAL) {LONG, no_argument, (int *)&VAR, VAL},
+
+static_assert(sizeof(option) >= sizeof(void *), "must be bigger");
+
+#define LONG_OPTS \
+static option_struct sketch_long_options[] = {\
+    LO_FLAG("--countmin", 'b', sm, CBF)\
+    LO_FLAG("--canon", 'C', canon, false)\
+    LO_FLAG("--sketch-by-fname", 'f', sm, BY_FNAME)\
+    LO_FLAG("--skip-cached", 'c', skip_cached, true)\
+    LO_FLAG("--by-entropy", 'e', entropy_minimization, true) \
+    LO_FLAG("--use-bb-minhash", '8', sketch_type, BB_MINHASH)\
+    LO_ARG("--bbits", 'B')\
+    LO_ARG("--original", 'E')\
+    LO_ARG("--paths", 'F')\
+    LO_ARG("--prefix", 'P')\
+    LO_ARG("--nhashes", 'H')\
+    LO_ARG("--improved", 'I')\
+    LO_ARG("--seed", 'R')\
+    LO_ARG("--sketch-size", 'S')\
+    LO_ARG("--kmer-length", 'k')\
+    LO_ARG("--min-cont", 'n')\
+    LO_ARG("--nthreads", 'p')\
+    LO_ARG("--cm-sketch-size", 'q')\
+    LO_ARG("--spacing", 's')\
+    LO_ARG("--window-size", 'w')\
+    LO_ARG("--suffix", 'x')\
+    LO_ARG("--ertl-mle", 'J')\
+\
+    LO_FLAG("--use-range-minhash", 128, sketch_type, RANGE_MINHASH)\
+    LO_FLAG("--use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)\
+};
+
 // Main functions
 int sketch_main(int argc, char *argv[]) {
     int wsz(0), k(31), sketch_size(10), skip_cached(false), co, nthreads(1), mincount(1), nhashes(1), cmsketchsize(-1);
-    bool canon(true);
-    bool entropy_minimization = false;
+    int canon(true);
+    int entropy_minimization = false;
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = static_cast<hll::JointEstimationMethod>(hll::EstimationMethod::ERTL_MLE);
     std::string spacing, paths_file, suffix, prefix;
     sketching_method sm = EXACT;
     Sketch sketch_type = HLL;
     uint64_t seedseedseed = 1337u;
-    while((co = getopt(argc, argv, "n:P:F:c:p:x:R:s:S:k:w:H:q:B:JbfjEIcCeh?")) >= 0) {
+    int option_index = 0;
+    LONG_OPTS
+    while((co = getopt_long(argc, argv, "n:P:F:c:p:x:R:s:S:k:w:H:q:B:JbfjEIcCeh?", sketch_long_options, &option_index)) >= 0) {
         switch(co) {
             case 'B': bbnbits = std::atoi(optarg); break;
-            case 'b': sm = CBF; break;
-            case 'C': canon = false; break;
             case 'E': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
             case 'F': paths_file = optarg; break;
             case 'H': nhashes = std::atoi(optarg); break;
@@ -420,11 +470,8 @@ int sketch_main(int argc, char *argv[]) {
             case 'P': prefix = optarg; break;
             case 'R': seedseedseed = std::strtoull(optarg, nullptr, 10); break;
             case 'S': sketch_size = std::atoi(optarg); break;
-            case 'c': skip_cached = true; break;
-            case 'e': entropy_minimization = true; break;
-            case 'f': sm = BY_FNAME; break;
-            case 'k': k = std::atoi(optarg); break;
             case 'J': jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
+            case 'k': k = std::atoi(optarg); break;
             case 'n': mincount = std::atoi(optarg); break;
             case 'p': nthreads = std::atoi(optarg); break;
             case 'q': cmsketchsize = std::atoi(optarg); break;
@@ -1132,6 +1179,23 @@ int union_main(int argc, char *argv[]) {
     return 0;
 }
 
+int partdist_usage() {
+    std::fprintf(stderr, "%s partdist <opts> <args>...\n[This command has not been implemented.]\n", bns::executable);
+    return EXIT_FAILURE;
+}
+
+int partdist_main(int argc, char *argv[]) {
+    if(argc == 0) return partdist_usage();
+    int c;
+    while((c = getopt(argc, argv, "h?")) >= 0) {
+        switch(c) {
+            // WHEEEEEEEEE
+        }
+    }
+    std::vector<std::string> qpaths = get_lines(argv[optind]), refpaths = get_lines(argv[optind + 1]);
+    throw ::sketch::common::NotImplementedError("partdist_main has not been implemented.");
+}
+
 } // namespace bns
 
 using namespace bns;
@@ -1146,6 +1210,7 @@ int main(int argc, char *argv[]) {
     else if(std::strcmp(argv[1], "setdist") == 0) return setdist_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "hll") == 0) return hll_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "printmat") == 0) return print_binary_main(argc - 1, argv + 1);
+    else if(std::strcmp(argv[1], "partdist") == 0) return partdist_main(argc - 1, argv + 1);
     else {
         for(const char *const *p(argv + 1); *p; ++p)
             if(std::string(*p) == "-h" || std::string(*p) == "--help") main_usage(argv);
