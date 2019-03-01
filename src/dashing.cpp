@@ -420,31 +420,31 @@ static_assert(sizeof(option) >= sizeof(void *), "must be bigger");
 
 #define LONG_OPTS \
 static option_struct sketch_long_options[] = {\
-    LO_FLAG("--countmin", 'b', sm, CBF)\
-    LO_FLAG("--canon", 'C', canon, false)\
-    LO_FLAG("--sketch-by-fname", 'f', sm, BY_FNAME)\
-    LO_FLAG("--skip-cached", 'c', skip_cached, true)\
-    LO_FLAG("--by-entropy", 'e', entropy_minimization, true) \
-    LO_FLAG("--use-bb-minhash", '8', sketch_type, BB_MINHASH)\
-    LO_ARG("--bbits", 'B')\
-    LO_ARG("--original", 'E')\
-    LO_ARG("--paths", 'F')\
-    LO_ARG("--prefix", 'P')\
-    LO_ARG("--nhashes", 'H')\
-    LO_ARG("--improved", 'I')\
-    LO_ARG("--seed", 'R')\
-    LO_ARG("--sketch-size", 'S')\
-    LO_ARG("--kmer-length", 'k')\
-    LO_ARG("--min-cont", 'n')\
-    LO_ARG("--nthreads", 'p')\
-    LO_ARG("--cm-sketch-size", 'q')\
-    LO_ARG("--spacing", 's')\
-    LO_ARG("--window-size", 'w')\
-    LO_ARG("--suffix", 'x')\
-    LO_ARG("--ertl-mle", 'J')\
+    LO_FLAG("countmin", 'b', sm, CBF)\
+    LO_FLAG("canon", 'C', canon, false)\
+    LO_FLAG("sketch-by-fname", 'f', sm, BY_FNAME)\
+    LO_FLAG("skip-cached", 'c', skip_cached, true)\
+    LO_FLAG("by-entropy", 'e', entropy_minimization, true) \
+    LO_FLAG("use-bb-minhash", '8', sketch_type, BB_MINHASH)\
+    LO_ARG("bbits", 'B')\
+    LO_ARG("original", 'E')\
+    LO_ARG("paths", 'F')\
+    LO_ARG("prefix", 'P')\
+    LO_ARG("nhashes", 'H')\
+    LO_ARG("improved", 'I')\
+    LO_ARG("seed", 'R')\
+    LO_ARG("sketch-size", 'S')\
+    LO_ARG("kmer-length", 'k')\
+    LO_ARG("min-count", 'n')\
+    LO_ARG("nthreads", 'p')\
+    LO_ARG("cm-sketch-size", 'q')\
+    LO_ARG("spacing", 's')\
+    LO_ARG("window-size", 'w')\
+    LO_ARG("suffix", 'x')\
+    LO_ARG("ertl-mle", 'J')\
 \
-    LO_FLAG("--use-range-minhash", 128, sketch_type, RANGE_MINHASH)\
-    LO_FLAG("--use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)\
+    LO_FLAG("use-range-minhash", 128, sketch_type, RANGE_MINHASH)\
+    LO_FLAG("use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)\
 };
 
 // Main functions
@@ -472,7 +472,10 @@ int sketch_main(int argc, char *argv[]) {
             case 'S': sketch_size = std::atoi(optarg); break;
             case 'J': jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
             case 'k': k = std::atoi(optarg); break;
-            case 'n': mincount = std::atoi(optarg); break;
+            case 'n':
+                      mincount = std::atoi(optarg);
+                      std::fprintf(stderr, "mincount: %d\n", mincount);
+                      break;
             case 'p': nthreads = std::atoi(optarg); break;
             case 'q': cmsketchsize = std::atoi(optarg); break;
             case 's': spacing = optarg; break;
