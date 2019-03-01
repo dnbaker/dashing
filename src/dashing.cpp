@@ -267,7 +267,7 @@ void sketch_usage(const char *arg) {
                          "-w\tSet window size [max(size of spaced kmer, [parameter])]\n"
                          "-S\tSet log2 sketch size in bytes [10, for 2**10 bytes each]\n"
                          "-C\tDo not canonicalize. [Default: canonicalize]\n"
-                         "-b\tSet `b` for b-bit minwise hashing to <int>. Default: 16\n"
+                         "-B\tSet `b` for b-bit minwise hashing to <int>. Default: 16\n"
                          "Run options --\n"
                          "-p\tSet number of threads [1]\n"
                          "-P\tSet prefix for sketch file locations [empty]\n"
