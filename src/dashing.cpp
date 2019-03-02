@@ -262,34 +262,33 @@ void sketch_usage(const char *arg) {
                          "-h/-?:\tEmit usage\n"
                          "\n"
                          "Sketch options --\n"
-                         "-k\tSet kmer size [31]\n"
-                         "-s\tadd a spacer of the format <int>x<int>,<int>x<int>,"
+                         "--kmer-length/-k\tSet kmer size [31]\n"
+                         "--spacing/-s\tadd a spacer of the format <int>x<int>,<int>x<int>,"
                          "..., where the first integer corresponds to the space "
                          "between bases repeated the second integer number of times\n"
-                         "-w\tSet window size [max(size of spaced kmer, [parameter])]\n"
-                         "-S\tSet log2 sketch size in bytes [10, for 2**10 bytes each]\n"
-                         "-C\tDo not canonicalize. [Default: canonicalize]\n"
-                         "-B\tSet `b` for b-bit minwise hashing to <int>. Default: 16\n"
+                         "--window-size/-w\tSet window size [max(size of spaced kmer, [parameter])]\n"
+                         "--sketch-size/-S\tSet log2 sketch size in bytes [10, for 2**10 bytes each]\n"
+                         "--no-canon/-C\tDo not canonicalize. [Default: canonicalize]\n"
+                         "--bbits/-B\tSet `b` for b-bit minwise hashing to <int>. Default: 16\n"
                          "Run options --\n"
-                         "-p\tSet number of threads [1]\n"
-                         "-P\tSet prefix for sketch file locations [empty]\n"
-                         "-x\tSet suffix in sketch file names [empty]\n"
-                         "-F\tGet paths to genomes from file rather than positional arguments\n"
-                         "-c\tCache sketches/use cached sketches (save sketches to disk in directory of the file [default] or in folder specified by -P\n"
-                         "-z\tWrite gzip compressed. (Or zstd-compressed, if compiled with zlibWrapper.\n"
+                         "--nthreads/-p\tSet number of threads [1]\n"
+                         "--prefix/-P\tSet prefix for sketch file locations [empty]\n"
+                         "--suffix/-x\tSet suffix in sketch file names [empty]\n"
+                         "--paths/-F\tGet paths to genomes from file rather than positional arguments\n"
+                         "--skip-cached/-c\tSkip alreday produced/cached sketches (save sketches to disk in directory of the file [default] or in folder specified by -P\n"
                          "Estimation methods --\n"
-                         "-E\tUse Flajolet with inclusion/exclusion quantitation method for hll. [Default: Ertl MLE]\n"
-                         "-I\tUse Ertl Improved estimator [Default: Ertl MLE]\n"
-                         "-J\tUse Ertl JMLE\n"
+                         "--original/-E\tUse Flajolet with inclusion/exclusion quantitation method for hll. [Default: Ertl MLE]\n"
+                         "--improved/-I\tUse Ertl Improved estimator [Default: Ertl MLE]\n"
+                         "--ertl-jmle/-J\tUse Ertl JMLE\n"
                          "Filtering Options --\n"
                          "Default: consume all kmers. Alternate options: \n"
-                         "-f\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
-                         "-b\tFilter all input data by count-min sketch.\n"
+                         "--sketch-by-fname/-f\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
+                         "--count-min/-b\tFilter all input data by count-min sketch.\n"
                          "Options for count-min filtering --\n"
-                         "-H\tSet count-min number of hashes. Default: [4]\n"
-                         "-q\tSet count-min sketch size (log2). Default: ceil(log2(max_filesize)) + 2\n"
-                         "-n\tProvide minimum expected count for fastq data. If unspecified, all kmers are passed.\n"
-                         "-R\tSet seed for seeds for count-min sketches\n"
+                         "--nhashes/-H\tSet count-min number of hashes. Default: [4]\n"
+                         "--cm-sketch-size/-q\tSet count-min sketch size (log2). Default: ceil(log2(max_filesize)) + 2\n"
+                         "--min-count/-n\tProvide minimum expected count for fastq data. If unspecified, all kmers are passed.\n"
+                         "--seed/-R\tSet seed for seeds for count-min sketches\n"
                          "Sketch Type Options --\n"
                          "--use-bb-minhash/-8\tCreate bbit minhash sketches\n"
                          "--use-range-minhash\tCreate range minhash sketches\n"
@@ -430,17 +429,18 @@ static_assert(sizeof(option) >= sizeof(void *), "must be bigger");
 #define LONG_OPTS \
 static option_struct sketch_long_options[] = {\
     LO_FLAG("countmin", 'b', sm, CBF)\
-    LO_FLAG("canon", 'C', canon, false)\
+    LO_FLAG("no-canon", 'C', canon, false)\
     LO_FLAG("sketch-by-fname", 'f', sm, BY_FNAME)\
     LO_FLAG("skip-cached", 'c', skip_cached, true)\
     LO_FLAG("by-entropy", 'e', entropy_minimization, true) \
     LO_FLAG("use-bb-minhash", '8', sketch_type, BB_MINHASH)\
     LO_ARG("bbits", 'B')\
-    LO_ARG("original", 'E')\
     LO_ARG("paths", 'F')\
     LO_ARG("prefix", 'P')\
     LO_ARG("nhashes", 'H')\
+    LO_ARG("original", 'E')\
     LO_ARG("improved", 'I')\
+    LO_ARG("ertl-joint-mle", 'J')\
     LO_ARG("seed", 'R')\
     LO_ARG("sketch-size", 'S')\
     LO_ARG("kmer-length", 'k')\
@@ -450,7 +450,6 @@ static option_struct sketch_long_options[] = {\
     LO_ARG("spacing", 's')\
     LO_ARG("window-size", 'w')\
     LO_ARG("suffix", 'x')\
-    LO_ARG("ertl-mle", 'J')\
 \
     LO_FLAG("use-range-minhash", 128, sketch_type, RANGE_MINHASH)\
     LO_FLAG("use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)\
