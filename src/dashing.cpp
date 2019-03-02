@@ -47,14 +47,23 @@ enum EmissionFormat: unsigned {
     FULL_TSV = 3,
 };
 
-enum Sketch {
+enum Sketch: int {
     HLL,
     BLOOM_FILTER,
     RANGE_MINHASH,
     FULL_KHASH_SET,
     COUNTING_RANGE_MINHASH,
     BB_MINHASH,
-    COUNTING_BB_MINHASH, // TODO
+    COUNTING_BB_MINHASH, // TODO make this work.
+};
+static const char *sketch_names [] {
+    "HLL/HyperLogLog",
+    "BF/BloomFilter",
+    "RMH/Range Min-Hash/KMV",
+    "FHS/Full Hash Set",
+    "CRHM/Counting Range Minhash",
+    "BB/B-bit Minhash",
+    "CBB/Counting B-bit Minhash",
 };
 using CBBMinHashType = mh::CountingBBitMinHasher<uint64_t, uint16_t>; // Is counting to 65536 enough for a transcriptome?
 template<typename T> struct SketchEnum;
@@ -66,15 +75,6 @@ template<> struct SketchEnum<mh::CountingRangeMinHash<uint64_t>> {static constex
 template<> struct SketchEnum<mh::BBitMinHasher<uint64_t>> {static constexpr Sketch value = BB_MINHASH;};
 template<> struct SketchEnum<CBBMinHashType> {static constexpr Sketch value = COUNTING_BB_MINHASH;};
 
-static const char *sketch_names [] {
-    "HLL",
-    "BLOOM_FILTER",
-    "RANGE_MINHASH",
-    "FULL_KHASH_SET",
-    "COUNTING_RANGE_MINHASH",
-    "BB_MINHASH",
-    "COUNTING_BB_MINHASH",
-};
 static uint32_t bbnbits = 16;
 
 template<typename T>
@@ -96,7 +96,7 @@ static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
         case FULL_KHASH_SET: return 16; // Reserve hash set size a bit. Mostly meaningless, resizing as necessary.
         default: {
             char buf[128];
-            std::sprintf(buf, "Sketch %s not yet supported.\n", (sketch >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch]));
+            std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch]));
             RUNTIME_ERROR(buf);
             return -1337;
         }
@@ -290,6 +290,10 @@ void sketch_usage(const char *arg) {
                          "-q\tSet count-min sketch size (log2). Default: ceil(log2(max_filesize)) + 2\n"
                          "-n\tProvide minimum expected count for fastq data. If unspecified, all kmers are passed.\n"
                          "-R\tSet seed for seeds for count-min sketches\n"
+                         "Sketch Type Options --\n"
+                         "--use-bb-minhash/-8\tCreate bbit minhash sketches\n"
+                         "--use-range-minhash\tCreate range minhash sketches\n"
+                         "--use-counting-range-minhash\tCreate range minhash sketches\n"
                          "----\n"
                 , arg);
     std::exit(EXIT_FAILURE);
@@ -364,12 +368,17 @@ INLINE void set_estim_and_jestim(hll::hllbase_t<Hashstruct> &h, hll::EstimationM
 }
 using hll::EstimationMethod;
 using hll::JointEstimationMethod;
+template<typename T>
+T construct(size_t ssarg) {
+    return T(ssarg);
+}
+template<> mh::BBitMinHasher<uint64_t> construct<mh::BBitMinHasher<uint64_t>>(size_t p) {return mh::BBitMinHasher<uint64_t>(p, bbnbits);}
 
 template<typename SketchType>
 void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<cm::ccm_t> &cms, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization) {
     std::vector<SketchType> sketches;
     uint32_t sketch_size = bytesl2_to_arg(ssarg, SketchEnum<SketchType>::value);
-    while(sketches.size() < (u32)nthreads) sketches.emplace_back(ssarg), set_estim_and_jestim(sketches.back(), estim, jestim);
+    while(sketches.size() < (u32)nthreads) sketches.push_back(construct<SketchType>(ssarg)), set_estim_and_jestim(sketches.back(), estim, jestim);
     std::vector<std::string> fnames(nthreads);
 
 #define MAIN_SKETCH_LOOP(MinType)\
@@ -460,7 +469,7 @@ int sketch_main(int argc, char *argv[]) {
     uint64_t seedseedseed = 1337u;
     int option_index = 0;
     LONG_OPTS
-    while((co = getopt_long(argc, argv, "n:P:F:c:p:x:R:s:S:k:w:H:q:B:JbfjEIcCeh?", sketch_long_options, &option_index)) >= 0) {
+    while((co = getopt_long(argc, argv, "n:P:F:p:x:R:s:S:k:w:H:q:B:8JbfjEIcCeh?", sketch_long_options, &option_index)) >= 0) {
         switch(co) {
             case 'B': bbnbits = std::atoi(optarg); break;
             case 'E': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
@@ -472,6 +481,7 @@ int sketch_main(int argc, char *argv[]) {
             case 'S': sketch_size = std::atoi(optarg); break;
             case 'J': jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
             case 'k': k = std::atoi(optarg); break;
+            case '8': sketch_type = BB_MINHASH; break;
             case 'n':
                       mincount = std::atoi(optarg);
                       std::fprintf(stderr, "mincount: %d\n", mincount);
@@ -491,6 +501,7 @@ int sketch_main(int argc, char *argv[]) {
     std::vector<cm::ccm_t> cms;
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
                                                        : std::vector<std::string>(argv + optind, argv + argc));
+    LOG_INFO("Sketching genomes with sketch: %d/%s\n", sketch_type, sketch_names[sketch_type]);
     if(inpaths.empty()) {
         std::fprintf(stderr, "No paths. See usage.\n");
         sketch_usage(*argv);
@@ -522,6 +533,7 @@ int sketch_main(int argc, char *argv[]) {
         case BLOOM_FILTER: SKETCH_CORE(bf::bf_t); break;
         case RANGE_MINHASH: SKETCH_CORE(mh::RangeMinHash<uint64_t>); break;
         case COUNTING_RANGE_MINHASH: SKETCH_CORE(mh::CountingRangeMinHash<uint64_t>); break;
+        case BB_MINHASH: SKETCH_CORE(mh::BBitMinHasher<uint64_t>); break;
         default: RUNTIME_ERROR("Not supported sketch type");
     }
 #undef SKETCH_CORE
@@ -693,10 +705,6 @@ enum CompReading: unsigned {
 };
 }
 
-template<typename T>
-T construct(unsigned p);
-template<> hll::hll_t construct<hll::hll_t>(unsigned p) {return hll::hll_t(p);}
-template<> mh::BBitMinHasher<uint64_t> construct<mh::BBitMinHasher<uint64_t>>(unsigned p) {return mh::BBitMinHasher<uint64_t>(p, bbnbits);}
 //dist_sketch_and_cmp<sketchtype>(inpaths, cms, kseqs, ofp, pairofp, sp, sketch_size, mincount, estim, jestim, cache_sketch, result_type, emit_fmt, presketched_only, nthreads,
 //use_scientific, suffix, prefix, canon, entropy_minimization, spacing);
 template<typename SketchType>
@@ -829,8 +837,7 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sk
 int dist_main(int argc, char *argv[]) {
     int wsz(0), k(31), sketch_size(10), use_scientific(false), co, cache_sketch(false),
         nthreads(1), mincount(30), nhashes(4), cmsketchsize(-1);
-    bool canon(true), presketched_only(false),
-entropy_minimization(false),
+    bool canon(true), presketched_only(false), entropy_minimization(false),
          avoid_fsorting(false), use_bbmh(false);
          // bool sketch_query_by_seq(true);
     EmissionFormat emit_fmt = UT_TSV;
