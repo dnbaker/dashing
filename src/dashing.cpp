@@ -91,7 +91,7 @@ static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
         case HLL: return nblog2;
         case BLOOM_FILTER: return nblog2 + 3; // 8 bits per byte
         case RANGE_MINHASH: return size_t(1) << (nblog2 - 3); // 8 bytes per minimizer
-        case COUNTING_RANGE_MINHASH: return size_t(1) << (nblog2) / (sizeof(uint64_t) + sizeof(uint32_t));
+        case COUNTING_RANGE_MINHASH: return (size_t(1) << (nblog2)) / (sizeof(uint64_t) + sizeof(uint32_t));
         case BB_MINHASH: return nblog2 - std::ceil(std::log2(bbnbits / 8));
         case FULL_KHASH_SET: return 16; // Reserve hash set size a bit. Mostly meaningless, resizing as necessary.
         default: {
@@ -377,7 +377,7 @@ template<typename SketchType>
 void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<cm::ccm_t> &cms, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization) {
     std::vector<SketchType> sketches;
     uint32_t sketch_size = bytesl2_to_arg(ssarg, SketchEnum<SketchType>::value);
-    while(sketches.size() < (u32)nthreads) sketches.push_back(construct<SketchType>(ssarg)), set_estim_and_jestim(sketches.back(), estim, jestim);
+    while(sketches.size() < (u32)nthreads) sketches.push_back(construct<SketchType>(sketch_size)), set_estim_and_jestim(sketches.back(), estim, jestim);
     std::vector<std::string> fnames(nthreads);
 
 #define MAIN_SKETCH_LOOP(MinType)\
