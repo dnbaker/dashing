@@ -60,7 +60,7 @@ struct khset64_t: public kh::khset64_t {
         std::free(ptr->keys);
         std::free(ptr->vals);
         std::free(ptr->flags);
-        std::memset(this, 0, sizeof(*this));
+        std::memset(ptr, 0, sizeof(*this));
     }
     void write(const std::string &s) const {write(s.data());}
     void write(const char *s) const {
@@ -695,6 +695,11 @@ INLINE void perform_core_op(T &dists, size_t nhlls, SketchType *hlls, const Func
 #endif
 
 template<typename SketchType>
+void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads) {
+    throw NotImplementedError("ZOMG");
+}
+
+template<typename SketchType>
 void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size=BUFFER_FLUSH_SIZE) {
     const float ksinv = 1./ k;
     const int pairfi = fileno(ofp);
@@ -739,13 +744,33 @@ enum CompReading: unsigned {
 };
 }
 
-//dist_sketch_and_cmp<sketchtype>(inpaths, cms, kseqs, ofp, pairofp, sp, sketch_size, mincount, estim, jestim, cache_sketch, result_type, emit_fmt, presketched_only, nthreads,
-//use_scientific, suffix, prefix, canon, entropy_minimization, spacing);
+#define FILL_SKETCH_MIN(MinType)  \
+    {\
+        Encoder<MinType> enc(nullptr, 0, sp, nullptr, canon);\
+        if(cms.empty()) {\
+            auto &h = sketch;\
+            enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+        } else {\
+            sketch::cm::ccm_t &cm = cms[tid];\
+            enc.for_each([&,mincount](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            cm.clear();\
+        }\
+        CONST_IF(!samesketch) new(final_sketches + i) final_type(std::move(sketch)); \
+    }
+
+
 template<typename SketchType>
 void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sketch::cm::ccm_t> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,
                          Spacer sp,
                          unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,
-                         bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing) {
+                         bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,
+                         size_t nq=0)
+{
+    // nq -- number of queries
+    //       for convenience, we will perform our comparisons (all-p) against (all-q) [remainder]
+    //       and use the same guts for all portions of the process
+    //       except for the final comparison and output.
+    assert(nq <= inpaths.size());
     using final_type = typename FinalSketch<SketchType>::final_type;
     std::vector<SketchType> sketches;
     sketches.reserve(inpaths.size());
@@ -761,13 +786,6 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sk
     CONST_IF(samesketch) {
         if(final_sketches == nullptr) throw std::bad_alloc();
     }
-#if 0
-    for(auto &&pair: map) {
-        *bcp++ = pair.first;
-        new(pp++) FinalType(std::move(pair.second));
-    }
-    {decltype(map) tmap(std::move(map));} // Free map now that it's not needed
-#endif
 
     std::atomic<uint32_t> ncomplete;
     ncomplete.store(0);
@@ -795,23 +813,11 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sk
                 }
             } else {
                 const int tid = omp_get_thread_num();
-#define FILL_SKETCH_MIN(MinType) \
-        Encoder<MinType> enc(nullptr, 0, sp, nullptr, canon);\
-        if(cms.empty()) {\
-            auto &h = sketch;\
-            enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
-        } else {\
-            sketch::cm::ccm_t &cm = cms[tid];\
-            enc.for_each([&,mincount](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
-            cm.clear();\
-        }\
-        CONST_IF(!samesketch) new(final_sketches + i) final_type(std::move(sketch));
                 if(entropy_minimization) {
                     FILL_SKETCH_MIN(score::Entropy);
                 } else {
                     FILL_SKETCH_MIN(score::Lex);
                 }
-#undef FILL_SKETCH_MIN
                 CONST_IF(samesketch) {
                     if(cache_sketch && !isf) sketch.write(fpath);
                 } else if(cache_sketch) final_sketches[i].write(fpath);
@@ -850,7 +856,11 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sk
     }
     // binary formats don't have headers we handle here
     static constexpr uint32_t buffer_flush_size = BUFFER_FLUSH_SIZE;
-    dist_loop<final_type>(pairofp, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size);
+    if(nq == 0) {
+        dist_loop<final_type>(pairofp, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size);
+    } else {
+        partdist_loop<final_type>(pairofp, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads);
+    }
     CONST_IF(!samesketch) {
 #if __cplusplus >= 201703L
         std::destroy_n(
@@ -942,27 +952,26 @@ int dist_main(int argc, char *argv[]) {
     DIST_LONG_OPTS
     while((co = getopt_long(argc, argv, "n:Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:8TgDazlICbMEeHJhZBNyUmqW?", dist_long_options, &option_index)) >= 0) {
         switch(co) {
-            case 'B': bbnbits = std::atoi(optarg);     break;
-            case 'F': paths_file = optarg;             break;
-            case 'P': prefix = optarg;                 break;
-            case 'Q': querypaths.emplace_back(optarg); LOG_EXIT("Error: querypaths method temporarily removed before integration into a separate subcommand."); break;
+            case 'B': bbnbits    = std::atoi(optarg);   break;
+            case 'F': paths_file = optarg;              break;
+            case 'P': prefix     = optarg;              break;
+            case 'Q': querypaths = std::move(get_paths(optarg)); break;
             case 'R': seedseedseed = std::strtoull(optarg, nullptr, 10); break;
-            case 'E': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
-            case 'I': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
-            case 'J': jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
-            case 'm': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); LOG_WARNING("Note: ERTL_MLE is default. This flag is redundant.\n"); break;
-            case 'S': sketch_size = std::atoi(optarg); break;
-            case 'c': mincount = std::atoi(optarg);    break;
+            case 'E': jestim   = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
+            case 'I': jestim   = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
+            case 'J': jestim   = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
+            case 'm': jestim   = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); LOG_WARNING("Note: ERTL_MLE is default. This flag is redundant.\n"); break;
+            case 'S': sketch_size = std::atoi(optarg);  break;
+            case 'c': mincount = std::atoi(optarg);     break;
             case 'g': entropy_minimization = true; LOG_WARNING("Entropy-based minimization is probably theoretically ill-founded, but it might be of practical value.\n"); break;
-            case 'k': k = std::atoi(optarg);           break;
+            case 'k': k        = std::atoi(optarg);           break;
             case 'o': if((ofp = fopen(optarg, "w")) == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
-            case 'p': nthreads = std::atoi(optarg);    break;
-            case 'q': nhashes = std::atoi(optarg);     break;
+            case 'p': nthreads = std::atoi(optarg);     break;
+            case 'q': nhashes  = std::atoi(optarg);     break;
             case 't': cmsketchsize = std::atoi(optarg); break;
-            case 's': spacing = optarg;                break;
-            case 'w': wsz = std::atoi(optarg);         break;
-            case 'x': suffix = optarg;                 break;
-            //case 'z': reading_type = GZ;               break;
+            case 's': spacing  = optarg;                break;
+            case 'w': wsz      = std::atoi(optarg);         break;
+            case 'x': suffix   = optarg;                 break;
             case 'O': if((pairofp = fopen(optarg, "wb")) == nullptr)
                           LOG_EXIT("Could not open file at %s for writing.\n", optarg);
                       pairofp_labels = std::string(optarg) + ".labels";
@@ -997,25 +1006,25 @@ int dist_main(int argc, char *argv[]) {
         case EXACT: default: break;
     }
 #define CALL_DIST(sketchtype) \
-        dist_sketch_and_cmp<sketchtype>(inpaths, cms, kseqs, ofp, pairofp, sp, sketch_size, mincount, estim, jestim, cache_sketch, result_type, emit_fmt, presketched_only, nthreads, use_scientific, suffix, prefix, canon, entropy_minimization, spacing);
+        dist_sketch_and_cmp<sketchtype>(inpaths, cms, kseqs, ofp, pairofp, sp, sketch_size, mincount, estim, jestim, cache_sketch, result_type, emit_fmt, presketched_only, nthreads, use_scientific, suffix, prefix, canon, entropy_minimization, spacing, querypaths.size());
     switch(sketch_type) {
-    case BB_MINHASH:
-        CALL_DIST(mh::BBitMinHasher<uint64_t>); break;
-    case HLL:
-        CALL_DIST(hll::hll_t); break;
-    case RANGE_MINHASH:
-        CALL_DIST(mh::RangeMinHash<uint64_t>); break;
-    case COUNTING_RANGE_MINHASH:
-        CALL_DIST(mh::CountingRangeMinHash<uint64_t>); break;
-    case BLOOM_FILTER:
-        CALL_DIST(bf::bf_t); break;
-    case FULL_KHASH_SET:
-        CALL_DIST(khset64_t); break;
-    default: {
-            char buf[128];
-            std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));
-            RUNTIME_ERROR(buf);
-    }
+        case BB_MINHASH:
+            CALL_DIST(mh::BBitMinHasher<uint64_t>); break;
+        case HLL:
+            CALL_DIST(hll::hll_t); break;
+        case RANGE_MINHASH:
+            CALL_DIST(mh::RangeMinHash<uint64_t>); break;
+        case COUNTING_RANGE_MINHASH:
+            CALL_DIST(mh::CountingRangeMinHash<uint64_t>); break;
+        case BLOOM_FILTER:
+            CALL_DIST(bf::bf_t); break;
+        case FULL_KHASH_SET:
+            CALL_DIST(khset64_t); break;
+        default: {
+                char buf[128];
+                std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));
+                RUNTIME_ERROR(buf);
+        }
     }
 
     std::future<void> label_future;
@@ -1276,23 +1285,6 @@ int union_main(int argc, char *argv[]) {
     return 0;
 }
 
-int partdist_usage() {
-    std::fprintf(stderr, "%s partdist <opts> <args>...\n[This command has not been implemented.]\n", bns::executable);
-    return EXIT_FAILURE;
-}
-
-int partdist_main(int argc, char *argv[]) {
-    if(argc == 0) return partdist_usage();
-    int c;
-    while((c = getopt(argc, argv, "h?")) >= 0) {
-        switch(c) {
-            // WHEEEEEEEEE
-        }
-    }
-    std::vector<std::string> qpaths = get_lines(argv[optind]), refpaths = get_lines(argv[optind + 1]);
-    throw NotImplementedError("partdist_main has not been implemented.");
-}
-
 } // namespace bns
 
 using namespace bns;
@@ -1307,7 +1299,6 @@ int main(int argc, char *argv[]) {
     else if(std::strcmp(argv[1], "setdist") == 0) return setdist_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "hll") == 0) return hll_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "printmat") == 0) return print_binary_main(argc - 1, argv + 1);
-    else if(std::strcmp(argv[1], "partdist") == 0) return partdist_main(argc - 1, argv + 1);
     else {
         for(const char *const *p(argv + 1); *p; ++p)
             if(std::string(*p) == "-h" || std::string(*p) == "--help") main_usage(argv);
