@@ -48,225 +48,7 @@ enum EmissionFormat: unsigned {
     FULL_TSV = 3,
 };
 
-enum Sketch: int {
-    HLL,
-    BLOOM_FILTER,
-    RANGE_MINHASH,
-    FULL_KHASH_SET,
-    COUNTING_RANGE_MINHASH,
-    BB_MINHASH,
-    COUNTING_BB_MINHASH, // TODO make this work.
-};
-static const char *sketch_names [] {
-    "HLL/HyperLogLog",
-    "BF/BloomFilter",
-    "RMH/Range Min-Hash/KMV",
-    "FHS/Full Hash Set",
-    "CRHM/Counting Range Minhash",
-    "BB/B-bit Minhash",
-    "CBB/Counting B-bit Minhash",
-};
-using CBBMinHashType = mh::CountingBBitMinHasher<uint64_t, uint16_t>; // Is counting to 65536 enough for a transcriptome?
-template<typename T> struct SketchEnum;
-
-template<> struct SketchEnum<hll::hll_t> {static constexpr Sketch value = HLL;};
-template<> struct SketchEnum<bf::bf_t> {static constexpr Sketch value = BLOOM_FILTER;};
-template<> struct SketchEnum<mh::RangeMinHash<uint64_t>> {static constexpr Sketch value = RANGE_MINHASH;};
-template<> struct SketchEnum<mh::CountingRangeMinHash<uint64_t>> {static constexpr Sketch value = COUNTING_RANGE_MINHASH;};
-template<> struct SketchEnum<mh::BBitMinHasher<uint64_t>> {static constexpr Sketch value = BB_MINHASH;};
-template<> struct SketchEnum<CBBMinHashType> {static constexpr Sketch value = COUNTING_BB_MINHASH;};
-
-static uint32_t bbnbits = 16;
-
-template<typename T>
-double cardinality_estimate(T &x) {
-    return x.cardinality_estimate();
-}
-template<>
-double cardinality_estimate(hll::hll_t &x) {return x.creport();}
-template<>
-double cardinality_estimate(mh::FinalBBitMinHash &x) {return x.est_cardinality_;}
-template<>
-double cardinality_estimate(kh::khset64_t &x) {return x.size();}
-
-static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
-    switch(sketch) {
-        case HLL: return nblog2;
-        case BLOOM_FILTER: return nblog2 + 3; // 8 bits per byte
-        case RANGE_MINHASH: return size_t(1) << (nblog2 - 3); // 8 bytes per minimizer
-        case COUNTING_RANGE_MINHASH: return (size_t(1) << (nblog2)) / (sizeof(uint64_t) + sizeof(uint32_t));
-        case BB_MINHASH: return nblog2 - std::ceil(std::log2(bbnbits / 8));
-        case FULL_KHASH_SET: return 16; // Reserve hash set size a bit. Mostly meaningless, resizing as necessary.
-        default: {
-            char buf[128];
-            std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch]));
-            RUNTIME_ERROR(buf);
-            return -1337;
-        }
-    }
-
-}
-
-struct khset64_t: public kh::khset64_t {
-    void addh(uint64_t v) {this->insert(v);}
-    khset64_t(): kh::khset64_t() {}
-    khset64_t(size_t reservesz): kh::khset64_t(reservesz) {}
-    double jaccard_index(const khset64_t &other) const {
-        auto p1 = this, p2 = &other;
-        if(size() > other.size())
-            std::swap(p1, p2);
-        size_t olap = 0;
-        p1->for_each([&](auto v) {olap += p2->contains(v);});
-        return static_cast<double>(olap) / (p1->size() + p2->size() - olap);
-    }
-};
-
-template<typename SketchType>
-struct FinalSketch {
-    using final_type = SketchType;
-};
-#define FINAL_OVERLOAD(type) \
-template<> struct FinalSketch<type> { \
-    using final_type = typename type::final_type;}
-FINAL_OVERLOAD(mh::CountingRangeMinHash<uint64_t>);
-FINAL_OVERLOAD(mh::RangeMinHash<uint64_t>);
-FINAL_OVERLOAD(mh::BBitMinHasher<uint64_t>);
-FINAL_OVERLOAD(CBBMinHashType);
-template<typename T>struct SketchFileSuffix {static constexpr const char *suffix = ".sketch";};
-#define SSS(type, suf) template<> struct SketchFileSuffix<type> {static constexpr const char *suffix = suf;}
-SSS(mh::CountingRangeMinHash<uint64_t>, ".crmh");
-SSS(mh::RangeMinHash<uint64_t>, ".rmh");
-SSS(khset64_t, ".khs");
-SSS(bf::bf_t, ".bf");
-SSS(mh::BBitMinHasher<uint64_t>, ".bmh");
-SSS(CBBMinHashType, ".cbmh");
-SSS(mh::HyperMinHash<uint64_t>, ".hmh");
-SSS(hll::hll_t, ".hll");
-
-using CRMFinal = mh::FinalCRMinHash<uint64_t, std::greater<uint64_t>, uint32_t>;
-template<typename T> INLINE double similarity(const T &a, const T &b) {
-    return jaccard_index(a, b);
-}
-
-template<> INLINE double similarity<CRMFinal>(const CRMFinal &a, const CRMFinal &b) {
-    return a.histogram_intersection(b);
-}
-
-namespace us {
-template<typename T> INLINE double union_size(const T &a, const T &b) {
-    throw NotImplementedError(std::string("union_size not available for type ") + __PRETTY_FUNCTION__);
-    [[unreachable]];
-    return 0.;
-}
-
-template<> INLINE double union_size<hll::hllbase_t<>> (const hll::hllbase_t<> &a, const hll::hllbase_t<> &b) {
-    return a.union_size(b);
-}
-template<> INLINE double union_size<mh::FinalBBitMinHash> (const mh::FinalBBitMinHash &a, const mh::FinalBBitMinHash &b) {
-    return (a.est_cardinality_ + b.est_cardinality_ ) / (1. + a.jaccard_index(b));
-}
-}
-
-
-void main_usage(char **argv) {
-    std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options. [Subcommands: sketch, dist, setdist, hll, printmat.]\n",
-                 *argv, *argv);
-    std::exit(EXIT_FAILURE);
-}
-
-size_t posix_fsize(const char *path) {
-    struct stat st;
-    stat(path, &st);
-    return st.st_size;
-}
-
-namespace detail {
-struct path_size {
-    friend void swap(path_size&, path_size&);
-    std::string path;
-    size_t size;
-    path_size(std::string &&p, size_t sz): path(std::move(p)), size(sz) {}
-    path_size(const std::string &p, size_t sz): path(p), size(sz) {}
-    path_size(path_size &&o): path(std::move(o.path)), size(o.size) {}
-    path_size(): size(0) {}
-    path_size &operator=(path_size &&o) {
-        std::swap(o.path, path);
-        std::swap(o.size, size);
-        return *this;
-    }
-};
-
-inline void swap(path_size &a, path_size &b) {
-    std::swap(a.path, b.path);
-    std::swap(a.size, b.size);
-}
-
-void sort_paths_by_fsize(std::vector<std::string> &paths) {
-    uint32_t *fsizes = static_cast<uint32_t *>(std::malloc(paths.size() * sizeof(uint32_t)));
-    if(!fsizes) throw std::bad_alloc();
-    #pragma omp parallel for
-    for(size_t i = 0; i < paths.size(); ++i)
-        fsizes[i] = posix_fsize(paths[i].data());
-    std::vector<path_size> ps(paths.size());
-    #pragma omp parallel for
-    for(size_t i = 0; i < paths.size(); ++i)
-        ps[i] = path_size(paths[i], fsizes[i]);
-    std::free(fsizes);
-    std::sort(ps.begin(), ps.end(), [](const auto &x, const auto &y) {return x.size > y.size;});
-    paths.clear();
-    for(const auto &p: ps) paths.emplace_back(std::move(p.path));
-}
-} // namespace detail
-#if 0
-    LO_FLAG("phylip", 'U', emit_fmt, UPPER_TRIANGULAR)\
-    LO_FLAG("no-canon", 'C', canon, false)\
-    LO_FLAG("by-entropy", 'g', entropy_minimization, true) \
-    LO_FLAG("use-bb-minhash", '8', sketch_type, BB_MINHASH)\
-    LO_FLAG("full-mash-dist", 'l', result_type, FULL_MASH_DIST)\
-    LO_FLAG("mash-dist", 'M', result_type, MASH_DIST)\
-    LO_FLAG("countmin", 'y', sm, CBF)\
-    LO_FLAG("sketch-by-fname", 'N', sm, BY_FNAME)\
-    LO_FLAG("sizes", 'Z', result_type, SIZES)\
-    LO_FLAG("use-scientific", 'e', use_scientific, true)\
-    LO_FLAG("cache-sketches", 'W', cache_sketch, true)\
-    LO_FLAG("presketched", 'H', presketched_only, true)\
-    LO_FLAG("avoid-sorting", 'n', avoid_fsorting, true)\
-    LO_ARG("out-sizes", 'o') \
-    LO_ARG("out-dists", 'O') \
-    LO_ARG("bbits", 'B')\
-    LO_ARG("original", 'E')\
-    LO_ARG("improved", 'I')\
-    LO_ARG("ertl-joint-mle", 'J')\
-    LO_ARG("ertl-mle", 'm')\
-    LO_ARG("paths", 'F')\
-    LO_ARG("prefix", 'P')\
-    LO_ARG("nhashes", 'q')\
-    LO_ARG("seed", 'R')\
-    LO_ARG("sketch-size", 'S')\
-    LO_ARG("bbits", 'B')\
-    LO_ARG("original", 'E')\
-    LO_ARG("improved", 'I')\
-    LO_ARG("ertl-joint-mle", 'J')\
-    LO_ARG("ertl-mle", 'm')\
-    LO_ARG("paths", 'F')\
-    LO_ARG("prefix", 'P')\
-    LO_ARG("nhashes", 'q')\
-    LO_ARG("seed", 'R')\
-    LO_ARG("sketch-size", 'S')\
-    LO_ARG("kmer-length", 'k')\
-    LO_ARG("min-count", 'c')\
-    LO_ARG("nthreads", 'p')\
-    LO_ARG("cm-sketch-size", 't')\
-    LO_ARG("spacing", 's')\
-    LO_ARG("window-size", 'w')\
-    LO_ARG("suffix", 'x')\
-    LO_ARG("help", 'h')\
-    LO_FLAG("use-range-minhash", 128, sketch_type, RANGE_MINHASH)\
-    LO_FLAG("use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)\
-};
-
-#endif
-void dist_usage(const char *arg) {
+dist_usage(const char *arg) {
     std::fprintf(stderr, "Usage: %s <opts> [genomes if not provided from a file with -F]\n"
                          "Flags:\n"
                          "-h/-?, --help\tUsage\n"
@@ -302,6 +84,7 @@ void dist_usage(const char *arg) {
                          "-c, --min-count\tSet minimum count for kmers to pass count-min filtering.\n"
                          "-t, --cm-sketch-size\tSet count-min sketch size (log2). Default: ceil(log2(max_filesize)) + 2\n"
                          "-R, --seed\tSet seed for seeds for count-min sketches\n"
+                         "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n"
                          "--emit-binary,-b\tSet `b` for b-bit minwise hashing to <int>. Default: 16\n"
                 , arg);
     std::exit(EXIT_FAILURE);
@@ -346,6 +129,7 @@ void sketch_usage(const char *arg) {
                          "--use-bb-minhash/-8\tCreate bbit minhash sketches\n"
                          "--use-range-minhash\tCreate range minhash sketches\n"
                          "--use-counting-range-minhash\tCreate range minhash sketches\n"
+                         "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n"
                          "----\n"
                 , arg);
     std::exit(EXIT_FAILURE);
@@ -508,6 +292,7 @@ static option_struct sketch_long_options[] = {\
 \
     LO_FLAG("use-range-minhash", 128, sketch_type, RANGE_MINHASH)\
     LO_FLAG("use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)\
+    LO_FLAG("use-full-khash-sets", 130, sketch_type, FULL_KHASH_SET)\
 };
 
 // Main functions
@@ -941,6 +726,7 @@ static option_struct dist_long_options[] = {\
     LO_ARG("help", 'h')\
     LO_FLAG("use-range-minhash", 128, sketch_type, RANGE_MINHASH)\
     LO_FLAG("use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)\
+    LO_FLAG("use-full-khash-sets", 130, sketch_type, FULL_KHASH_SET)\
 };
 
 int dist_main(int argc, char *argv[]) {
@@ -1032,6 +818,8 @@ int dist_main(int argc, char *argv[]) {
         CALL_DIST(mh::CountingRangeMinHash<uint64_t>); break;
     case BLOOM_FILTER:
         CALL_DIST(bf::bf_t); break;
+    case FULL_KHASH_SET:
+        CALL_DIST(khset64_t); break;
     default: {
             char buf[128];
             std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));
