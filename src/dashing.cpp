@@ -42,6 +42,7 @@ enum EmissionType {
 
 struct khset64_t: public kh::khset64_t {
     void addh(uint64_t v) {this->insert(v);}
+    double cardinality_estimate() const {return this->size();}
     khset64_t(): kh::khset64_t() {}
     khset64_t(size_t reservesz): kh::khset64_t(reservesz) {}
     khset64_t(const std::string &s): khset64_t(s.data()) {}
@@ -53,6 +54,13 @@ struct khset64_t: public kh::khset64_t {
         gzFile fp = gzopen(s, "rb");
         kh::khset64_t::read(fp);
         gzclose(fp);
+    }
+    void free() {
+        auto ptr = reinterpret_cast<kh::khash_t(set64) *>(this);
+        std::free(ptr->keys);
+        std::free(ptr->vals);
+        std::free(ptr->flags);
+        std::memset(this, 0, sizeof(*this));
     }
     void write(const std::string &s) const {write(s.data());}
     void write(const char *s) const {
@@ -108,13 +116,13 @@ template<> struct SketchEnum<khset64_t> {static constexpr Sketch value = FULL_KH
 static uint32_t bbnbits = 16;
 
 template<typename T>
-double cardinality_estimate(T &x);
+double cardinality_estimate(T &x) {
+    return x.cardinality_estimate();
+}
 template<>
 double cardinality_estimate(hll::hll_t &x) {return x.report();}
 template<>
 double cardinality_estimate(mh::FinalBBitMinHash &x) {return x.est_cardinality_;}
-template<>
-double cardinality_estimate(mh::BBitMinHasher<uint64_t> &x) {return x.cardinality_estimate();}
 
 static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
     switch(sketch) {
@@ -159,7 +167,8 @@ SSS(hll::hll_t, ".hll");
 
 using CRMFinal = mh::FinalCRMinHash<uint64_t, std::greater<uint64_t>, uint32_t>;
 template<typename T> INLINE double similarity(const T &a, const T &b) {
-    return jaccard_index(a, b);
+    return a.jaccard_index(b);
+    //return jaccard_index(a, b);
 }
 
 template<> INLINE double similarity<CRMFinal>(const CRMFinal &a, const CRMFinal &b) {
