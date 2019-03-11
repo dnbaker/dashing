@@ -79,13 +79,15 @@ template<> struct SketchEnum<CBBMinHashType> {static constexpr Sketch value = CO
 static uint32_t bbnbits = 16;
 
 template<typename T>
-double cardinality_estimate(T &x);
+double cardinality_estimate(T &x) {
+    return x.cardinality_estimate();
+}
 template<>
-double cardinality_estimate(hll::hll_t &x) {return x.report();}
+double cardinality_estimate(hll::hll_t &x) {return x.creport();}
 template<>
 double cardinality_estimate(mh::FinalBBitMinHash &x) {return x.est_cardinality_;}
 template<>
-double cardinality_estimate(mh::BBitMinHasher<uint64_t> &x) {return x.cardinality_estimate();}
+double cardinality_estimate(kh::khset64_t &x) {return x.size();}
 
 static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
     switch(sketch) {
@@ -215,44 +217,92 @@ void sort_paths_by_fsize(std::vector<std::string> &paths) {
     for(const auto &p: ps) paths.emplace_back(std::move(p.path));
 }
 } // namespace detail
+#if 0
+    LO_FLAG("phylip", 'U', emit_fmt, UPPER_TRIANGULAR)\
+    LO_FLAG("no-canon", 'C', canon, false)\
+    LO_FLAG("by-entropy", 'g', entropy_minimization, true) \
+    LO_FLAG("use-bb-minhash", '8', sketch_type, BB_MINHASH)\
+    LO_FLAG("full-mash-dist", 'l', result_type, FULL_MASH_DIST)\
+    LO_FLAG("mash-dist", 'M', result_type, MASH_DIST)\
+    LO_FLAG("countmin", 'y', sm, CBF)\
+    LO_FLAG("sketch-by-fname", 'N', sm, BY_FNAME)\
+    LO_FLAG("sizes", 'Z', result_type, SIZES)\
+    LO_FLAG("use-scientific", 'e', use_scientific, true)\
+    LO_FLAG("cache-sketches", 'W', cache_sketch, true)\
+    LO_FLAG("presketched", 'H', presketched_only, true)\
+    LO_FLAG("avoid-sorting", 'n', avoid_fsorting, true)\
+    LO_ARG("out-sizes", 'o') \
+    LO_ARG("out-dists", 'O') \
+    LO_ARG("bbits", 'B')\
+    LO_ARG("original", 'E')\
+    LO_ARG("improved", 'I')\
+    LO_ARG("ertl-joint-mle", 'J')\
+    LO_ARG("ertl-mle", 'm')\
+    LO_ARG("paths", 'F')\
+    LO_ARG("prefix", 'P')\
+    LO_ARG("nhashes", 'q')\
+    LO_ARG("seed", 'R')\
+    LO_ARG("sketch-size", 'S')\
+    LO_ARG("bbits", 'B')\
+    LO_ARG("original", 'E')\
+    LO_ARG("improved", 'I')\
+    LO_ARG("ertl-joint-mle", 'J')\
+    LO_ARG("ertl-mle", 'm')\
+    LO_ARG("paths", 'F')\
+    LO_ARG("prefix", 'P')\
+    LO_ARG("nhashes", 'q')\
+    LO_ARG("seed", 'R')\
+    LO_ARG("sketch-size", 'S')\
+    LO_ARG("kmer-length", 'k')\
+    LO_ARG("min-count", 'c')\
+    LO_ARG("nthreads", 'p')\
+    LO_ARG("cm-sketch-size", 't')\
+    LO_ARG("spacing", 's')\
+    LO_ARG("window-size", 'w')\
+    LO_ARG("suffix", 'x')\
+    LO_ARG("help", 'h')\
+    LO_FLAG("use-range-minhash", 128, sketch_type, RANGE_MINHASH)\
+    LO_FLAG("use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)\
+};
 
+#endif
 void dist_usage(const char *arg) {
     std::fprintf(stderr, "Usage: %s <opts> [genomes if not provided from a file with -F]\n"
                          "Flags:\n"
-                         "-h/-?\tUsage\n"
-                         "-k\tSet kmer size [31]\n"
-                         "-W\tCache sketches/use cached sketches\n"
-                         "-p\tSet number of threads [1]\n"
-                         "-b\tEmit distances in binary (default: human-readable, upper-triangular)\n"
-                         "-U\tEmit distances in PHYLIP upper triangular format(default: human-readable, upper-triangular)\n"
-                         "-s\tadd a spacer of the format <int>x<int>,<int>x<int>,"
+                         "-h/-?, --help\tUsage\n"
+                         "-k, --kmer-length\tSet kmer size [31]\n"
+                         "-W, --cache-sketches\tCache sketches/use cached sketches\n"
+                         "-p, --nthreads\tSet number of threads [1]\n"
+                         "-b, --emit-binary\tEmit distances in binary (default: human-readable, upper-triangular)\n"
+                         "--phylip,-U\tEmit distances in PHYLIP upper triangular format(default: human-readable, upper-triangular)\n"
+                         "-s, --spacing\tadd a spacer of the format <int>x<int>,<int>x<int>,"
                          "..., where the first integer corresponds to the space "
                          "between bases repeated the second integer number of times\n"
-                         "-w\tSet window size [max(size of spaced kmer, [parameter])]\n"
-                         "-S\tSet sketch size [10, for 2**10 bytes each]\n"
-                         "-H\tTreat provided paths as pre-made sketches.\n"
-                         "-C\tDo not canonicalize. [Default: canonicalize]\n"
-                         "-P\tSet prefix for sketch file locations [empty]\n"
-                         "-x\tSet suffix in sketch file names [empty]\n"
-                         "-o\tOutput for genome size estimates [stdout]\n"
-                         "-I\tUse Ertl's Improved Estimator\n"
-                         "-E\tUse Ertl's Original Estimator\n"
-                         "-J\tUse Ertl's JMLE Estimator [default:Uses Ertl-MLE]\n"
-                         "-O\tOutput for genome distance matrix [stdout]\n"
-                         "-e\tEmit in scientific notation\n"
-                         "-F\tGet paths to genomes from file rather than positional arguments\n"
-                         "-M\tEmit Mash distance (default: jaccard index)\n"
-                         "-l\tEmit full (not approximate) Mash distance. default: jaccard index\n"
-                         "-T\tpostprocess binary format to human-readable TSV (not upper triangular)\n"
-                         "-Z\tEmit genome sizes (default: jaccard index)\n"
-                         "-N\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
-                         "-n\tAvoid sorting files by genome sizes. This avoids a computational step, but can result in degraded load-balancing.\n"
-                         "-y\tFilter all input data by count-min sketch.\n"
-                         "-q\tSet count-min number of hashes. Default: [4]\n"
-                         "-c\tSet minimum count for kmers to pass count-min filtering.\n"
-                         "-t\tSet count-min sketch size (log2). Default: ceil(log2(max_filesize)) + 2\n"
-                         "-R\tSet seed for seeds for count-min sketches\n"
-                         "-b\tSet `b` for b-bit minwise hashing to <int>. Default: 16\n"
+                         "-w, --window-size\tSet window size [max(size of spaced kmer, [parameter])]\n"
+                         "-S, --sketch-size\tSet sketch size [10, for 2**10 bytes each]\n"
+                         "-H, --presketched\tTreat provided paths as pre-made sketches.\n"
+                         "-C, --no-canon\tDo not canonicalize. [Default: canonicalize]\n"
+                         "-P, --prefix\tSet prefix for sketch file locations [empty]\n"
+                         "-x, --suffix\tSet suffix in sketch file names [empty]\n"
+                         "-o, --out-sizes\tOutput for genome size estimates [stdout]\n"
+                         "--improved,-I\tUse Ertl's Improved Estimator\n"
+                         "--original,-E\tUse Ertl's Original Estimator\n"
+                         "--ertl-joint-mle,-J\tUse Ertl's JMLE Estimator [default:Uses Ertl-MLE]\n"
+                         "-O, --out-dists\tOutput for genome distance matrix [stdout]\n"
+                         "-e, --emit-scientific\tEmit in scientific notation\n"
+                         "-F, --paths\tGet paths to genomes from file rather than positional arguments\n"
+                         "-M, --mash-dist\tEmit Mash distance (default: jaccard index)\n"
+                         "-l, --full-mash-dist \tEmit full (not approximate) Mash distance. default: jaccard index\n"
+                         "--full-tsv,-T\tpostprocess binary format to human-readable TSV (not upper triangular)\n"
+                         "-Z, --sizes\tEmit genome sizes (default: jaccard index)\n"
+                         "-N, --sketch-by-fname\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
+                         "-n, --avoid-sorting\tAvoid sorting files by genome sizes. This avoids a computational step, but can result in degraded load-balancing.\n"
+                         "-y, --countmin\tFilter all input data by count-min sketch.\n"
+                         "-q, --nhashes\tSet count-min number of hashes. Default: [4]\n"
+                         "-c, --min-count\tSet minimum count for kmers to pass count-min filtering.\n"
+                         "-t, --cm-sketch-size\tSet count-min sketch size (log2). Default: ceil(log2(max_filesize)) + 2\n"
+                         "-R, --seed\tSet seed for seeds for count-min sketches\n"
+                         "--emit-binary,-b\tSet `b` for b-bit minwise hashing to <int>. Default: 16\n"
                 , arg);
     std::exit(EXIT_FAILURE);
 }
@@ -434,8 +484,8 @@ static_assert(sizeof(option) >= sizeof(void *), "must be bigger");
 #define SKETCH_LONG_OPTS \
 static option_struct sketch_long_options[] = {\
     LO_FLAG("countmin", 'b', sm, CBF)\
-    LO_FLAG("no-canon", 'C', canon, false)\
     LO_FLAG("sketch-by-fname", 'f', sm, BY_FNAME)\
+    LO_FLAG("no-canon", 'C', canon, false)\
     LO_FLAG("skip-cached", 'c', skip_cached, true)\
     LO_FLAG("by-entropy", 'e', entropy_minimization, true) \
     LO_FLAG("use-bb-minhash", '8', sketch_type, BB_MINHASH)\
@@ -476,14 +526,14 @@ int sketch_main(int argc, char *argv[]) {
     while((co = getopt_long(argc, argv, "n:P:F:p:x:R:s:S:k:w:H:q:B:8JbfjEIcCeh?", sketch_long_options, &option_index)) >= 0) {
         switch(co) {
             case 'B': bbnbits = std::atoi(optarg); break;
-            case 'E': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
             case 'F': paths_file = optarg; break;
             case 'H': nhashes = std::atoi(optarg); break;
+            case 'E': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
             case 'I': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
+            case 'J': jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
             case 'P': prefix = optarg; break;
             case 'R': seedseedseed = std::strtoull(optarg, nullptr, 10); break;
             case 'S': sketch_size = std::atoi(optarg); break;
-            case 'J': jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
             case 'k': k = std::atoi(optarg); break;
             case '8': sketch_type = BB_MINHASH; break;
             case 'n':
@@ -843,78 +893,55 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sk
 }
 
 #define DIST_LONG_OPTS \
-static option_struct sketch_long_options[] = {\
+static option_struct dist_long_options[] = {\
     LO_FLAG("full-tsv", 'T', emit_fmt, FULL_TSV)\
     LO_FLAG("emit-binary", 'b', emit_fmt, BINARY)\
+    LO_FLAG("phylip", 'U', emit_fmt, UPPER_TRIANGULAR)\
     LO_FLAG("no-canon", 'C', canon, false)\
     LO_FLAG("by-entropy", 'g', entropy_minimization, true) \
     LO_FLAG("use-bb-minhash", '8', sketch_type, BB_MINHASH)\
+    LO_FLAG("full-mash-dist", 'l', result_type, FULL_MASH_DIST)\
+    LO_FLAG("mash-dist", 'M', result_type, MASH_DIST)\
+    LO_FLAG("countmin", 'y', sm, CBF)\
+    LO_FLAG("sketch-by-fname", 'N', sm, BY_FNAME)\
+    LO_FLAG("sizes", 'Z', result_type, SIZES)\
+    LO_FLAG("use-scientific", 'e', use_scientific, true)\
+    LO_FLAG("cache-sketches", 'W', cache_sketch, true)\
+    LO_FLAG("presketched", 'H', presketched_only, true)\
+    LO_FLAG("avoid-sorting", 'n', avoid_fsorting, true)\
+    LO_ARG("out-sizes", 'o') \
+    LO_ARG("out-dists", 'O') \
     LO_ARG("bbits", 'B')\
-    LO_ARG("paths", 'F')\
-    LO_ARG("prefix", 'P')\
-    LO_ARG("nhashes", 'H')\
     LO_ARG("original", 'E')\
     LO_ARG("improved", 'I')\
     LO_ARG("ertl-joint-mle", 'J')\
+    LO_ARG("ertl-mle", 'm')\
+    LO_ARG("paths", 'F')\
+    LO_ARG("prefix", 'P')\
+    LO_ARG("nhashes", 'q')\
+    LO_ARG("seed", 'R')\
+    LO_ARG("sketch-size", 'S')\
+    LO_ARG("bbits", 'B')\
+    LO_ARG("original", 'E')\
+    LO_ARG("improved", 'I')\
+    LO_ARG("ertl-joint-mle", 'J')\
+    LO_ARG("ertl-mle", 'm')\
+    LO_ARG("paths", 'F')\
+    LO_ARG("prefix", 'P')\
+    LO_ARG("nhashes", 'q')\
     LO_ARG("seed", 'R')\
     LO_ARG("sketch-size", 'S')\
     LO_ARG("kmer-length", 'k')\
-    LO_ARG("min-count", 'n')\
+    LO_ARG("min-count", 'c')\
     LO_ARG("nthreads", 'p')\
-    LO_ARG("cm-sketch-size", 'q')\
+    LO_ARG("cm-sketch-size", 't')\
     LO_ARG("spacing", 's')\
     LO_ARG("window-size", 'w')\
     LO_ARG("suffix", 'x')\
-\
+    LO_ARG("help", 'h')\
     LO_FLAG("use-range-minhash", 128, sketch_type, RANGE_MINHASH)\
     LO_FLAG("use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)\
 };
-
-#if 0
-    while((co = getopt(argc, argv, "n:Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:8TgDazlICbMEeHJhZBNyUmqW?")) >= 0) {
-        switch(co) {
-            case '8': use_bbmh = true;                 break;
-            case 'T': emit_fmt = FULL_TSV;             break; // This also sets the emit_fmt bit for BINARY
-            case 'B': bbnbits = std::atoi(optarg);     break;
-            case 'b': emit_fmt = BINARY;               break;
-            case 'C': canon = false;                   break;
-            case 'E': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
-            case 'F': paths_file = optarg;             break;
-            case 'H': presketched_only = true;         break;
-            case 'I': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
-            case 'J': jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
-            case 'M': result_type = MASH_DIST;         break;
-            case 'N': sm = BY_FNAME;                   break;
-            case 'P': prefix = optarg;                 break;
-            case 'Q': querypaths.emplace_back(optarg); LOG_EXIT("Error: querypaths method temporarily removed before integration into a separate subcommand."); break;
-            case 'R': seedseedseed = std::strtoull(optarg, nullptr, 10); break;
-            case 'S': sketch_size = std::atoi(optarg); break;
-            case 'U': emit_fmt = UPPER_TRIANGULAR;     break;
-            case 'W': cache_sketch = true;             break;
-            case 'Z': result_type = SIZES;             break;
-            case 'c': mincount = std::atoi(optarg);    break;
-            case 'e': use_scientific = true;           break;
-            case 'g': entropy_minimization = true; LOG_WARNING("Entropy-based minimization is probably theoretically ill-founded, but it might be of practical value.\n"); break;
-            case 'k': k = std::atoi(optarg);           break;
-            case 'l': result_type = FULL_MASH_DIST;    break;
-            case 'm': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
-            case 'n': avoid_fsorting = true;           break;
-            case 'o': if((ofp = fopen(optarg, "w")) == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
-            case 'p': nthreads = std::atoi(optarg);    break;
-            case 'q': nhashes = std::atoi(optarg);     break;
-            case 't': cmsketchsize = std::atoi(optarg); break;
-            case 's': spacing = optarg;                break;
-            case 'w': wsz = std::atoi(optarg);         break;
-            case 'x': suffix = optarg;                 break;
-            case 'y': sm = CBF;                        break;
-            //case 'z': reading_type = GZ;               break;
-            case 'O': if((pairofp = fopen(optarg, "wb")) == nullptr)
-                          LOG_EXIT("Could not open file at %s for writing.\n", optarg);
-                      pairofp_labels = std::string(optarg) + ".labels";
-                      pairofp_path = optarg;
-                      break;
-            case 'h': case '?': dist_usage(*argv);
-#endif
 
 int dist_main(int argc, char *argv[]) {
     int wsz(0), k(31), sketch_size(10), use_scientific(false), co, cache_sketch(false),
@@ -934,32 +961,23 @@ int dist_main(int argc, char *argv[]) {
     std::vector<std::string> querypaths;
     uint64_t seedseedseed = 1337u;
     if(argc == 1) dist_usage(*argv);
-    while((co = getopt(argc, argv, "n:Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:8TgDazlICbMEeHJhZBNyUmqW?")) >= 0) {
+    int option_index;
+    DIST_LONG_OPTS
+    while((co = getopt_long(argc, argv, "n:Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:8TgDazlICbMEeHJhZBNyUmqW?", dist_long_options, &option_index)) >= 0) {
         switch(co) {
             case 'B': bbnbits = std::atoi(optarg);     break;
-            case 'b': emit_fmt = BINARY;               break;
-            case 'C': canon = false;                   break;
-            case 'E': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
             case 'F': paths_file = optarg;             break;
-            case 'H': presketched_only = true;         break;
-            case 'I': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
-            case 'J': jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
-            case 'M': result_type = MASH_DIST;         break;
-            case 'N': sm = BY_FNAME;                   break;
             case 'P': prefix = optarg;                 break;
             case 'Q': querypaths.emplace_back(optarg); LOG_EXIT("Error: querypaths method temporarily removed before integration into a separate subcommand."); break;
             case 'R': seedseedseed = std::strtoull(optarg, nullptr, 10); break;
+            case 'E': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
+            case 'I': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
+            case 'J': jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
+            case 'm': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); LOG_WARNING("Note: ERTL_MLE is default. This flag is redundant.\n"); break;
             case 'S': sketch_size = std::atoi(optarg); break;
-            case 'U': emit_fmt = UPPER_TRIANGULAR;     break;
-            case 'W': cache_sketch = true;             break;
-            case 'Z': result_type = SIZES;             break;
             case 'c': mincount = std::atoi(optarg);    break;
-            case 'e': use_scientific = true;           break;
             case 'g': entropy_minimization = true; LOG_WARNING("Entropy-based minimization is probably theoretically ill-founded, but it might be of practical value.\n"); break;
             case 'k': k = std::atoi(optarg);           break;
-            case 'l': result_type = FULL_MASH_DIST;    break;
-            case 'm': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
-            case 'n': avoid_fsorting = true;           break;
             case 'o': if((ofp = fopen(optarg, "w")) == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
             case 'p': nthreads = std::atoi(optarg);    break;
             case 'q': nhashes = std::atoi(optarg);     break;
@@ -967,7 +985,6 @@ int dist_main(int argc, char *argv[]) {
             case 's': spacing = optarg;                break;
             case 'w': wsz = std::atoi(optarg);         break;
             case 'x': suffix = optarg;                 break;
-            case 'y': sm = CBF;                        break;
             //case 'z': reading_type = GZ;               break;
             case 'O': if((pairofp = fopen(optarg, "wb")) == nullptr)
                           LOG_EXIT("Could not open file at %s for writing.\n", optarg);
