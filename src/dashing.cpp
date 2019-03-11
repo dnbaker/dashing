@@ -17,6 +17,7 @@
 using namespace sketch;
 using circ::roundup;
 using hll::hll_t;
+using sketch::common::NotImplementedError;
 
 #ifndef BUFFER_FLUSH_SIZE
 #define BUFFER_FLUSH_SIZE (1u << 18)
@@ -150,9 +151,11 @@ template<> INLINE double similarity<CRMFinal>(const CRMFinal &a, const CRMFinal 
 }
 
 namespace us {
-template<typename T> INLINE double union_size(const T &a, const T &b); //{
-//    throw NotImplementedError(std::string("union_size not available for type ") + __PRETTY_FUNCTION__);
-//}
+template<typename T> INLINE double union_size(const T &a, const T &b) {
+    throw NotImplementedError(std::string("union_size not available for type ") + __PRETTY_FUNCTION__);
+    [[unreachable]];
+    return 0.;
+}
 
 template<> INLINE double union_size<hll::hllbase_t<>> (const hll::hllbase_t<> &a, const hll::hllbase_t<> &b) {
     return a.union_size(b);
@@ -408,6 +411,7 @@ void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, co
 #undef MAIN_SKETCH_LOOP
 }
 
+#if 0
 #ifndef no_argument
 #define no_argument 0
 #endif
@@ -416,6 +420,7 @@ void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, co
 #endif
 #ifndef optional_argument
 #define optional_argument 2
+#endif
 #endif
 
 #define LO_ARG(LONG, SHORT) {LONG, required_argument, 0, SHORT},
@@ -426,7 +431,7 @@ void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, co
 
 static_assert(sizeof(option) >= sizeof(void *), "must be bigger");
 
-#define LONG_OPTS \
+#define SKETCH_LONG_OPTS \
 static option_struct sketch_long_options[] = {\
     LO_FLAG("countmin", 'b', sm, CBF)\
     LO_FLAG("no-canon", 'C', canon, false)\
@@ -467,7 +472,7 @@ int sketch_main(int argc, char *argv[]) {
     Sketch sketch_type = HLL;
     uint64_t seedseedseed = 1337u;
     int option_index = 0;
-    LONG_OPTS
+    SKETCH_LONG_OPTS
     while((co = getopt_long(argc, argv, "n:P:F:p:x:R:s:S:k:w:H:q:B:8JbfjEIcCeh?", sketch_long_options, &option_index)) >= 0) {
         switch(co) {
             case 'B': bbnbits = std::atoi(optarg); break;
@@ -533,7 +538,11 @@ int sketch_main(int argc, char *argv[]) {
         case RANGE_MINHASH: SKETCH_CORE(mh::RangeMinHash<uint64_t>); break;
         case COUNTING_RANGE_MINHASH: SKETCH_CORE(mh::CountingRangeMinHash<uint64_t>); break;
         case BB_MINHASH: SKETCH_CORE(mh::BBitMinHasher<uint64_t>); break;
-        default: RUNTIME_ERROR("Not supported sketch type");
+        default: {
+            char buf[128];
+            std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));
+            RUNTIME_ERROR(buf);
+        }
     }
 #undef SKETCH_CORE
     LOG_INFO("Successfully finished sketching from %zu files\n", inpaths.size());
@@ -833,23 +842,35 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sk
     }
 }
 
-int dist_main(int argc, char *argv[]) {
-    int wsz(0), k(31), sketch_size(10), use_scientific(false), co, cache_sketch(false),
-        nthreads(1), mincount(30), nhashes(4), cmsketchsize(-1);
-    bool canon(true), presketched_only(false), entropy_minimization(false),
-         avoid_fsorting(false), use_bbmh(false);
-         // bool sketch_query_by_seq(true);
-    EmissionFormat emit_fmt = UT_TSV;
-    double factor = 1.;
-    EmissionType result_type(JI);
-    hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
-    hll::JointEstimationMethod jestim = static_cast<hll::JointEstimationMethod>(hll::EstimationMethod::ERTL_MLE);
-    std::string spacing, paths_file, suffix, prefix, pairofp_labels, pairofp_path;
-    FILE *ofp(stdout), *pairofp(stdout);
-    sketching_method sm = EXACT;
-    std::vector<std::string> querypaths;
-    uint64_t seedseedseed = 1337u;
-    if(argc == 1) dist_usage(*argv);
+#define DIST_LONG_OPTS \
+static option_struct sketch_long_options[] = {\
+    LO_FLAG("full-tsv", 'T', emit_fmt, FULL_TSV)\
+    LO_FLAG("emit-binary", 'b', emit_fmt, BINARY)\
+    LO_FLAG("no-canon", 'C', canon, false)\
+    LO_FLAG("by-entropy", 'g', entropy_minimization, true) \
+    LO_FLAG("use-bb-minhash", '8', sketch_type, BB_MINHASH)\
+    LO_ARG("bbits", 'B')\
+    LO_ARG("paths", 'F')\
+    LO_ARG("prefix", 'P')\
+    LO_ARG("nhashes", 'H')\
+    LO_ARG("original", 'E')\
+    LO_ARG("improved", 'I')\
+    LO_ARG("ertl-joint-mle", 'J')\
+    LO_ARG("seed", 'R')\
+    LO_ARG("sketch-size", 'S')\
+    LO_ARG("kmer-length", 'k')\
+    LO_ARG("min-count", 'n')\
+    LO_ARG("nthreads", 'p')\
+    LO_ARG("cm-sketch-size", 'q')\
+    LO_ARG("spacing", 's')\
+    LO_ARG("window-size", 'w')\
+    LO_ARG("suffix", 'x')\
+\
+    LO_FLAG("use-range-minhash", 128, sketch_type, RANGE_MINHASH)\
+    LO_FLAG("use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)\
+};
+
+#if 0
     while((co = getopt(argc, argv, "n:Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:8TgDazlICbMEeHJhZBNyUmqW?")) >= 0) {
         switch(co) {
             case '8': use_bbmh = true;                 break;
@@ -857,7 +878,6 @@ int dist_main(int argc, char *argv[]) {
             case 'B': bbnbits = std::atoi(optarg);     break;
             case 'b': emit_fmt = BINARY;               break;
             case 'C': canon = false;                   break;
-            //case 'D': sketch_query_by_seq = false;     break;
             case 'E': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
             case 'F': paths_file = optarg;             break;
             case 'H': presketched_only = true;         break;
@@ -872,7 +892,67 @@ int dist_main(int argc, char *argv[]) {
             case 'U': emit_fmt = UPPER_TRIANGULAR;     break;
             case 'W': cache_sketch = true;             break;
             case 'Z': result_type = SIZES;             break;
-            //case 'a': reading_type = AUTODETECT;       break;
+            case 'c': mincount = std::atoi(optarg);    break;
+            case 'e': use_scientific = true;           break;
+            case 'g': entropy_minimization = true; LOG_WARNING("Entropy-based minimization is probably theoretically ill-founded, but it might be of practical value.\n"); break;
+            case 'k': k = std::atoi(optarg);           break;
+            case 'l': result_type = FULL_MASH_DIST;    break;
+            case 'm': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
+            case 'n': avoid_fsorting = true;           break;
+            case 'o': if((ofp = fopen(optarg, "w")) == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
+            case 'p': nthreads = std::atoi(optarg);    break;
+            case 'q': nhashes = std::atoi(optarg);     break;
+            case 't': cmsketchsize = std::atoi(optarg); break;
+            case 's': spacing = optarg;                break;
+            case 'w': wsz = std::atoi(optarg);         break;
+            case 'x': suffix = optarg;                 break;
+            case 'y': sm = CBF;                        break;
+            //case 'z': reading_type = GZ;               break;
+            case 'O': if((pairofp = fopen(optarg, "wb")) == nullptr)
+                          LOG_EXIT("Could not open file at %s for writing.\n", optarg);
+                      pairofp_labels = std::string(optarg) + ".labels";
+                      pairofp_path = optarg;
+                      break;
+            case 'h': case '?': dist_usage(*argv);
+#endif
+
+int dist_main(int argc, char *argv[]) {
+    int wsz(0), k(31), sketch_size(10), use_scientific(false), co, cache_sketch(false),
+        nthreads(1), mincount(30), nhashes(4), cmsketchsize(-1);
+    int canon(true), presketched_only(false), entropy_minimization(false),
+         avoid_fsorting(false);
+    Sketch sketch_type = HLL;
+         // bool sketch_query_by_seq(true);
+    EmissionFormat emit_fmt = UT_TSV;
+    double factor = 1.;
+    EmissionType result_type(JI);
+    hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
+    hll::JointEstimationMethod jestim = static_cast<hll::JointEstimationMethod>(hll::EstimationMethod::ERTL_MLE);
+    std::string spacing, paths_file, suffix, prefix, pairofp_labels, pairofp_path;
+    FILE *ofp(stdout), *pairofp(stdout);
+    sketching_method sm = EXACT;
+    std::vector<std::string> querypaths;
+    uint64_t seedseedseed = 1337u;
+    if(argc == 1) dist_usage(*argv);
+    while((co = getopt(argc, argv, "n:Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:8TgDazlICbMEeHJhZBNyUmqW?")) >= 0) {
+        switch(co) {
+            case 'B': bbnbits = std::atoi(optarg);     break;
+            case 'b': emit_fmt = BINARY;               break;
+            case 'C': canon = false;                   break;
+            case 'E': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
+            case 'F': paths_file = optarg;             break;
+            case 'H': presketched_only = true;         break;
+            case 'I': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
+            case 'J': jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
+            case 'M': result_type = MASH_DIST;         break;
+            case 'N': sm = BY_FNAME;                   break;
+            case 'P': prefix = optarg;                 break;
+            case 'Q': querypaths.emplace_back(optarg); LOG_EXIT("Error: querypaths method temporarily removed before integration into a separate subcommand."); break;
+            case 'R': seedseedseed = std::strtoull(optarg, nullptr, 10); break;
+            case 'S': sketch_size = std::atoi(optarg); break;
+            case 'U': emit_fmt = UPPER_TRIANGULAR;     break;
+            case 'W': cache_sketch = true;             break;
+            case 'Z': result_type = SIZES;             break;
             case 'c': mincount = std::atoi(optarg);    break;
             case 'e': use_scientific = true;           break;
             case 'g': entropy_minimization = true; LOG_WARNING("Entropy-based minimization is probably theoretically ill-founded, but it might be of practical value.\n"); break;
@@ -924,10 +1004,22 @@ int dist_main(int argc, char *argv[]) {
     }
 #define CALL_DIST(sketchtype) \
         dist_sketch_and_cmp<sketchtype>(inpaths, cms, kseqs, ofp, pairofp, sp, sketch_size, mincount, estim, jestim, cache_sketch, result_type, emit_fmt, presketched_only, nthreads, use_scientific, suffix, prefix, canon, entropy_minimization, spacing);
-    if(use_bbmh) {
-        CALL_DIST(mh::BBitMinHasher<uint64_t>);
-    } else {
-        CALL_DIST(hll::hll_t);
+    switch(sketch_type) {
+    case BB_MINHASH:
+        CALL_DIST(mh::BBitMinHasher<uint64_t>); break;
+    case HLL:
+        CALL_DIST(hll::hll_t); break;
+    case RANGE_MINHASH:
+        CALL_DIST(mh::RangeMinHash<uint64_t>); break;
+    case COUNTING_RANGE_MINHASH:
+        CALL_DIST(mh::CountingRangeMinHash<uint64_t>); break;
+    case BLOOM_FILTER:
+        CALL_DIST(bf::bf_t); break;
+    default: {
+            char buf[128];
+            std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));
+            RUNTIME_ERROR(buf);
+    }
     }
 
     std::future<void> label_future;
@@ -1047,7 +1139,7 @@ int setdist_main(int argc, char *argv[]) {
     str.clear();
     const double ksinv = 1./static_cast<double>(k);
     if((emit_fmt & BINARY) == 0) {
-        if(emit_fmt == UPPER_TRIANGULAR) throw sketch::common::NotImplementedError("Not Implemented: upper triangular phylip for setdist.");
+        if(emit_fmt == UPPER_TRIANGULAR) throw NotImplementedError("Not Implemented: upper triangular phylip for setdist.");
         str.sprintf("##Names\t");
         for(auto &path: inpaths) str.sprintf("%s\t", path.data());
         str.back() = '\n';
@@ -1202,7 +1294,7 @@ int partdist_main(int argc, char *argv[]) {
         }
     }
     std::vector<std::string> qpaths = get_lines(argv[optind]), refpaths = get_lines(argv[optind + 1]);
-    throw ::sketch::common::NotImplementedError("partdist_main has not been implemented.");
+    throw NotImplementedError("partdist_main has not been implemented.");
 }
 
 } // namespace bns
