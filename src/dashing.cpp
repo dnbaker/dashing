@@ -80,6 +80,22 @@ struct khset64_t: public kh::khset64_t {
         p1->for_each([&](auto v) {olap += p2->contains(v);});
         return static_cast<double>(olap) / (p1->size() + p2->size() - olap);
     }
+    double containment_index(const khset64_t &other) const {
+        auto p1 = this, p2 = &other;
+        if(size() > other.size())
+            std::swap(p1, p2);
+        uint64_t olap = 0;
+        p1->for_each([&](auto v) {olap += p2->contains(v);});
+        return static_cast<double>(olap) / (this->size());
+    }
+    uint64_t union_size(const khset64_t &other) const {
+        auto p1 = this, p2 = &other;
+        if(size() > other.size())
+            std::swap(p1, p2);
+        uint64_t olap = 0;
+        p1->for_each([&](auto v) {olap += p2->contains(v);});
+        return p1->size() + p2->size() - olap;
+    }
 };
 enum EmissionFormat: unsigned {
     UT_TSV = 0,
@@ -187,7 +203,7 @@ template<typename T> INLINE double union_size(const T &a, const T &b) {
 template<> INLINE double union_size<hll::hllbase_t<>> (const hll::hllbase_t<> &a, const hll::hllbase_t<> &b) {
     return a.union_size(b);
 }
-template<> INLINE double union_size<hll::hllbase_t<>> (const khset64_t &a, const khset64_t &b) {
+template<> INLINE double union_size<khset64_t> (const khset64_t &a, const khset64_t &b) {
     return a.union_size(b);
 }
 template<> INLINE double union_size<mh::FinalBBitMinHash> (const mh::FinalBBitMinHash &a, const mh::FinalBBitMinHash &b) {
@@ -198,6 +214,15 @@ template<typename T>
 double containment_index(const T &a, const T &b) {
     return a.containment_index(b);
 }
+#define CONTAIN_OVERLOAD_FAIL(x)\
+template<>\
+double containment_index<x>(const x &b, const x &a) {\
+    RUNTIME_ERROR(std::string("Containment index not implemented for ") + __PRETTY_FUNCTION__);\
+}
+using RMFinal = mh::FinalRMinHash<uint64_t, std::greater<uint64_t>>;
+CONTAIN_OVERLOAD_FAIL(CRMFinal)
+CONTAIN_OVERLOAD_FAIL(RMFinal)
+CONTAIN_OVERLOAD_FAIL(bf::bf_t)
 
 
 void main_usage(char **argv) {
@@ -448,25 +473,9 @@ void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, co
 #undef MAIN_SKETCH_LOOP
 }
 
-#if 0
-#ifndef no_argument
-#define no_argument 0
-#endif
-#ifndef required_argument
-#define required_argument 1
-#endif
-#ifndef optional_argument
-#define optional_argument 2
-#endif
-#endif
-
 #define LO_ARG(LONG, SHORT) {LONG, required_argument, 0, SHORT},
-
 #define LO_NO(LONG, SHORT) {LONG, no_argument, 0, SHORT},
-
 #define LO_FLAG(LONG, SHORT, VAR, VAL) {LONG, no_argument, (int *)&VAR, VAL},
-
-static_assert(sizeof(option) >= sizeof(void *), "must be bigger");
 
 #define SKETCH_LONG_OPTS \
 static option_struct sketch_long_options[] = {\
@@ -666,7 +675,8 @@ INLINE void perform_core_op(T &dists, size_t nhlls, SketchType *hlls, const Func
     h1.free();
 }
 
-#if defined(ENABLE_COMPUTED_GOTO) && !defined(__clang__)
+#if 0
+//#if defined(ENABLE_COMPUTED_GOTO) && !defined(__clang__)
 #define CORE_ITER(zomg) do {{\
         static constexpr void *TYPES[] {&&mash##zomg, &&ji##zomg, &&sizes##zomg, &&full_mash##zomg};\
         goto *TYPES[result_type];\
@@ -709,7 +719,7 @@ INLINE void perform_core_op(T &dists, size_t nhlls, SketchType *hlls, const Func
 
 template<typename SketchType>
 void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size=BUFFER_FLUSH_SIZE,
-                   size_t nq)
+                   size_t nq=0)
 {
     const float ksinv = 1./ k;
     if(nq >= inpaths.size()) {
@@ -721,6 +731,9 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
 #if TIMING
     auto start = std::chrono::high_resolution_clock::now();
 #endif
+    std::future<void> write_future, fmt_future;
+    std::array<ks::string, 2> buffers;
+    for(auto &b: buffers) b.resize(4 * nr);
     for(size_t qi = nr; qi < inpaths.size(); ++qi) {
         switch(result_type) {
 #define dist_sim(x, y) dist_index(similarity(x, y), ksinv)
@@ -745,7 +758,7 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
                 break;
             case SIZES:
                 #pragma omp parallel for schedule(dynamic)
-                DO_LOOP(union_size);
+                DO_LOOP(us::union_size);
                 break;
             case CONTAINMENT_INDEX:
                 #pragma omp parallel for schedule(dynamic)
@@ -761,14 +774,38 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
                 break;
             default: __builtin_unreachable();
 #undef DO_LOOP
-
+            switch(emit_fmt) {
+                case UT_TSV: case UPPER_TRIANGULAR: default:
+                    RUNTIME_ERROR(std::string("Illegal output format. numeric: ") + std::to_string(int(emit_fmt)));
+                case BINARY:
+                    if(write_future.valid()) write_future.get();
+                    write_future = std::async(std::launch::async, [ptr=arr + (qi - nr) * nq, nb=sizeof(float) * nr](const int fn) {
+                        ::write(fn, ptr, nb);
+                    }, ::fileno(ofp));
+                    break;
+                case FULL_TSV:
+                    if(fmt_future.valid()) fmt_future.get();
+                    fmt_future = std::async(std::launch::async, [&]() {
+                        auto &buffer = buffers[qi & 1];
+                        buffer += inpaths[qi];
+                        const char *fmt = use_scientific ? "\t%e": "\t%f";
+                        float *aptr = arr + (qi - nr) * nq;
+                        for(size_t i = 0; i < nq; ++i)
+                            buffer.sprintf(fmt, aptr[i]);
+                        buffer.putc_('\n');
+                        if(write_future.valid()) write_future.get();
+                        write_future = std::async(std::launch::async, [&]() {buffer.flush(::fileno(ofp));});
+                    });
+                    break;
+            }
         }
     }
+    if(fmt_future.valid()) fmt_future.get();
+    if(write_future.valid()) write_future.get();
 #if TIMING
     auto end = std::chrono::high_resolution_clock::now();
 #endif
     std::free(arr);
-    throw NotImplementedError("ZOMG");
 }
 
 template<typename SketchType>
@@ -968,6 +1005,7 @@ static option_struct dist_long_options[] = {\
     LO_FLAG("presketched", 'H', presketched_only, true)\
     LO_FLAG("avoid-sorting", 'n', avoid_fsorting, true)\
     LO_ARG("out-sizes", 'o') \
+    LO_ARG("query-paths", 'Q') \
     LO_ARG("out-dists", 'O') \
     LO_ARG("bbits", 'B')\
     LO_ARG("original", 'E')\
