@@ -33,11 +33,15 @@ using option_struct = struct option;
 namespace bns {
 using sketch::common::WangHash;
 static const char *executable = nullptr;
+
 enum EmissionType {
     MASH_DIST = 0,
     JI        = 1,
     SIZES     = 2,
-    FULL_MASH_DIST = 3
+    FULL_MASH_DIST = 3,
+    FULL_CONTAINMENT_DIST = 4,
+    CONTAINMENT_INDEX = 5,
+    CONTAINMENT_DIST = 6
 };
 
 struct khset64_t: public kh::khset64_t {
@@ -183,10 +187,17 @@ template<typename T> INLINE double union_size(const T &a, const T &b) {
 template<> INLINE double union_size<hll::hllbase_t<>> (const hll::hllbase_t<> &a, const hll::hllbase_t<> &b) {
     return a.union_size(b);
 }
+template<> INLINE double union_size<hll::hllbase_t<>> (const khset64_t &a, const khset64_t &b) {
+    return a.union_size(b);
+}
 template<> INLINE double union_size<mh::FinalBBitMinHash> (const mh::FinalBBitMinHash &a, const mh::FinalBBitMinHash &b) {
     return (a.est_cardinality_ + b.est_cardinality_ ) / (1. + a.jaccard_index(b));
 }
 } // namespace us
+template<typename T>
+double containment_index(const T &a, const T &b) {
+    return a.containment_index(b);
+}
 
 
 void main_usage(char **argv) {
@@ -223,6 +234,7 @@ inline void swap(path_size &a, path_size &b) {
 }
 
 void sort_paths_by_fsize(std::vector<std::string> &paths) {
+    if(paths.size() < 2) return;
     uint32_t *fsizes = static_cast<uint32_t *>(std::malloc(paths.size() * sizeof(uint32_t)));
     if(!fsizes) throw std::bad_alloc();
     #pragma omp parallel for
@@ -622,7 +634,7 @@ template<typename FType1, typename FType2,
             std::is_floating_point<FType1>::value && std::is_floating_point<FType2>::value
           >::type
          >
-typename std::common_type<FType1, FType2>::type containment_index(FType1 containment, FType2 ksinv) {
+typename std::common_type<FType1, FType2>::type containment_dist(FType1 containment, FType2 ksinv) {
     // Adapter from Mash https://github.com/Marbl/Mash
     return containment ? -std::log(containment) * ksinv: 1.;
 }
@@ -635,12 +647,13 @@ template<typename FType1, typename FType2,
 typename std::common_type<FType1, FType2>::type full_dist_index(FType1 ji, FType2 ksinv) {
     return 1. - std::pow(2.*ji/(1. + ji), ksinv);
 }
+
 template<typename FType1, typename FType2,
          typename=typename std::enable_if<
             std::is_floating_point<FType1>::value && std::is_floating_point<FType2>::value
           >::type
          >
-typename std::common_type<FType1, FType2>::type full_containment_index(FType1 containment, FType2 ksinv) {
+typename std::common_type<FType1, FType2>::type full_containment_dist(FType1 containment, FType2 ksinv) {
     return 1. - std::pow(containment, ksinv);
 }
 
@@ -695,7 +708,66 @@ INLINE void perform_core_op(T &dists, size_t nhlls, SketchType *hlls, const Func
 #endif
 
 template<typename SketchType>
-void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads) {
+void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size=BUFFER_FLUSH_SIZE,
+                   size_t nq)
+{
+    const float ksinv = 1./ k;
+    if(nq >= inpaths.size()) {
+        RUNTIME_ERROR(ks::sprintf("Wrong number of query/references. (ip size: %zu, nq: %zu\n", inpaths.size(), nq).data());
+    }
+    size_t nr = inpaths.size() - nq;
+    float *arr = static_cast<float *>(std::malloc(nr * nq * sizeof(float)));
+    if(!arr) throw std::bad_alloc();
+#if TIMING
+    auto start = std::chrono::high_resolution_clock::now();
+#endif
+    for(size_t qi = nr; qi < inpaths.size(); ++qi) {
+        switch(result_type) {
+#define dist_sim(x, y) dist_index(similarity(x, y), ksinv)
+#define fulldist_sim(x, y) full_dist_index(similarity(x, y), ksinv)
+#define fullcont_sim(x, y) full_containment_dist(containment_index(x, y), ksinv)
+#define cont_sim(x, y) containment_dist(containment_index(x, y), ksinv)
+#define DO_LOOP(func)\
+                for(size_t j = 0; j < nr; ++j) {\
+                    arr[(qi - nr) * nq + j] = func(hlls[j], hlls[qi]);\
+                }
+            case MASH_DIST:
+                #pragma omp parallel for schedule(dynamic)
+                DO_LOOP(dist_sim);
+                break;
+            case FULL_MASH_DIST:
+                #pragma omp parallel for schedule(dynamic)
+                DO_LOOP(fulldist_sim);
+                break;
+            case JI:
+                #pragma omp parallel for schedule(dynamic)
+                DO_LOOP(similarity);
+                break;
+            case SIZES:
+                #pragma omp parallel for schedule(dynamic)
+                DO_LOOP(union_size);
+                break;
+            case CONTAINMENT_INDEX:
+                #pragma omp parallel for schedule(dynamic)
+                DO_LOOP(containment_index);
+                break;
+            case CONTAINMENT_DIST:
+                #pragma omp parallel for schedule(dynamic)
+                DO_LOOP(cont_sim);
+                break;
+            case FULL_CONTAINMENT_DIST:
+                #pragma omp parallel for schedule(dynamic)
+                DO_LOOP(fullcont_sim);
+                break;
+            default: __builtin_unreachable();
+#undef DO_LOOP
+
+        }
+    }
+#if TIMING
+    auto end = std::chrono::high_resolution_clock::now();
+#endif
+    std::free(arr);
     throw NotImplementedError("ZOMG");
 }
 
@@ -859,7 +931,7 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sk
     if(nq == 0) {
         dist_loop<final_type>(pairofp, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size);
     } else {
-        partdist_loop<final_type>(pairofp, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads);
+        partdist_loop<final_type>(pairofp, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size, nq);
     }
     CONST_IF(!samesketch) {
 #if __cplusplus >= 201703L
@@ -987,8 +1059,18 @@ int dist_main(int argc, char *argv[]) {
         std::fprintf(stderr, "No paths. See usage.\n"), dist_usage(*argv);
     omp_set_num_threads(nthreads);
     Spacer sp(k, wsz, parse_spacing(spacing.data(), k));
-    if(!presketched_only && !avoid_fsorting)
+    if(!presketched_only && !avoid_fsorting) {
         detail::sort_paths_by_fsize(inpaths);
+        detail::sort_paths_by_fsize(querypaths);
+    }
+    size_t nq = querypaths.size();
+    inpaths.reserve(inpaths.size() + querypaths.size());
+    for(auto &p: querypaths)
+        inpaths.push_back(std::move(p));
+    {
+        decltype(querypaths) tmp;
+        std::swap(tmp, querypaths);
+    }
     std::vector<sketch::cm::ccm_t> cms;
     KSeqBufferHolder kseqs(nthreads);
     switch(sm) {
@@ -1006,7 +1088,7 @@ int dist_main(int argc, char *argv[]) {
         case EXACT: default: break;
     }
 #define CALL_DIST(sketchtype) \
-        dist_sketch_and_cmp<sketchtype>(inpaths, cms, kseqs, ofp, pairofp, sp, sketch_size, mincount, estim, jestim, cache_sketch, result_type, emit_fmt, presketched_only, nthreads, use_scientific, suffix, prefix, canon, entropy_minimization, spacing, querypaths.size());
+        dist_sketch_and_cmp<sketchtype>(inpaths, cms, kseqs, ofp, pairofp, sp, sketch_size, mincount, estim, jestim, cache_sketch, result_type, emit_fmt, presketched_only, nthreads, use_scientific, suffix, prefix, canon, entropy_minimization, spacing, nq);
     switch(sketch_type) {
         case BB_MINHASH:
             CALL_DIST(mh::BBitMinHasher<uint64_t>); break;
