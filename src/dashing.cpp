@@ -195,17 +195,21 @@ template<> INLINE double similarity<CRMFinal>(const CRMFinal &a, const CRMFinal 
     return a.histogram_intersection(b);
 }
 
+using RMFinal = mh::FinalRMinHash<uint64_t, std::greater<uint64_t>>;
 namespace us {
 template<typename T> INLINE double union_size(const T &a, const T &b) {
     throw NotImplementedError(std::string("union_size not available for type ") + __PRETTY_FUNCTION__);
 }
 
-template<> INLINE double union_size<hll::hllbase_t<>> (const hll::hllbase_t<> &a, const hll::hllbase_t<> &b) {
-    return a.union_size(b);
+#define US_DEC(type) \
+template<> INLINE double union_size<type> (const type &a, const type &b) { \
+    return a.union_size(b); \
 }
-template<> INLINE double union_size<khset64_t> (const khset64_t &a, const khset64_t &b) {
-    return a.union_size(b);
-}
+
+US_DEC(RMFinal)
+US_DEC(CRMFinal)
+US_DEC(khset64_t)
+US_DEC(hll::hllbase_t<>)
 template<> INLINE double union_size<mh::FinalBBitMinHash> (const mh::FinalBBitMinHash &a, const mh::FinalBBitMinHash &b) {
     return (a.est_cardinality_ + b.est_cardinality_ ) / (1. + a.jaccard_index(b));
 }
@@ -219,7 +223,6 @@ template<>\
 double containment_index<x>(const x &b, const x &a) {\
     RUNTIME_ERROR(std::string("Containment index not implemented for ") + __PRETTY_FUNCTION__);\
 }
-using RMFinal = mh::FinalRMinHash<uint64_t, std::greater<uint64_t>>;
 CONTAIN_OVERLOAD_FAIL(CRMFinal)
 CONTAIN_OVERLOAD_FAIL(RMFinal)
 CONTAIN_OVERLOAD_FAIL(bf::bf_t)
@@ -277,43 +280,64 @@ void sort_paths_by_fsize(std::vector<std::string> &paths) {
 } // namespace detail
 
 void dist_usage(const char *arg) {
-    std::fprintf(stderr, "Usage: %s <opts> [genomes if not provided from a file with -F]\n"
+    std::fprintf(stderr, "Usage: %s <opts> [genome1 genome2 seq.fq [...] if not provided from a file with -F]\n"
                          "Flags:\n"
                          "-h/-?, --help\tUsage\n"
+                         "===Encoding Options===\n"
                          "-k, --kmer-length\tSet kmer size [31]\n"
-                         "-W, --cache-sketches\tCache sketches/use cached sketches\n"
-                         "-p, --nthreads\tSet number of threads [1]\n"
-                         "-b, --emit-binary\tEmit distances in binary (default: human-readable, upper-triangular)\n"
-                         "-U, --phylip\tEmit distances in PHYLIP upper triangular format(default: human-readable, upper-triangular)\n"
                          "-s, --spacing\tadd a spacer of the format <int>x<int>,<int>x<int>,"
                          "..., where the first integer corresponds to the space "
-                         "between bases repeated the second integer number of times\n"
                          "-w, --window-size\tSet window size [max(size of spaced kmer, [parameter])]\n"
                          "-S, --sketch-size\tSet sketch size [10, for 2**10 bytes each]\n"
-                         "-H, --presketched\tTreat provided paths as pre-made sketches.\n"
                          "-C, --no-canon\tDo not canonicalize. [Default: canonicalize]\n"
-                         "-P, --prefix\tSet prefix for sketch file locations [empty]\n"
-                         "-x, --suffix\tSet suffix in sketch file names [empty]\n"
+                         "===Output Files===\n"
                          "-o, --out-sizes\tOutput for genome size estimates [stdout]\n"
-                         "-I, --improved\tUse Ertl's Improved Estimator\n"
-                         "-E, --original\tUse Ertl's Original Estimator\n"
-                         "-J, --ertl-joint-mle\tUse Ertl's JMLE Estimator [default:Uses Ertl-MLE]\n"
                          "-O, --out-dists\tOutput for genome distance matrix [stdout]\n"
-                         "-e, --emit-scientific\tEmit in scientific notation\n"
-                         "-F, --paths\tGet paths to genomes from file rather than positional arguments\n"
-                         "-M, --mash-dist\tEmit Mash distance (default: jaccard index)\n"
-                         "-l, --full-mash-dist \tEmit full (not approximate) Mash distance. default: jaccard index\n"
-                         "-T, --full-tsv\tpostprocess binary format to human-readable TSV (not upper triangular)\n"
-                         "-Z, --sizes\tEmit genome sizes (default: jaccard index)\n"
-                         "-N, --sketch-by-fname\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
-                         "-n, --avoid-sorting\tAvoid sorting files by genome sizes. This avoids a computational step, but can result in degraded load-balancing.\n"
+                         "===Filtering Options===\n"
                          "-y, --countmin\tFilter all input data by count-min sketch.\n"
-                         "-q, --nhashes\tSet count-min number of hashes. Default: [4]\n"
+                         "-N, --sketch-by-fname\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
+                         " When filtering with count-min sketches by either -y or -N, set minimum count:"
                          "-c, --min-count\tSet minimum count for kmers to pass count-min filtering.\n"
+                         "-q, --nhashes\tSet count-min number of hashes. Default: [4]\n"
                          "-t, --cm-sketch-size\tSet count-min sketch size (log2). Default: ceil(log2(max_filesize)) + 2\n"
                          "-R, --seed\tSet seed for seeds for count-min sketches\n"
+                         "===Runtime Options\n"
+                         "-F, --paths\tGet paths to genomes from file rather than positional arguments\n"
+                         "-W, --cache-sketches\tCache sketches/use cached sketches\n"
+                         "-p, --nthreads\tSet number of threads [1]\n"
+                         "-H, --presketched\tTreat provided paths as pre-made sketches.\n"
+                         "-P, --prefix\tSet prefix for sketch file locations [empty]\n"
+                         "-x, --suffix\tSet suffix in sketch file names [empty]\n"
+                         "-n, --avoid-sorting\tAvoid sorting files by genome sizes. This avoids a computational step, but can result in degraded load-balancing.\n"
+                         "===Emission Formats===\n"
+                         "-b, --emit-binary\tEmit distances in binary (default: human-readable, upper-triangular)\n"
+                         "-U, --phylip\tEmit distances in PHYLIP upper triangular format(default: human-readable, upper-triangular)\n"
+                         "between bases repeated the second integer number of times\n"
+                         "-T, --full-tsv\tpostprocess binary format to human-readable TSV (not upper triangular)\n"
+                         "===Emission Details==="
+                         "-e, --emit-scientific\tEmit in scientific notation\n"
+                         "===Data Structures===\n"
+                         "Default: HyperLogLog. Alternatives:\n"
+                         "--use-bb-minhash/-8\tCreate b-bit minhash sketches\n"
+                         "--use-bloom-filter\tCreate bloom filter sketches\n"
+                         "--use-range-minhash\tCreate range minhash sketches\n"
+                         "--use-counting-range-minhash\tCreate range minhash sketches\n"
                          "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n"
-                         "--emit-binary,-b\tSet `b` for b-bit minwise hashing to <int>. Default: 16\n"
+                         "===Sketch-specific Options===\n"
+                         "-I, --improved\tUse Ertl's Improved Estimator for HLL\n"
+                         "-E, --original\tUse Ertl's Original Estimator for HLL\n"
+                         "-J, --ertl-joint-mle\tUse Ertl's JMLE Estimator for HLL[default:Uses Ertl-MLE]\n"
+                         "===b-bit Minhashing Options===\n"
+                         "--bbits,-B\tSet `b` for b-bit minwise hashing to <int>. Default: 16\n"
+                         "===Distance Emission Types===\n"
+                         "Default: Jaccard Index\n"
+                         "Alternatives:\n"
+                         "-M, --mash-dist\tEmit Mash distance [ji ? (-log(2. * ji / (1. + ji)) / k) : 1.]\n"
+                         "-l, --full-mash-dist \tEmit full (not approximate) Mash distance. [1. - (2.*ji/(1. + ji))^(1/k)]\n"
+                         "-Z, --sizes\tEmit union sizes (default: jaccard index)\n"
+                         "--containment-index\tEmit Containment Index (|A & B| / |A|)\n"
+                         "--containment-dist \tEmit distance metric using containment index. [Let C = (|A & B| / |A|). C ? -log(C) / k : 1.] \n"
+                         "--full-containment-dist \tEmit distance metric using containment index, without log approximation. [Let C = (|A & B| / |A|). C ? 1. - C^(1/k) : 1.] \n"
                 , arg);
     std::exit(EXIT_FAILURE);
 }
@@ -354,7 +378,8 @@ void sketch_usage(const char *arg) {
                          "--min-count/-n\tProvide minimum expected count for fastq data. If unspecified, all kmers are passed.\n"
                          "--seed/-R\tSet seed for seeds for count-min sketches\n"
                          "Sketch Type Options --\n"
-                         "--use-bb-minhash/-8\tCreate bbit minhash sketches\n"
+                         "--use-bb-minhash/-8\tCreate b-bit minhash sketches\n"
+                         "--use-bloom-filter\tCreate bloom filter sketches\n"
                          "--use-range-minhash\tCreate range minhash sketches\n"
                          "--use-counting-range-minhash\tCreate range minhash sketches\n"
                          "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n"
@@ -505,6 +530,7 @@ static option_struct sketch_long_options[] = {\
     LO_FLAG("use-range-minhash", 128, sketch_type, RANGE_MINHASH)\
     LO_FLAG("use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)\
     LO_FLAG("use-full-khash-sets", 130, sketch_type, FULL_KHASH_SET)\
+    LO_FLAG("use-bloom-filter", 131, sketch_type, BLOOM_FILTER)\
 };
 
 // Main functions
@@ -1038,11 +1064,15 @@ static option_struct dist_long_options[] = {\
     LO_FLAG("use-range-minhash", 128, sketch_type, RANGE_MINHASH)\
     LO_FLAG("use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)\
     LO_FLAG("use-full-khash-sets", 130, sketch_type, FULL_KHASH_SET)\
+    LO_FLAG("containment-index", 131, result_type, CONTAINMENT_INDEX) \
+    LO_FLAG("containment-dist", 132, result_type, CONTAINMENT_DIST) \
+    LO_FLAG("full-containment-dist", 133, result_type, FULL_CONTAINMENT_DIST) \
+    LO_FLAG("use-bloom-filter", 134, sketch_type, BLOOM_FILTER)\
 };
 
 int dist_main(int argc, char *argv[]) {
     int wsz(0), k(31), sketch_size(10), use_scientific(false), co, cache_sketch(false),
-        nthreads(1), mincount(30), nhashes(4), cmsketchsize(-1);
+        nthreads(1), mincount(5), nhashes(4), cmsketchsize(-1);
     int canon(true), presketched_only(false), entropy_minimization(false),
          avoid_fsorting(false);
     Sketch sketch_type = HLL;
