@@ -1237,6 +1237,7 @@ int setdist_main(int argc, char *argv[]) {
     int nt(1);
     std::string spacing, paths_file;
     FILE *ofp(stdout), *pairofp(stdout);
+    LOG_WARNING("Warning: setdist is being deprecated in favor of our new interface where everything goes through `dashing dist`. Select --use-full-khash-sets for dashing dist.\n");
     while((co = getopt(argc, argv, "F:c:p:o:O:S:B:k:s:lTfCMeZh?")) >= 0) {
         switch(co) {
             case 'B': std::stringstream(optarg) << bufsize; break;
