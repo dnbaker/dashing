@@ -305,16 +305,16 @@ void dist_usage(const char *arg) {
                          "-F, --paths\tGet paths to genomes from file rather than positional arguments\n"
                          "-W, --cache-sketches\tCache sketches/use cached sketches\n"
                          "-p, --nthreads\tSet number of threads [1]\n"
-                         "-H, --presketched\tTreat provided paths as pre-made sketches.\n"
+                         "--presketched\tTreat provided paths as pre-made sketches.\n"
                          "-P, --prefix\tSet prefix for sketch file locations [empty]\n"
                          "-x, --suffix\tSet suffix in sketch file names [empty]\n"
-                         "-n, --avoid-sorting\tAvoid sorting files by genome sizes. This avoids a computational step, but can result in degraded load-balancing.\n"
+                         "--avoid-sorting\tAvoid sorting files by genome sizes. This avoids a computational step, but can result in degraded load-balancing.\n"
                          "===Emission Formats===\n"
                          "-b, --emit-binary\tEmit distances in binary (default: human-readable, upper-triangular)\n"
                          "-U, --phylip\tEmit distances in PHYLIP upper triangular format(default: human-readable, upper-triangular)\n"
                          "between bases repeated the second integer number of times\n"
                          "-T, --full-tsv\tpostprocess binary format to human-readable TSV (not upper triangular)\n"
-                         "===Emission Details==="
+                         "===Emission Details===\n"
                          "-e, --emit-scientific\tEmit in scientific notation\n"
                          "===Data Structures===\n"
                          "Default: HyperLogLog. Alternatives:\n"
@@ -333,8 +333,8 @@ void dist_usage(const char *arg) {
                          "Default: Jaccard Index\n"
                          "Alternatives:\n"
                          "-M, --mash-dist\tEmit Mash distance [ji ? (-log(2. * ji / (1. + ji)) / k) : 1.]\n"
-                         "-l, --full-mash-dist \tEmit full (not approximate) Mash distance. [1. - (2.*ji/(1. + ji))^(1/k)]\n"
-                         "-Z, --sizes\tEmit union sizes (default: jaccard index)\n"
+                         "--full-mash-dist \tEmit full (not approximate) Mash distance. [1. - (2.*ji/(1. + ji))^(1/k)]\n"
+                         "--sizes\tEmit union sizes (default: jaccard index)\n"
                          "--containment-index\tEmit Containment Index (|A & B| / |A|)\n"
                          "--containment-dist \tEmit distance metric using containment index. [Let C = (|A & B| / |A|). C ? -log(C) / k : 1.] \n"
                          "--full-containment-dist \tEmit distance metric using containment index, without log approximation. [Let C = (|A & B| / |A|). C ? 1. - C^(1/k) : 1.] \n"
@@ -531,6 +531,7 @@ static option_struct sketch_long_options[] = {\
     LO_FLAG("use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)\
     LO_FLAG("use-full-khash-sets", 130, sketch_type, FULL_KHASH_SET)\
     LO_FLAG("use-bloom-filter", 131, sketch_type, BLOOM_FILTER)\
+    {0,0,0,0}\
 };
 
 // Main functions
@@ -1068,6 +1069,7 @@ static option_struct dist_long_options[] = {\
     LO_FLAG("containment-dist", 132, result_type, CONTAINMENT_DIST) \
     LO_FLAG("full-containment-dist", 133, result_type, FULL_CONTAINMENT_DIST) \
     LO_FLAG("use-bloom-filter", 134, sketch_type, BLOOM_FILTER)\
+    {0,0,0,0}\
 };
 
 int dist_main(int argc, char *argv[]) {
@@ -1095,6 +1097,9 @@ int dist_main(int argc, char *argv[]) {
             case 'B': bbnbits    = std::atoi(optarg);   break;
             case 'F': paths_file = optarg;              break;
             case 'P': prefix     = optarg;              break;
+            case 'U': emit_fmt   =  UPPER_TRIANGULAR;   break;
+            case 'l': result_type = FULL_MASH_DIST;     break;
+            case 'T': emit_fmt = FULL_TSV;              break;
             case 'Q': querypaths = std::move(get_paths(optarg)); break;
             case 'R': seedseedseed = std::strtoull(optarg, nullptr, 10); break;
             case 'E': jestim   = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
@@ -1102,15 +1107,19 @@ int dist_main(int argc, char *argv[]) {
             case 'J': jestim   = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
             case 'm': jestim   = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); LOG_WARNING("Note: ERTL_MLE is default. This flag is redundant.\n"); break;
             case 'S': sketch_size = std::atoi(optarg);  break;
+            case 'e': use_scientific = true; break;
+            case 'b': emit_fmt = BINARY;                break;
             case 'c': mincount = std::atoi(optarg);     break;
             case 'g': entropy_minimization = true; LOG_WARNING("Entropy-based minimization is probably theoretically ill-founded, but it might be of practical value.\n"); break;
             case 'k': k        = std::atoi(optarg);           break;
+            case 'M': result_type = MASH_DIST; break;
             case 'o': if((ofp = fopen(optarg, "w")) == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
             case 'p': nthreads = std::atoi(optarg);     break;
             case 'q': nhashes  = std::atoi(optarg);     break;
             case 't': cmsketchsize = std::atoi(optarg); break;
             case 's': spacing  = optarg;                break;
             case 'w': wsz      = std::atoi(optarg);         break;
+            case 'W': cache_sketch = true; break;
             case 'x': suffix   = optarg;                 break;
             case 'O': if((pairofp = fopen(optarg, "wb")) == nullptr)
                           LOG_EXIT("Could not open file at %s for writing.\n", optarg);
