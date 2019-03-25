@@ -17,9 +17,14 @@ On Linux, we recommend package managers. (For instance, our Travis-CI Ubuntu exa
 
 # Usage
 
-To see all usage options, use `./dashing <subcommand>`, for subcommand in `[sketch, dist, hll, setdist]`.
+To see all usage options, use `./dashing <subcommand>`, for subcommand in `[sketch, dist, hll, union printmat]`.
 Of most interest is probably the dist command, which can take either genomes or pre-built sketches as arguments.
 
+## Data Structures
+
+Dashing supports comparisons with a variety of data structures, which have speed and accuracy tradeoffs for given situations.
+By default, HyperLogLog sketches are used, while b-bit minhashing, bottom-k minhashing, bloom filters, and hash sets are supported. 
+Using hash sets provides a ground truth at the expense of greatly increased runtime costs.
 
 ## dist
 For the simplest case of unspaced, unminimized kmers for a set of genomes with `k = 31` and 13 threads:
@@ -33,16 +38,13 @@ This can avoid system limits on the number of arguments in a shell command.
 
 These can be cached with `-c`, which saves the sketches for later use. These sketch filenames are based on spacing, kmer size, and sketch size, so there is no risk of overwriting each other.
 
+
 ## sketch
 The sketch command largely mirrors dist, except that only sketches are computed.
 
 ```
 dashing sketch -k31 -p13 -F genome_paths.txt
 ```
-
-## setdist
-The setdist command is similar to the dist command, but uses a hash set to provide exact distance values, eliminating approximation from the operation.
-This comes at significant runtime and memory costs, but is useful for establishing a ground truth.
 
 ## hll
 The hll command simply estimates the number of unique elements in a set of files. This can be useful for estimating downstream database sizes based on spacing schemes.
@@ -51,3 +53,4 @@ The hll command simply estimates the number of unique elements in a set of files
 The union command takes a set of pre-sketched HLLs and performs unions between them. Currently, the sketches must be of the same size.
 We may modify this in future releases to allow a merger of different sizes by flattening larger sketches to the smallest sketch size discovered.
 This would involve a loss of precision from the larger models.
+This currently doesn't support data structures besides HLLs, but we plan to make this change at a later date.
