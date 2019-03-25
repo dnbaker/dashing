@@ -282,54 +282,54 @@ void sort_paths_by_fsize(std::vector<std::string> &paths) {
 void dist_usage(const char *arg) {
     std::fprintf(stderr, "Usage: %s <opts> [genome1 genome2 seq.fq [...] if not provided from a file with -F]\n"
                          "Flags:\n"
-                         "-h/-?, --help\tUsage\n"
-                         "===Encoding Options===\n"
+                         "-h/-?, --help\tUsage\n\n\n"
+                         "===Encoding Options===\n\n"
                          "-k, --kmer-length\tSet kmer size [31]\n"
                          "-s, --spacing\tadd a spacer of the format <int>x<int>,<int>x<int>,"
                          "..., where the first integer corresponds to the space "
                          "-w, --window-size\tSet window size [max(size of spaced kmer, [parameter])]\n"
                          "-S, --sketch-size\tSet sketch size [10, for 2**10 bytes each]\n"
-                         "-C, --no-canon\tDo not canonicalize. [Default: canonicalize]\n"
-                         "===Output Files===\n"
+                         "-C, --no-canon\tDo not canonicalize. [Default: canonicalize]\n\n\n"
+                         "===Output Files===\n\n"
                          "-o, --out-sizes\tOutput for genome size estimates [stdout]\n"
-                         "-O, --out-dists\tOutput for genome distance matrix [stdout]\n"
-                         "===Filtering Options===\n"
+                         "-O, --out-dists\tOutput for genome distance matrix [stdout]\n\n\n"
+                         "===Filtering Options===\n\n"
                          "-y, --countmin\tFilter all input data by count-min sketch.\n"
-                         "-N, --sketch-by-fname\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
+                         "--sketch-by-fname\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
                          " When filtering with count-min sketches by either -y or -N, set minimum count:"
                          "-c, --min-count\tSet minimum count for kmers to pass count-min filtering.\n"
                          "-q, --nhashes\tSet count-min number of hashes. Default: [4]\n"
                          "-t, --cm-sketch-size\tSet count-min sketch size (log2). Default: ceil(log2(max_filesize)) + 2\n"
-                         "-R, --seed\tSet seed for seeds for count-min sketches\n"
-                         "===Runtime Options\n"
+                         "-R, --seed\tSet seed for seeds for count-min sketches\n\n\n"
+                         "===Runtime Options\n\n"
                          "-F, --paths\tGet paths to genomes from file rather than positional arguments\n"
                          "-W, --cache-sketches\tCache sketches/use cached sketches\n"
                          "-p, --nthreads\tSet number of threads [1]\n"
                          "--presketched\tTreat provided paths as pre-made sketches.\n"
                          "-P, --prefix\tSet prefix for sketch file locations [empty]\n"
                          "-x, --suffix\tSet suffix in sketch file names [empty]\n"
-                         "--avoid-sorting\tAvoid sorting files by genome sizes. This avoids a computational step, but can result in degraded load-balancing.\n"
-                         "===Emission Formats===\n"
+                         "--avoid-sorting\tAvoid sorting files by genome sizes. This avoids a computational step, but can result in degraded load-balancing.\n\n\n"
+                         "===Emission Formats===\n\n"
                          "-b, --emit-binary\tEmit distances in binary (default: human-readable, upper-triangular)\n"
                          "-U, --phylip\tEmit distances in PHYLIP upper triangular format(default: human-readable, upper-triangular)\n"
                          "between bases repeated the second integer number of times\n"
-                         "-T, --full-tsv\tpostprocess binary format to human-readable TSV (not upper triangular)\n"
-                         "===Emission Details===\n"
-                         "-e, --emit-scientific\tEmit in scientific notation\n"
-                         "===Data Structures===\n"
+                         "-T, --full-tsv\tpostprocess binary format to human-readable TSV (not upper triangular)\n\n\n"
+                         "===Emission Details===\n\n"
+                         "-e, --emit-scientific\tEmit in scientific notation\n\n\n"
+                         "===Data Structures===\n\n"
                          "Default: HyperLogLog. Alternatives:\n"
                          "--use-bb-minhash/-8\tCreate b-bit minhash sketches\n"
                          "--use-bloom-filter\tCreate bloom filter sketches\n"
                          "--use-range-minhash\tCreate range minhash sketches\n"
                          "--use-counting-range-minhash\tCreate range minhash sketches\n"
-                         "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n"
-                         "===Sketch-specific Options===\n"
+                         "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n\n\n"
+                         "===Sketch-specific Options===\n\n"
                          "-I, --improved\tUse Ertl's Improved Estimator for HLL\n"
                          "-E, --original\tUse Ertl's Original Estimator for HLL\n"
-                         "-J, --ertl-joint-mle\tUse Ertl's JMLE Estimator for HLL[default:Uses Ertl-MLE]\n"
-                         "===b-bit Minhashing Options===\n"
-                         "--bbits,-B\tSet `b` for b-bit minwise hashing to <int>. Default: 16\n"
-                         "===Distance Emission Types===\n"
+                         "-J, --ertl-joint-mle\tUse Ertl's JMLE Estimator for HLL[default:Uses Ertl-MLE]\n\n\n"
+                         "===b-bit Minhashing Options===\n\n"
+                         "--bbits,-B\tSet `b` for b-bit minwise hashing to <int>. Default: 16\n\n\n"
+                         "===Distance Emission Types===\n\n"
                          "Default: Jaccard Index\n"
                          "Alternatives:\n"
                          "-M, --mash-dist\tEmit Mash distance [ji ? (-log(2. * ji / (1. + ji)) / k) : 1.]\n"
@@ -348,8 +348,8 @@ void sketch_usage(const char *arg) {
     std::fprintf(stderr, "Usage: %s <opts> [genomes if not provided from a file with -F]\n"
                          "Flags:\n"
                          "-h/-?:\tEmit usage\n"
-                         "\n"
-                         "Sketch options --\n"
+                         "\n\n"
+                         "Sketch options --\n\n"
                          "--kmer-length/-k\tSet kmer size [31]\n"
                          "--spacing/-s\tadd a spacer of the format <int>x<int>,<int>x<int>,"
                          "..., where the first integer corresponds to the space "
@@ -357,27 +357,28 @@ void sketch_usage(const char *arg) {
                          "--window-size/-w\tSet window size [max(size of spaced kmer, [parameter])]\n"
                          "--sketch-size/-S\tSet log2 sketch size in bytes [10, for 2**10 bytes each]\n"
                          "--no-canon/-C\tDo not canonicalize. [Default: canonicalize]\n"
-                         "--bbits/-B\tSet `b` for b-bit minwise hashing to <int>. Default: 16\n"
-                         "Run options --\n"
+                         "--bbits/-B\tSet `b` for b-bit minwise hashing to <int>. Default: 16\n\n\n"
+                         "Run options --\n\n"
                          "--nthreads/-p\tSet number of threads [1]\n"
                          "--prefix/-P\tSet prefix for sketch file locations [empty]\n"
                          "--suffix/-x\tSet suffix in sketch file names [empty]\n"
                          "--paths/-F\tGet paths to genomes from file rather than positional arguments\n"
                          "--skip-cached/-c\tSkip alreday produced/cached sketches (save sketches to disk in directory of the file [default] or in folder specified by -P\n"
-                         "Estimation methods --\n"
+                         "\n\n"
+                         "Estimation methods --\n\n"
                          "--original/-E\tUse Flajolet with inclusion/exclusion quantitation method for hll. [Default: Ertl MLE]\n"
                          "--improved/-I\tUse Ertl Improved estimator [Default: Ertl MLE]\n"
-                         "--ertl-jmle/-J\tUse Ertl JMLE\n"
-                         "Filtering Options --\n"
+                         "--ertl-jmle/-J\tUse Ertl JMLE\n\n\n"
+                         "Filtering Options --\n\n"
                          "Default: consume all kmers. Alternate options: \n"
-                         "--sketch-by-fname/-f\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
-                         "--count-min/-b\tFilter all input data by count-min sketch.\n"
-                         "Options for count-min filtering --\n"
+                         "--sketch-by-fname\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
+                         "--count-min/-b\tFilter all input data by count-min sketch.\n\n\n"
+                         "Options for count-min filtering --\n\n"
                          "--nhashes/-H\tSet count-min number of hashes. Default: [4]\n"
                          "--cm-sketch-size/-q\tSet count-min sketch size (log2). Default: ceil(log2(max_filesize)) + 2\n"
                          "--min-count/-n\tProvide minimum expected count for fastq data. If unspecified, all kmers are passed.\n"
-                         "--seed/-R\tSet seed for seeds for count-min sketches\n"
-                         "Sketch Type Options --\n"
+                         "--seed/-R\tSet seed for seeds for count-min sketches\n\n\n"
+                         "Sketch Type Options --\n\n"
                          "--use-bb-minhash/-8\tCreate b-bit minhash sketches\n"
                          "--use-bloom-filter\tCreate bloom filter sketches\n"
                          "--use-range-minhash\tCreate range minhash sketches\n"
@@ -1108,6 +1109,7 @@ int dist_main(int argc, char *argv[]) {
             case 'm': jestim   = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); LOG_WARNING("Note: ERTL_MLE is default. This flag is redundant.\n"); break;
             case 'S': sketch_size = std::atoi(optarg);  break;
             case 'e': use_scientific = true; break;
+            case 'C': canon = false; break;
             case 'b': emit_fmt = BINARY;                break;
             case 'c': mincount = std::atoi(optarg);     break;
             case 'g': entropy_minimization = true; LOG_WARNING("Entropy-based minimization is probably theoretically ill-founded, but it might be of practical value.\n"); break;
@@ -1238,130 +1240,13 @@ int print_binary_main(int argc, char *argv[]) {
 }
 
 int setdist_main(int argc, char *argv[]) {
-    int wsz(0), k(31), use_scientific(false), co;
-    bool canon(true);
-    EmissionFormat emit_fmt = UT_TSV;
-    EmissionType emit_type = JI;
-    unsigned bufsize(BUFFER_FLUSH_SIZE);
-    int nt(1);
-    std::string spacing, paths_file;
-    FILE *ofp(stdout), *pairofp(stdout);
-    LOG_WARNING("Warning: setdist is being deprecated in favor of our new interface where everything goes through `dashing dist`. Select --use-full-khash-sets for dashing dist.\n");
-    while((co = getopt(argc, argv, "F:c:p:o:O:S:B:k:s:lTfCMeZh?")) >= 0) {
-        switch(co) {
-            case 'B': std::stringstream(optarg) << bufsize; break;
-            case 'k': k = std::atoi(optarg);                break;
-            case 'p': nt = std::atoi(optarg);       break;
-            case 's': spacing = optarg;             break;
-            case 'C': canon = false;                break;
-            case 'w': wsz = std::atoi(optarg);      break;
-            case 'F': paths_file = optarg;          break;
-            case 'o': ofp = fopen(optarg, "w");     break;
-            case 'O': pairofp = fopen(optarg, "w"); break;
-            case 'e': use_scientific = true;        break;
-            case 'l': emit_type = FULL_MASH_DIST;   break;
-            case 'M': emit_type = MASH_DIST;        break;
-            case 'Z': emit_type = SIZES;            break;
-            case 'U': emit_fmt = UPPER_TRIANGULAR;  break;
-            case 'b': emit_fmt = BINARY;            break;
-            case 'T': emit_fmt = FULL_TSV;          break;
-            case 'h': case '?': dist_usage(*argv);
-        }
-    }
-    omp_set_num_threads(nt);
-    std::vector<char> rdbuf(bufsize);
-    spvec_t sv(parse_spacing(spacing.data(), k));
-    Spacer sp(k, wsz, sv);
-    std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
-                                                       : std::vector<std::string>(argv + optind, argv + argc));
-    KSeqBufferHolder h(nt);
-    std::vector<khash_t(all)> hashes;
-    while(hashes.size() < inpaths.size()) hashes.emplace_back(khash_t(all){0, 0, 0, 0, 0, 0, 0});
-    const size_t nhashes(hashes.size());
-    if(wsz < sp.c_) wsz = sp.c_;
-    if(inpaths.size() == 0) {
-        std::fprintf(stderr, "No paths. See usage.\n");
-        dist_usage(*argv);
-    }
-    #pragma omp parallel for
-    for(size_t i = 0; i < nhashes; ++i) {
-        fill_set_genome<score::Lex>(inpaths[i].data(), sp, &hashes[i], i, nullptr, canon, h.data() + omp_get_thread_num());
-    }
-    LOG_DEBUG("Filled genomes. Now analyzing data.\n");
-    ks::string str;
-    str.sprintf("#Path\tCardinality (exact)\n");
-    {
-        const int fn(fileno(ofp));
-        for(size_t i(0); i < nhashes; ++i) {
-            str.sprintf("%s\t%zu\n", inpaths[i].data(), kh_size(&hashes[i]));
-            if(str.size() > BUFFER_FLUSH_SIZE) str.flush(fn);
-        }
-        str.flush(fn);
-    }
-    // TODO: Emit overlaps and symmetric differences.
-    if(ofp != stdout) std::fclose(ofp);
-    std::vector<float> dists(nhashes - 1);
-    str.clear();
-    const double ksinv = 1./static_cast<double>(k);
-    if((emit_fmt & BINARY) == 0) {
-        if(emit_fmt == UPPER_TRIANGULAR) throw NotImplementedError("Not Implemented: upper triangular phylip for setdist.");
-        str.sprintf("##Names\t");
-        for(auto &path: inpaths) str.sprintf("%s\t", path.data());
-        str.back() = '\n';
-            str.write(fileno(pairofp)); str.free();
-        setvbuf(pairofp, rdbuf.data(), _IOLBF, rdbuf.size());
-        for(size_t i = 0; i < nhashes; ++i) {
-            const khash_t(all) *h1(&hashes[i]);
-            size_t j;
-#define DO_LOOP(val) for(j = i + 1; j < nhashes; ++j) dists[j - i - 1] = (val)
-            if(emit_type == JI) {
-                #pragma omp parallel for
-                DO_LOOP(jaccard_index(&hashes[j], h1));
-            } else if(emit_type == MASH_DIST) {
-                #pragma omp parallel for
-                DO_LOOP(dist_index(jaccard_index(&hashes[j], h1), ksinv));
-            } else if(emit_type == FULL_MASH_DIST) {
-                #pragma omp parallel for
-                DO_LOOP(full_dist_index(jaccard_index(&hashes[j], h1), ksinv));
-            } else {
-                #pragma omp parallel for
-                DO_LOOP(union_size(&hashes[j], h1));
-            }
-#undef DO_LOOP
-            submit_emit_dists<float>(fileno(pairofp), dists.data(), hashes.size(), i, str, inpaths, emit_fmt, use_scientific);
-            std::free(h1->keys); std::free(h1->vals); std::free(h1->flags);
-        }
-    } else {
-        dm::DistanceMatrix<float> dm(nhashes);
-        for(size_t i = 0; i < nhashes; ++i) {
-            auto span = dm.row_span(i);
-            auto &dists = span.first;
-            auto h1 = &hashes[i];
-            size_t j;
-#define DO_LOOP(val) for(j = i + 1; j < nhashes; ++j) dists[j - i - 1] = (val)
-            if(emit_type == JI) {
-                #pragma omp parallel for
-                DO_LOOP(jaccard_index(&hashes[j], h1));
-            } else if(emit_type == MASH_DIST) {
-                #pragma omp parallel for
-                DO_LOOP(dist_index(jaccard_index(&hashes[j], h1), ksinv));
-            } else if(emit_type == FULL_MASH_DIST) {
-                #pragma omp parallel for
-                DO_LOOP(full_dist_index(jaccard_index(&hashes[j], h1), ksinv));
-            } else {
-                #pragma omp parallel for
-                DO_LOOP(union_size(&hashes[j], h1));
-            }
-#undef DO_LOOP
-            std::free(h1->keys); std::free(h1->vals); std::free(h1->flags);
-        }
-        if(emit_fmt == FULL_TSV) dm.printf(ofp, use_scientific, &inpaths);
-        else {
-            assert(emit_fmt == BINARY);
-            dm.write(ofp);
-        }
-    }
-    return EXIT_SUCCESS;
+    LOG_WARNING("setdist_main has been deprecated and will be removed in the future. Calling `dashing dist` with --use-full-khash-sets\n");
+    std::vector<char *> av(argc);
+    for(ssize_t i = 0; i < argc; ++i)
+        av[i] = argv[i];
+    std::string additional = "--use-full-khash-sets";
+    av.insert(av.begin() + 1, &additional[0]);
+    return dist_main(av.size(), av.data());
 }
 
 int hll_main(int argc, char *argv[]) {
