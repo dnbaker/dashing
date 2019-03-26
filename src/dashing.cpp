@@ -104,6 +104,7 @@ enum EmissionFormat: unsigned {
     PHYLIP_UPPER_TRIANGULAR = 2,
     FULL_TSV = 3,
 };
+
 enum Sketch: int {
     HLL,
     BLOOM_FILTER,
@@ -111,6 +112,7 @@ enum Sketch: int {
     FULL_KHASH_SET,
     COUNTING_RANGE_MINHASH,
     BB_MINHASH,
+    BB_SUPERMINHASH,
     COUNTING_BB_MINHASH, // TODO make this work.
 };
 static const char *sketch_names [] {
@@ -120,11 +122,12 @@ static const char *sketch_names [] {
     "FHS/Full Hash Set",
     "CRHM/Counting Range Minhash",
     "BB/B-bit Minhash",
+    "BBS/B-bit SuperMinHash",
     "CBB/Counting B-bit Minhash",
 };
 using CBBMinHashType = mh::CountingBBitMinHasher<uint64_t, uint16_t>; // Is counting to 65536 enough for a transcriptome?
 template<typename T> struct SketchEnum;
-
+using SuperMinHashType = mh::SuperMinHash<>;
 template<> struct SketchEnum<hll::hll_t> {static constexpr Sketch value = HLL;};
 template<> struct SketchEnum<bf::bf_t> {static constexpr Sketch value = BLOOM_FILTER;};
 template<> struct SketchEnum<mh::RangeMinHash<uint64_t>> {static constexpr Sketch value = RANGE_MINHASH;};
@@ -132,6 +135,7 @@ template<> struct SketchEnum<mh::CountingRangeMinHash<uint64_t>> {static constex
 template<> struct SketchEnum<mh::BBitMinHasher<uint64_t>> {static constexpr Sketch value = BB_MINHASH;};
 template<> struct SketchEnum<CBBMinHashType> {static constexpr Sketch value = COUNTING_BB_MINHASH;};
 template<> struct SketchEnum<khset64_t> {static constexpr Sketch value = FULL_KHASH_SET;};
+template<> struct SketchEnum<SuperMinHashType> {static constexpr Sketch value = BB_SUPERMINHASH;};
 
 static uint32_t bbnbits = 16;
 
@@ -139,10 +143,13 @@ template<typename T>
 double cardinality_estimate(T &x) {
     return x.cardinality_estimate();
 }
+
 template<>
 double cardinality_estimate(hll::hll_t &x) {return x.report();}
 template<>
 double cardinality_estimate(mh::FinalBBitMinHash &x) {return x.est_cardinality_;}
+template<>
+double cardinality_estimate(mh::FinalDivBBitMinHash &x) {return x.est_cardinality_;}
 
 static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
     switch(sketch) {
@@ -150,7 +157,8 @@ static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
         case BLOOM_FILTER: return nblog2 + 3; // 8 bits per byte
         case RANGE_MINHASH: return size_t(1) << (nblog2 - 3); // 8 bytes per minimizer
         case COUNTING_RANGE_MINHASH: return (size_t(1) << (nblog2)) / (sizeof(uint64_t) + sizeof(uint32_t));
-        case BB_MINHASH: return nblog2 - std::ceil(std::log2(bbnbits / 8));
+        case BB_MINHASH: case BB_SUPERMINHASH:
+            return nblog2 - std::floor(std::log2(bbnbits / 8));
         case FULL_KHASH_SET: return 16; // Reserve hash set size a bit. Mostly meaningless, resizing as necessary.
         default: {
             char buf[128];
@@ -173,6 +181,7 @@ template<> struct FinalSketch<type> { \
 FINAL_OVERLOAD(mh::CountingRangeMinHash<uint64_t>);
 FINAL_OVERLOAD(mh::RangeMinHash<uint64_t>);
 FINAL_OVERLOAD(mh::BBitMinHasher<uint64_t>);
+FINAL_OVERLOAD(SuperMinHashType);
 FINAL_OVERLOAD(CBBMinHashType);
 template<typename T>struct SketchFileSuffix {static constexpr const char *suffix = ".sketch";};
 #define SSS(type, suf) template<> struct SketchFileSuffix<type> {static constexpr const char *suffix = suf;}
@@ -181,6 +190,7 @@ SSS(mh::RangeMinHash<uint64_t>, ".rmh");
 SSS(khset64_t, ".khs");
 SSS(bf::bf_t, ".bf");
 SSS(mh::BBitMinHasher<uint64_t>, ".bmh");
+SSS(SuperMinHashType, ".bbs");
 SSS(CBBMinHashType, ".cbmh");
 SSS(mh::HyperMinHash<uint64_t>, ".hmh");
 SSS(hll::hll_t, ".hll");
@@ -321,13 +331,14 @@ void dist_usage(const char *arg) {
                          "--use-bb-minhash/-8\tCreate b-bit minhash sketches\n"
                          "--use-bloom-filter\tCreate bloom filter sketches\n"
                          "--use-range-minhash\tCreate range minhash sketches\n"
+                         "--use-super-minhash\tCreate b-bit superminhash sketches\n"
                          "--use-counting-range-minhash\tCreate range minhash sketches\n"
                          "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n\n\n"
                          "===Sketch-specific Options===\n\n"
                          "-I, --improved\tUse Ertl's Improved Estimator for HLL\n"
                          "-E, --original\tUse Ertl's Original Estimator for HLL\n"
                          "-J, --ertl-joint-mle\tUse Ertl's JMLE Estimator for HLL[default:Uses Ertl-MLE]\n\n\n"
-                         "===b-bit Minhashing Options===\n\n"
+                         "===b-bit Minhashing Options (apply for b-bit minhash and b-bit superminhash) ===\n\n"
                          "--bbits,-B\tSet `b` for b-bit minwise hashing to <int>. Default: 16\n\n\n"
                          "===Distance Emission Types===\n\n"
                          "Default: Jaccard Index\n"
@@ -382,6 +393,7 @@ void sketch_usage(const char *arg) {
                          "--use-bb-minhash/-8\tCreate b-bit minhash sketches\n"
                          "--use-bloom-filter\tCreate bloom filter sketches\n"
                          "--use-range-minhash\tCreate range minhash sketches\n"
+                         "--use-super-minhash\tCreate range minhash sketches\n"
                          "--use-counting-range-minhash\tCreate range minhash sketches\n"
                          "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n"
                          "----\n"
@@ -532,6 +544,7 @@ static option_struct sketch_long_options[] = {\
     LO_FLAG("use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)\
     LO_FLAG("use-full-khash-sets", 130, sketch_type, FULL_KHASH_SET)\
     LO_FLAG("use-bloom-filter", 131, sketch_type, BLOOM_FILTER)\
+    LO_FLAG("use-super-minhash", 132, sketch_type, BB_SUPERMINHASH)\
     {0,0,0,0}\
 };
 
@@ -613,6 +626,7 @@ int sketch_main(int argc, char *argv[]) {
         case RANGE_MINHASH: SKETCH_CORE(mh::RangeMinHash<uint64_t>); break;
         case COUNTING_RANGE_MINHASH: SKETCH_CORE(mh::CountingRangeMinHash<uint64_t>); break;
         case BB_MINHASH: SKETCH_CORE(mh::BBitMinHasher<uint64_t>); break;
+        case BB_SUPERMINHASH: SKETCH_CORE(SuperMinHashType); break;
         default: {
             char buf[128];
             std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));
@@ -1070,6 +1084,7 @@ static option_struct dist_long_options[] = {\
     LO_FLAG("containment-dist", 132, result_type, CONTAINMENT_DIST) \
     LO_FLAG("full-containment-dist", 133, result_type, FULL_CONTAINMENT_DIST) \
     LO_FLAG("use-bloom-filter", 134, sketch_type, BLOOM_FILTER)\
+    LO_FLAG("use-super-minhash", 135, sketch_type, BB_SUPERMINHASH)\
     {0,0,0,0}\
 };
 
@@ -1171,6 +1186,8 @@ int dist_main(int argc, char *argv[]) {
     switch(sketch_type) {
         case BB_MINHASH:
             CALL_DIST(mh::BBitMinHasher<uint64_t>); break;
+        case BB_SUPERMINHASH:
+            CALL_DIST(SuperMinHashType); break;
         case HLL:
             CALL_DIST(hll::hll_t); break;
         case RANGE_MINHASH:
