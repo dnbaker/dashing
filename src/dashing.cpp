@@ -44,6 +44,12 @@ enum EmissionType {
     CONTAINMENT_DIST = 6
 };
 
+enum EncodingType {
+    BONSAI,
+    NTHASH,
+    RK
+};
+
 struct khset64_t: public kh::khset64_t {
     void addh(uint64_t v) {this->insert(v);}
     double cardinality_estimate() const {return this->size();}
@@ -299,6 +305,7 @@ void dist_usage(const char *arg) {
                          "..., where the first integer corresponds to the space "
                          "-w, --window-size\tSet window size [max(size of spaced kmer, [parameter])]\n"
                          "-S, --sketch-size\tSet sketch size [10, for 2**10 bytes each]\n"
+                         "--use-nthash\tUse nthash for encoding. (not reversible, but fast, rolling, and specialized for DNA)\n"
                          "-C, --no-canon\tDo not canonicalize. [Default: canonicalize]\n\n\n"
                          "===Output Files===\n\n"
                          "-o, --out-sizes\tOutput for genome size estimates [stdout]\n"
@@ -477,7 +484,7 @@ T construct(size_t ssarg) {
 template<> mh::BBitMinHasher<uint64_t> construct<mh::BBitMinHasher<uint64_t>>(size_t p) {return mh::BBitMinHasher<uint64_t>(p, bbnbits);}
 
 template<typename SketchType>
-void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<cm::ccm_t> &cms, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization) {
+void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<cm::ccm_t> &cms, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct=BONSAI) {
     std::vector<SketchType> sketches;
     uint32_t sketch_size = bytesl2_to_arg(ssarg, SketchEnum<SketchType>::value);
     while(sketches.size() < (u32)nthreads) sketches.push_back(construct<SketchType>(sketch_size)), set_estim_and_jestim(sketches.back(), estim, jestim);
@@ -493,10 +500,16 @@ void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, co
         auto &h = sketches[tid];\
         if(use_filter.size() && use_filter[i]) {\
             auto &cm = cms[tid];\
-            enc.for_each([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            if(enct == NTHASH)\
+                enc.for_each_hash([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            else \
+                enc.for_each([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
             cm.clear();  \
         } else {\
-            enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            if(enct == NTHASH)\
+                enc.for_each_hash([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            else\
+                enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
         }\
         h.write(fname.data());\
         h.clear();\
@@ -545,6 +558,7 @@ static option_struct sketch_long_options[] = {\
     LO_FLAG("use-full-khash-sets", 130, sketch_type, FULL_KHASH_SET)\
     LO_FLAG("use-bloom-filter", 131, sketch_type, BLOOM_FILTER)\
     LO_FLAG("use-super-minhash", 132, sketch_type, BB_SUPERMINHASH)\
+    LO_FLAG("use-nthash", 133, enct, NTHASH)\
     {0,0,0,0}\
 };
 
@@ -558,6 +572,7 @@ int sketch_main(int argc, char *argv[]) {
     std::string spacing, paths_file, suffix, prefix;
     sketching_method sm = EXACT;
     Sketch sketch_type = HLL;
+    EncodingType enct = BONSAI;
     uint64_t seedseedseed = 1337u;
     int option_index = 0;
     SKETCH_LONG_OPTS
@@ -619,7 +634,7 @@ int sketch_main(int argc, char *argv[]) {
 #define SKETCH_CORE(type) \
     sketch_core<type>(sketch_size, nthreads, wsz, k, sp, inpaths,\
                             suffix, prefix, cms, estim, jestim,\
-                            kseqs, use_filter, spacing, skip_cached, canon, mincount, entropy_minimization)
+                            kseqs, use_filter, spacing, skip_cached, canon, mincount, entropy_minimization, enct)
     switch(sketch_type) {
         case HLL: SKETCH_CORE(hll::hll_t); break;
         case BLOOM_FILTER: SKETCH_CORE(bf::bf_t); break;
@@ -900,10 +915,12 @@ enum CompReading: unsigned {
         Encoder<MinType> enc(nullptr, 0, sp, nullptr, canon);\
         if(cms.empty()) {\
             auto &h = sketch;\
-            enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            if(enct == BONSAI) enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            else enc.for_each_hash([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
         } else {\
             sketch::cm::ccm_t &cm = cms[tid];\
-            enc.for_each([&,mincount](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            if(enct == BONSAI) enc.for_each([&,mincount](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            else          enc.for_each_hash([&,mincount](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
             cm.clear();\
         }\
         CONST_IF(!samesketch) new(final_sketches + i) final_type(std::move(sketch)); \
@@ -915,7 +932,7 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sk
                          Spacer sp,
                          unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,
                          bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,
-                         size_t nq=0)
+                         size_t nq=0, EncodingType enct=BONSAI)
 {
     // nq -- number of queries
     //       for convenience, we will perform our comparisons (all-p) against (all-q) [remainder]
@@ -1085,6 +1102,7 @@ static option_struct dist_long_options[] = {\
     LO_FLAG("full-containment-dist", 133, result_type, FULL_CONTAINMENT_DIST) \
     LO_FLAG("use-bloom-filter", 134, sketch_type, BLOOM_FILTER)\
     LO_FLAG("use-super-minhash", 135, sketch_type, BB_SUPERMINHASH)\
+    LO_FLAG("use-nthash", 136, enct, NTHASH)\
     {0,0,0,0}\
 };
 
@@ -1096,6 +1114,7 @@ int dist_main(int argc, char *argv[]) {
     Sketch sketch_type = HLL;
          // bool sketch_query_by_seq(true);
     EmissionFormat emit_fmt = UT_TSV;
+    EncodingType enct = BONSAI;
     double factor = 1.;
     EmissionType result_type(JI);
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
@@ -1182,7 +1201,7 @@ int dist_main(int argc, char *argv[]) {
         case EXACT: default: break;
     }
 #define CALL_DIST(sketchtype) \
-        dist_sketch_and_cmp<sketchtype>(inpaths, cms, kseqs, ofp, pairofp, sp, sketch_size, mincount, estim, jestim, cache_sketch, result_type, emit_fmt, presketched_only, nthreads, use_scientific, suffix, prefix, canon, entropy_minimization, spacing, nq);
+        dist_sketch_and_cmp<sketchtype>(inpaths, cms, kseqs, ofp, pairofp, sp, sketch_size, mincount, estim, jestim, cache_sketch, result_type, emit_fmt, presketched_only, nthreads, use_scientific, suffix, prefix, canon, entropy_minimization, spacing, nq, enct);
     switch(sketch_type) {
         case BB_MINHASH:
             CALL_DIST(mh::BBitMinHasher<uint64_t>); break;
