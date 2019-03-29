@@ -4,7 +4,6 @@ CC?=gcc
 
 GMATCH=$(findstring g++,$(CXX))
 
-CLHASH_CHECKOUT = "&& git checkout master"
 WARNINGS=-Wall -Wextra -Wno-char-subscripts \
 		 -Wpointer-arith -Wwrite-strings -Wdisabled-optimization \
 		 -Wformat -Wcast-align -Wno-unused-function -Wno-unused-parameter \
@@ -22,7 +21,7 @@ OPT_MINUS_OPENMP= -O3 -funroll-loops\
 	  -pipe -fno-strict-aliasing -march=native -mpclmul -DUSE_PDQSORT \
 	-DNOT_THREADSAFE -DENABLE_COMPUTED_GOTO \
 	$(FLAGS) $(EXTRA)
-OPT=$(OPT_MINUS_OPENMP) -fopenmp -lgomp
+OPT=$(OPT_MINUS_OPENMP) -fopenmp # -lgomp /* sometimes needed */-lomp /* for clang */
 XXFLAGS=-fno-rtti
 CXXFLAGS=$(OPT) $(XXFLAGS) -std=c++14 $(WARNINGS) \
 	 -DDASHING_VERSION=\"$(GIT_VERSION)\"
@@ -109,7 +108,6 @@ STATIC_GOMP?=$(shell $(CXX) --print-file-name=libgomp.a)
 %_d: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g \
     $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -O1 -fno-inline
-#-fsanitize=address -fsanitize=undefined -fsanitize=leak \
 
 %_256: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mavx2 -msse4.1 -msse2 -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)

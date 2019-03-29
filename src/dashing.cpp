@@ -10,11 +10,13 @@
 #include "khset/khset.h"
 #include "distmat/distmat.h"
 #include <sstream>
+#include "getopt.h"
 #include <sys/stat.h>
 
 using namespace sketch;
 using circ::roundup;
 using hll::hll_t;
+using sketch::common::NotImplementedError;
 
 #ifndef BUFFER_FLUSH_SIZE
 #define BUFFER_FLUSH_SIZE (1u << 18)
@@ -26,85 +28,55 @@ using hll::hll_t;
 #define COMPRESSED_FILE_SUFFIX ".gz"
 #endif
 
+using option_struct = struct option;
 namespace bns {
 using sketch::common::WangHash;
 static const char *executable = nullptr;
+
 enum EmissionType {
     MASH_DIST = 0,
     JI        = 1,
     SIZES     = 2,
-    FULL_MASH_DIST = 3
+    FULL_MASH_DIST = 3,
+    FULL_CONTAINMENT_DIST = 4,
+    CONTAINMENT_INDEX = 5,
+    CONTAINMENT_DIST = 6
 };
 
-enum EmissionFormat: unsigned {
-    UT_TSV = 0,
-    BINARY   = 1,
-    UPPER_TRIANGULAR = 2,
-    PHYLIP_UPPER_TRIANGULAR = 2,
-    FULL_TSV = 3,
+enum EncodingType {
+    BONSAI,
+    NTHASH,
+    RK
 };
-
-enum Sketch {
-    HLL,
-    BLOOM_FILTER,
-    RANGE_MINHASH,
-    FULL_KHASH_SET,
-    COUNTING_RANGE_MINHASH,
-    BB_MINHASH,
-    COUNTING_BB_MINHASH, // TODO
-};
-using CBBMinHashType = mh::CountingBBitMinHasher<uint64_t, uint16_t>; // Is counting to 65536 enough for a transcriptome?
-template<typename T> struct SketchEnum;
-
-template<> struct SketchEnum<hll::hll_t> {static constexpr Sketch value = HLL;};
-template<> struct SketchEnum<bf::bf_t> {static constexpr Sketch value = BLOOM_FILTER;};
-template<> struct SketchEnum<mh::RangeMinHash<uint64_t>> {static constexpr Sketch value = RANGE_MINHASH;};
-template<> struct SketchEnum<mh::CountingRangeMinHash<uint64_t>> {static constexpr Sketch value = COUNTING_RANGE_MINHASH;};
-template<> struct SketchEnum<mh::BBitMinHasher<uint64_t>> {static constexpr Sketch value = BB_MINHASH;};
-template<> struct SketchEnum<CBBMinHashType> {static constexpr Sketch value = COUNTING_BB_MINHASH;};
-
-static const char *sketch_names [] {
-    "HLL",
-    "BLOOM_FILTER",
-    "RANGE_MINHASH",
-    "FULL_KHASH_SET",
-    "COUNTING_RANGE_MINHASH",
-    "BB_MINHASH",
-    "COUNTING_BB_MINHASH",
-};
-static uint32_t bbnbits = 16;
-
-template<typename T>
-double cardinality_estimate(T &x);
-template<>
-double cardinality_estimate(hll::hll_t &x) {return x.report();}
-template<>
-double cardinality_estimate(mh::FinalBBitMinHash &x) {return x.est_cardinality_;}
-template<>
-double cardinality_estimate(mh::BBitMinHasher<uint64_t> &x) {return x.cardinality_estimate();}
-
-static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
-    switch(sketch) {
-        case HLL: return nblog2;
-        case BLOOM_FILTER: return nblog2 + 3; // 8 bits per byte
-        case RANGE_MINHASH: return size_t(1) << (nblog2 - 3); // 8 bytes per minimizer
-        case COUNTING_RANGE_MINHASH: return size_t(1) << (nblog2) / (sizeof(uint64_t) + sizeof(uint32_t));
-        case BB_MINHASH: return nblog2 - std::ceil(std::log2(bbnbits / 8));
-        case FULL_KHASH_SET: return 16; // Reserve hash set size a bit. Mostly meaningless, resizing as necessary.
-        default: {
-            char buf[128];
-            std::sprintf(buf, "Sketch %s not yet supported.\n", (sketch >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch]));
-            RUNTIME_ERROR(buf);
-            return -1337;
-        }
-    }
-
-}
 
 struct khset64_t: public kh::khset64_t {
     void addh(uint64_t v) {this->insert(v);}
+    double cardinality_estimate() const {return this->size();}
     khset64_t(): kh::khset64_t() {}
     khset64_t(size_t reservesz): kh::khset64_t(reservesz) {}
+    khset64_t(const std::string &s): khset64_t(s.data()) {}
+    khset64_t(const char *s) {
+        this->read(s);
+    }
+    void read(const std::string &s) {read(s.data());}
+    void read(const char *s) {
+        gzFile fp = gzopen(s, "rb");
+        kh::khset64_t::read(fp);
+        gzclose(fp);
+    }
+    void free() {
+        auto ptr = reinterpret_cast<kh::khash_t(set64) *>(this);
+        std::free(ptr->keys);
+        std::free(ptr->vals);
+        std::free(ptr->flags);
+        std::memset(ptr, 0, sizeof(*this));
+    }
+    void write(const std::string &s) const {write(s.data());}
+    void write(const char *s) const {
+        gzFile fp = gzopen(s, "wb");
+        kh::khset64_t::write(fp);
+        gzclose(fp);
+    }
     double jaccard_index(const khset64_t &other) const {
         auto p1 = this, p2 = &other;
         if(size() > other.size())
@@ -113,7 +85,96 @@ struct khset64_t: public kh::khset64_t {
         p1->for_each([&](auto v) {olap += p2->contains(v);});
         return static_cast<double>(olap) / (p1->size() + p2->size() - olap);
     }
+    double containment_index(const khset64_t &other) const {
+        auto p1 = this, p2 = &other;
+        if(size() > other.size())
+            std::swap(p1, p2);
+        uint64_t olap = 0;
+        p1->for_each([&](auto v) {olap += p2->contains(v);});
+        return static_cast<double>(olap) / (this->size());
+    }
+    uint64_t union_size(const khset64_t &other) const {
+        auto p1 = this, p2 = &other;
+        if(size() > other.size())
+            std::swap(p1, p2);
+        uint64_t olap = 0;
+        p1->for_each([&](auto v) {olap += p2->contains(v);});
+        return p1->size() + p2->size() - olap;
+    }
 };
+enum EmissionFormat: unsigned {
+    UT_TSV = 0,
+    BINARY   = 1,
+    UPPER_TRIANGULAR = 2,
+    PHYLIP_UPPER_TRIANGULAR = 2,
+    FULL_TSV = 3,
+};
+
+enum Sketch: int {
+    HLL,
+    BLOOM_FILTER,
+    RANGE_MINHASH,
+    FULL_KHASH_SET,
+    COUNTING_RANGE_MINHASH,
+    BB_MINHASH,
+    BB_SUPERMINHASH,
+    COUNTING_BB_MINHASH, // TODO make this work.
+};
+static const char *sketch_names [] {
+    "HLL/HyperLogLog",
+    "BF/BloomFilter",
+    "RMH/Range Min-Hash/KMV",
+    "FHS/Full Hash Set",
+    "CRHM/Counting Range Minhash",
+    "BB/B-bit Minhash",
+    "BBS/B-bit SuperMinHash",
+    "CBB/Counting B-bit Minhash",
+};
+using CBBMinHashType = mh::CountingBBitMinHasher<uint64_t, uint16_t>; // Is counting to 65536 enough for a transcriptome?
+template<typename T> struct SketchEnum;
+using SuperMinHashType = mh::SuperMinHash<>;
+template<> struct SketchEnum<hll::hll_t> {static constexpr Sketch value = HLL;};
+template<> struct SketchEnum<bf::bf_t> {static constexpr Sketch value = BLOOM_FILTER;};
+template<> struct SketchEnum<mh::RangeMinHash<uint64_t>> {static constexpr Sketch value = RANGE_MINHASH;};
+template<> struct SketchEnum<mh::CountingRangeMinHash<uint64_t>> {static constexpr Sketch value = COUNTING_RANGE_MINHASH;};
+template<> struct SketchEnum<mh::BBitMinHasher<uint64_t>> {static constexpr Sketch value = BB_MINHASH;};
+template<> struct SketchEnum<CBBMinHashType> {static constexpr Sketch value = COUNTING_BB_MINHASH;};
+template<> struct SketchEnum<khset64_t> {static constexpr Sketch value = FULL_KHASH_SET;};
+template<> struct SketchEnum<SuperMinHashType> {static constexpr Sketch value = BB_SUPERMINHASH;};
+
+static uint32_t bbnbits = 16;
+
+template<typename T>
+double cardinality_estimate(T &x) {
+    return x.cardinality_estimate();
+}
+
+template<>
+double cardinality_estimate(hll::hll_t &x) {return x.report();}
+template<>
+double cardinality_estimate(mh::FinalBBitMinHash &x) {return x.est_cardinality_;}
+template<>
+double cardinality_estimate(mh::FinalDivBBitMinHash &x) {return x.est_cardinality_;}
+
+static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
+    switch(sketch) {
+        case HLL: return nblog2;
+        case BLOOM_FILTER: return nblog2 + 3; // 8 bits per byte
+        case RANGE_MINHASH: return size_t(1) << (nblog2 - 3); // 8 bytes per minimizer
+        case COUNTING_RANGE_MINHASH: return (size_t(1) << (nblog2)) / (sizeof(uint64_t) + sizeof(uint32_t));
+        case BB_MINHASH: case BB_SUPERMINHASH:
+            return nblog2 - std::floor(std::log2(bbnbits / 8));
+        case FULL_KHASH_SET: return 16; // Reserve hash set size a bit. Mostly meaningless, resizing as necessary.
+        default: {
+            char buf[128];
+            std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch]));
+            RUNTIME_ERROR(buf);
+            return -1337;
+        }
+    }
+
+}
+
 
 template<typename SketchType>
 struct FinalSketch {
@@ -125,6 +186,7 @@ template<> struct FinalSketch<type> { \
 FINAL_OVERLOAD(mh::CountingRangeMinHash<uint64_t>);
 FINAL_OVERLOAD(mh::RangeMinHash<uint64_t>);
 FINAL_OVERLOAD(mh::BBitMinHasher<uint64_t>);
+FINAL_OVERLOAD(SuperMinHashType);
 FINAL_OVERLOAD(CBBMinHashType);
 template<typename T>struct SketchFileSuffix {static constexpr const char *suffix = ".sketch";};
 #define SSS(type, suf) template<> struct SketchFileSuffix<type> {static constexpr const char *suffix = suf;}
@@ -133,31 +195,52 @@ SSS(mh::RangeMinHash<uint64_t>, ".rmh");
 SSS(khset64_t, ".khs");
 SSS(bf::bf_t, ".bf");
 SSS(mh::BBitMinHasher<uint64_t>, ".bmh");
+SSS(SuperMinHashType, ".bbs");
 SSS(CBBMinHashType, ".cbmh");
 SSS(mh::HyperMinHash<uint64_t>, ".hmh");
 SSS(hll::hll_t, ".hll");
 
 using CRMFinal = mh::FinalCRMinHash<uint64_t, std::greater<uint64_t>, uint32_t>;
 template<typename T> INLINE double similarity(const T &a, const T &b) {
-    return jaccard_index(a, b);
+    return a.jaccard_index(b);
+    //return jaccard_index(a, b);
 }
 
 template<> INLINE double similarity<CRMFinal>(const CRMFinal &a, const CRMFinal &b) {
     return a.histogram_intersection(b);
 }
 
+using RMFinal = mh::FinalRMinHash<uint64_t, std::greater<uint64_t>>;
 namespace us {
-template<typename T> INLINE double union_size(const T &a, const T &b); //{
-//    throw NotImplementedError(std::string("union_size not available for type ") + __PRETTY_FUNCTION__);
-//}
-
-template<> INLINE double union_size<hll::hllbase_t<>> (const hll::hllbase_t<> &a, const hll::hllbase_t<> &b) {
-    return a.union_size(b);
+template<typename T> INLINE double union_size(const T &a, const T &b) {
+    throw NotImplementedError(std::string("union_size not available for type ") + __PRETTY_FUNCTION__);
 }
+
+#define US_DEC(type) \
+template<> INLINE double union_size<type> (const type &a, const type &b) { \
+    return a.union_size(b); \
+}
+
+US_DEC(RMFinal)
+US_DEC(CRMFinal)
+US_DEC(khset64_t)
+US_DEC(hll::hllbase_t<>)
 template<> INLINE double union_size<mh::FinalBBitMinHash> (const mh::FinalBBitMinHash &a, const mh::FinalBBitMinHash &b) {
     return (a.est_cardinality_ + b.est_cardinality_ ) / (1. + a.jaccard_index(b));
 }
+} // namespace us
+template<typename T>
+double containment_index(const T &a, const T &b) {
+    return a.containment_index(b);
 }
+#define CONTAIN_OVERLOAD_FAIL(x)\
+template<>\
+double containment_index<x>(const x &b, const x &a) {\
+    RUNTIME_ERROR(std::string("Containment index not implemented for ") + __PRETTY_FUNCTION__);\
+}
+CONTAIN_OVERLOAD_FAIL(CRMFinal)
+CONTAIN_OVERLOAD_FAIL(RMFinal)
+CONTAIN_OVERLOAD_FAIL(bf::bf_t)
 
 
 void main_usage(char **argv) {
@@ -194,6 +277,7 @@ inline void swap(path_size &a, path_size &b) {
 }
 
 void sort_paths_by_fsize(std::vector<std::string> &paths) {
+    if(paths.size() < 2) return;
     uint32_t *fsizes = static_cast<uint32_t *>(std::malloc(paths.size() * sizeof(uint32_t)));
     if(!fsizes) throw std::bad_alloc();
     #pragma omp parallel for
@@ -211,42 +295,66 @@ void sort_paths_by_fsize(std::vector<std::string> &paths) {
 } // namespace detail
 
 void dist_usage(const char *arg) {
-    std::fprintf(stderr, "Usage: %s <opts> [genomes if not provided from a file with -F]\n"
+    std::fprintf(stderr, "Usage: %s <opts> [genome1 genome2 seq.fq [...] if not provided from a file with -F]\n"
                          "Flags:\n"
-                         "-h/-?\tUsage\n"
-                         "-k\tSet kmer size [31]\n"
-                         "-W\tCache sketches/use cached sketches\n"
-                         "-p\tSet number of threads [1]\n"
-                         "-b\tEmit distances in binary (default: human-readable, upper-triangular)\n"
-                         "-U\tEmit distances in PHYLIP upper triangular format(default: human-readable, upper-triangular)\n"
-                         "-s\tadd a spacer of the format <int>x<int>,<int>x<int>,"
+                         "-h/-?, --help\tUsage\n\n\n"
+                         "===Encoding Options===\n\n"
+                         "-k, --kmer-length\tSet kmer size [31]\n"
+                         "-s, --spacing\tadd a spacer of the format <int>x<int>,<int>x<int>,"
                          "..., where the first integer corresponds to the space "
+                         "-w, --window-size\tSet window size [max(size of spaced kmer, [parameter])]\n"
+                         "-S, --sketch-size\tSet sketch size [10, for 2**10 bytes each]\n"
+                         "--use-nthash\tUse nthash for encoding. (not reversible, but fast, rolling, and specialized for DNA)\n"
+                         "-C, --no-canon\tDo not canonicalize. [Default: canonicalize]\n\n\n"
+                         "===Output Files===\n\n"
+                         "-o, --out-sizes\tOutput for genome size estimates [stdout]\n"
+                         "-O, --out-dists\tOutput for genome distance matrix [stdout]\n\n\n"
+                         "===Filtering Options===\n\n"
+                         "-y, --countmin\tFilter all input data by count-min sketch.\n"
+                         "--sketch-by-fname\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
+                         " When filtering with count-min sketches by either -y or -N, set minimum count:"
+                         "-c, --min-count\tSet minimum count for kmers to pass count-min filtering.\n"
+                         "-q, --nhashes\tSet count-min number of hashes. Default: [4]\n"
+                         "-t, --cm-sketch-size\tSet count-min sketch size (log2). Default: ceil(log2(max_filesize)) + 2\n"
+                         "-R, --seed\tSet seed for seeds for count-min sketches\n\n\n"
+                         "===Runtime Options\n\n"
+                         "-F, --paths\tGet paths to genomes from file rather than positional arguments\n"
+                         "-W, --cache-sketches\tCache sketches/use cached sketches\n"
+                         "-p, --nthreads\tSet number of threads [1]\n"
+                         "--presketched\tTreat provided paths as pre-made sketches.\n"
+                         "-P, --prefix\tSet prefix for sketch file locations [empty]\n"
+                         "-x, --suffix\tSet suffix in sketch file names [empty]\n"
+                         "--avoid-sorting\tAvoid sorting files by genome sizes. This avoids a computational step, but can result in degraded load-balancing.\n\n\n"
+                         "===Emission Formats===\n\n"
+                         "-b, --emit-binary\tEmit distances in binary (default: human-readable, upper-triangular)\n"
+                         "-U, --phylip\tEmit distances in PHYLIP upper triangular format(default: human-readable, upper-triangular)\n"
                          "between bases repeated the second integer number of times\n"
-                         "-w\tSet window size [max(size of spaced kmer, [parameter])]\n"
-                         "-S\tSet sketch size [10, for 2**10 bytes each]\n"
-                         "-H\tTreat provided paths as pre-made sketches.\n"
-                         "-C\tDo not canonicalize. [Default: canonicalize]\n"
-                         "-P\tSet prefix for sketch file locations [empty]\n"
-                         "-x\tSet suffix in sketch file names [empty]\n"
-                         "-o\tOutput for genome size estimates [stdout]\n"
-                         "-I\tUse Ertl's Improved Estimator\n"
-                         "-E\tUse Ertl's Original Estimator\n"
-                         "-J\tUse Ertl's JMLE Estimator [default:Uses Ertl-MLE]\n"
-                         "-O\tOutput for genome distance matrix [stdout]\n"
-                         "-e\tEmit in scientific notation\n"
-                         "-F\tGet paths to genomes from file rather than positional arguments\n"
-                         "-M\tEmit Mash distance (default: jaccard index)\n"
-                         "-l\tEmit full (not approximate) Mash distance. default: jaccard index\n"
-                         "-T\tpostprocess binary format to human-readable TSV (not upper triangular)\n"
-                         "-Z\tEmit genome sizes (default: jaccard index)\n"
-                         "-N\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
-                         "-n\tAvoid sorting files by genome sizes. This avoids a computational step, but can result in degraded load-balancing.\n"
-                         "-y\tFilter all input data by count-min sketch.\n"
-                         "-q\tSet count-min number of hashes. Default: [4]\n"
-                         "-c\tSet minimum count for kmers to pass count-min filtering.\n"
-                         "-t\tSet count-min sketch size (log2). Default: ceil(log2(max_filesize)) + 2\n"
-                         "-R\tSet seed for seeds for count-min sketches\n"
-                         "-b\tSet `b` for b-bit minwise hashing to <int>. Default: 16\n"
+                         "-T, --full-tsv\tpostprocess binary format to human-readable TSV (not upper triangular)\n\n\n"
+                         "===Emission Details===\n\n"
+                         "-e, --emit-scientific\tEmit in scientific notation\n\n\n"
+                         "===Data Structures===\n\n"
+                         "Default: HyperLogLog. Alternatives:\n"
+                         "--use-bb-minhash/-8\tCreate b-bit minhash sketches\n"
+                         "--use-bloom-filter\tCreate bloom filter sketches\n"
+                         "--use-range-minhash\tCreate range minhash sketches\n"
+                         "--use-super-minhash\tCreate b-bit superminhash sketches\n"
+                         "--use-counting-range-minhash\tCreate range minhash sketches\n"
+                         "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n\n\n"
+                         "===Sketch-specific Options===\n\n"
+                         "-I, --improved\tUse Ertl's Improved Estimator for HLL\n"
+                         "-E, --original\tUse Ertl's Original Estimator for HLL\n"
+                         "-J, --ertl-joint-mle\tUse Ertl's JMLE Estimator for HLL[default:Uses Ertl-MLE]\n\n\n"
+                         "===b-bit Minhashing Options (apply for b-bit minhash and b-bit superminhash) ===\n\n"
+                         "--bbits,-B\tSet `b` for b-bit minwise hashing to <int>. Default: 16\n\n\n"
+                         "===Distance Emission Types===\n\n"
+                         "Default: Jaccard Index\n"
+                         "Alternatives:\n"
+                         "-M, --mash-dist\tEmit Mash distance [ji ? (-log(2. * ji / (1. + ji)) / k) : 1.]\n"
+                         "--full-mash-dist \tEmit full (not approximate) Mash distance. [1. - (2.*ji/(1. + ji))^(1/k)]\n"
+                         "--sizes\tEmit union sizes (default: jaccard index)\n"
+                         "--containment-index\tEmit Containment Index (|A & B| / |A|)\n"
+                         "--containment-dist \tEmit distance metric using containment index. [Let C = (|A & B| / |A|). C ? -log(C) / k : 1.] \n"
+                         "--full-containment-dist \tEmit distance metric using containment index, without log approximation. [Let C = (|A & B| / |A|). C ? 1. - C^(1/k) : 1.] \n"
                 , arg);
     std::exit(EXIT_FAILURE);
 }
@@ -257,36 +365,43 @@ void sketch_usage(const char *arg) {
     std::fprintf(stderr, "Usage: %s <opts> [genomes if not provided from a file with -F]\n"
                          "Flags:\n"
                          "-h/-?:\tEmit usage\n"
-                         "\n"
-                         "Sketch options --\n"
-                         "-k\tSet kmer size [31]\n"
-                         "-s\tadd a spacer of the format <int>x<int>,<int>x<int>,"
+                         "\n\n"
+                         "Sketch options --\n\n"
+                         "--kmer-length/-k\tSet kmer size [31]\n"
+                         "--spacing/-s\tadd a spacer of the format <int>x<int>,<int>x<int>,"
                          "..., where the first integer corresponds to the space "
                          "between bases repeated the second integer number of times\n"
-                         "-w\tSet window size [max(size of spaced kmer, [parameter])]\n"
-                         "-S\tSet log2 sketch size in bytes [10, for 2**10 bytes each]\n"
-                         "-C\tDo not canonicalize. [Default: canonicalize]\n"
-                         "-b\tSet `b` for b-bit minwise hashing to <int>. Default: 16\n"
-                         "Run options --\n"
-                         "-p\tSet number of threads [1]\n"
-                         "-P\tSet prefix for sketch file locations [empty]\n"
-                         "-x\tSet suffix in sketch file names [empty]\n"
-                         "-F\tGet paths to genomes from file rather than positional arguments\n"
-                         "-c\tCache sketches/use cached sketches (save sketches to disk in directory of the file [default] or in folder specified by -P\n"
-                         "-z\tWrite gzip compressed. (Or zstd-compressed, if compiled with zlibWrapper.\n"
-                         "Estimation methods --\n"
-                         "-E\tUse Flajolet with inclusion/exclusion quantitation method for hll. [Default: Ertl MLE]\n"
-                         "-I\tUse Ertl Improved estimator [Default: Ertl MLE]\n"
-                         "-J\tUse Ertl JMLE\n"
-                         "Filtering Options --\n"
+                         "--window-size/-w\tSet window size [max(size of spaced kmer, [parameter])]\n"
+                         "--sketch-size/-S\tSet log2 sketch size in bytes [10, for 2**10 bytes each]\n"
+                         "--no-canon/-C\tDo not canonicalize. [Default: canonicalize]\n"
+                         "--bbits/-B\tSet `b` for b-bit minwise hashing to <int>. Default: 16\n\n\n"
+                         "Run options --\n\n"
+                         "--nthreads/-p\tSet number of threads [1]\n"
+                         "--prefix/-P\tSet prefix for sketch file locations [empty]\n"
+                         "--suffix/-x\tSet suffix in sketch file names [empty]\n"
+                         "--paths/-F\tGet paths to genomes from file rather than positional arguments\n"
+                         "--skip-cached/-c\tSkip alreday produced/cached sketches (save sketches to disk in directory of the file [default] or in folder specified by -P\n"
+                         "\n\n"
+                         "Estimation methods --\n\n"
+                         "--original/-E\tUse Flajolet with inclusion/exclusion quantitation method for hll. [Default: Ertl MLE]\n"
+                         "--improved/-I\tUse Ertl Improved estimator [Default: Ertl MLE]\n"
+                         "--ertl-jmle/-J\tUse Ertl JMLE\n\n\n"
+                         "Filtering Options --\n\n"
                          "Default: consume all kmers. Alternate options: \n"
-                         "-f\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
-                         "-b\tFilter all input data by count-min sketch.\n"
-                         "Options for count-min filtering --\n"
-                         "-H\tSet count-min number of hashes. Default: [4]\n"
-                         "-q\tSet count-min sketch size (log2). Default: ceil(log2(max_filesize)) + 2\n"
-                         "-n\tProvide minimum expected count for fastq data. If unspecified, all kmers are passed.\n"
-                         "-R\tSet seed for seeds for count-min sketches\n"
+                         "--sketch-by-fname\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
+                         "--count-min/-b\tFilter all input data by count-min sketch.\n\n\n"
+                         "Options for count-min filtering --\n\n"
+                         "--nhashes/-H\tSet count-min number of hashes. Default: [4]\n"
+                         "--cm-sketch-size/-q\tSet count-min sketch size (log2). Default: ceil(log2(max_filesize)) + 2\n"
+                         "--min-count/-n\tProvide minimum expected count for fastq data. If unspecified, all kmers are passed.\n"
+                         "--seed/-R\tSet seed for seeds for count-min sketches\n\n\n"
+                         "Sketch Type Options --\n\n"
+                         "--use-bb-minhash/-8\tCreate b-bit minhash sketches\n"
+                         "--use-bloom-filter\tCreate bloom filter sketches\n"
+                         "--use-range-minhash\tCreate range minhash sketches\n"
+                         "--use-super-minhash\tCreate range minhash sketches\n"
+                         "--use-counting-range-minhash\tCreate range minhash sketches\n"
+                         "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n"
                          "----\n"
                 , arg);
     std::exit(EXIT_FAILURE);
@@ -324,7 +439,7 @@ std::string make_fname(const char *path, size_t sketch_p, int wsz, int k, int cs
     return ret;
 }
 
-enum sketching_method {
+enum sketching_method: int {
     EXACT = 0,
     CBF   = 1,
     BY_FNAME = 2
@@ -361,12 +476,17 @@ INLINE void set_estim_and_jestim(hll::hllbase_t<Hashstruct> &h, hll::EstimationM
 }
 using hll::EstimationMethod;
 using hll::JointEstimationMethod;
+template<typename T>
+T construct(size_t ssarg) {
+    return T(ssarg);
+}
+template<> mh::BBitMinHasher<uint64_t> construct<mh::BBitMinHasher<uint64_t>>(size_t p) {return mh::BBitMinHasher<uint64_t>(p, bbnbits);}
 
 template<typename SketchType>
-void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<cm::ccm_t> &cms, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization) {
+void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<cm::ccm_t> &cms, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct=BONSAI) {
     std::vector<SketchType> sketches;
     uint32_t sketch_size = bytesl2_to_arg(ssarg, SketchEnum<SketchType>::value);
-    while(sketches.size() < (u32)nthreads) sketches.emplace_back(ssarg), set_estim_and_jestim(sketches.back(), estim, jestim);
+    while(sketches.size() < (u32)nthreads) sketches.push_back(construct<SketchType>(sketch_size)), set_estim_and_jestim(sketches.back(), estim, jestim);
     std::vector<std::string> fnames(nthreads);
 
 #define MAIN_SKETCH_LOOP(MinType)\
@@ -379,10 +499,16 @@ void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, co
         auto &h = sketches[tid];\
         if(use_filter.size() && use_filter[i]) {\
             auto &cm = cms[tid];\
-            enc.for_each([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            if(enct == NTHASH)\
+                enc.for_each_hash([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            else \
+                enc.for_each([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
             cm.clear();  \
         } else {\
-            enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            if(enct == NTHASH)\
+                enc.for_each_hash([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            else\
+                enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
         }\
         h.write(fname.data());\
         h.clear();\
@@ -396,35 +522,76 @@ void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, co
     }
 #undef MAIN_SKETCH_LOOP
 }
+
+#define LO_ARG(LONG, SHORT) {LONG, required_argument, 0, SHORT},
+#define LO_NO(LONG, SHORT) {LONG, no_argument, 0, SHORT},
+#define LO_FLAG(LONG, SHORT, VAR, VAL) {LONG, no_argument, (int *)&VAR, VAL},
+
+#define SKETCH_LONG_OPTS \
+static option_struct sketch_long_options[] = {\
+    LO_FLAG("countmin", 'b', sm, CBF)\
+    LO_FLAG("sketch-by-fname", 'f', sm, BY_FNAME)\
+    LO_FLAG("no-canon", 'C', canon, false)\
+    LO_FLAG("skip-cached", 'c', skip_cached, true)\
+    LO_FLAG("by-entropy", 'e', entropy_minimization, true) \
+    LO_FLAG("use-bb-minhash", '8', sketch_type, BB_MINHASH)\
+    LO_ARG("bbits", 'B')\
+    LO_ARG("paths", 'F')\
+    LO_ARG("prefix", 'P')\
+    LO_ARG("nhashes", 'H')\
+    LO_ARG("original", 'E')\
+    LO_ARG("improved", 'I')\
+    LO_ARG("ertl-joint-mle", 'J')\
+    LO_ARG("seed", 'R')\
+    LO_ARG("sketch-size", 'S')\
+    LO_ARG("kmer-length", 'k')\
+    LO_ARG("min-count", 'n')\
+    LO_ARG("nthreads", 'p')\
+    LO_ARG("cm-sketch-size", 'q')\
+    LO_ARG("spacing", 's')\
+    LO_ARG("window-size", 'w')\
+    LO_ARG("suffix", 'x')\
+\
+    LO_FLAG("use-range-minhash", 128, sketch_type, RANGE_MINHASH)\
+    LO_FLAG("use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)\
+    LO_FLAG("use-full-khash-sets", 130, sketch_type, FULL_KHASH_SET)\
+    LO_FLAG("use-bloom-filter", 131, sketch_type, BLOOM_FILTER)\
+    LO_FLAG("use-super-minhash", 132, sketch_type, BB_SUPERMINHASH)\
+    LO_FLAG("use-nthash", 133, enct, NTHASH)\
+    {0,0,0,0}\
+};
+
 // Main functions
 int sketch_main(int argc, char *argv[]) {
     int wsz(0), k(31), sketch_size(10), skip_cached(false), co, nthreads(1), mincount(1), nhashes(1), cmsketchsize(-1);
-    bool canon(true);
-    bool entropy_minimization = false;
+    int canon(true);
+    int entropy_minimization = false;
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = static_cast<hll::JointEstimationMethod>(hll::EstimationMethod::ERTL_MLE);
     std::string spacing, paths_file, suffix, prefix;
     sketching_method sm = EXACT;
     Sketch sketch_type = HLL;
+    EncodingType enct = BONSAI;
     uint64_t seedseedseed = 1337u;
-    while((co = getopt(argc, argv, "n:P:F:c:p:x:R:s:S:k:w:H:q:B:JbfjEIcCeh?")) >= 0) {
+    int option_index = 0;
+    SKETCH_LONG_OPTS
+    while((co = getopt_long(argc, argv, "n:P:F:p:x:R:s:S:k:w:H:q:B:8JbfjEIcCeh?", sketch_long_options, &option_index)) >= 0) {
         switch(co) {
             case 'B': bbnbits = std::atoi(optarg); break;
-            case 'b': sm = CBF; break;
-            case 'C': canon = false; break;
-            case 'E': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
             case 'F': paths_file = optarg; break;
             case 'H': nhashes = std::atoi(optarg); break;
+            case 'E': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
             case 'I': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
+            case 'J': jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
             case 'P': prefix = optarg; break;
             case 'R': seedseedseed = std::strtoull(optarg, nullptr, 10); break;
             case 'S': sketch_size = std::atoi(optarg); break;
-            case 'c': skip_cached = true; break;
-            case 'e': entropy_minimization = true; break;
-            case 'f': sm = BY_FNAME; break;
             case 'k': k = std::atoi(optarg); break;
-            case 'J': jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
-            case 'n': mincount = std::atoi(optarg); break;
+            case '8': sketch_type = BB_MINHASH; break;
+            case 'n':
+                      mincount = std::atoi(optarg);
+                      std::fprintf(stderr, "mincount: %d\n", mincount);
+                      break;
             case 'p': nthreads = std::atoi(optarg); break;
             case 'q': cmsketchsize = std::atoi(optarg); break;
             case 's': spacing = optarg; break;
@@ -440,6 +607,7 @@ int sketch_main(int argc, char *argv[]) {
     std::vector<cm::ccm_t> cms;
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
                                                        : std::vector<std::string>(argv + optind, argv + argc));
+    LOG_INFO("Sketching genomes with sketch: %d/%s\n", sketch_type, sketch_names[sketch_type]);
     if(inpaths.empty()) {
         std::fprintf(stderr, "No paths. See usage.\n");
         sketch_usage(*argv);
@@ -465,13 +633,19 @@ int sketch_main(int argc, char *argv[]) {
 #define SKETCH_CORE(type) \
     sketch_core<type>(sketch_size, nthreads, wsz, k, sp, inpaths,\
                             suffix, prefix, cms, estim, jestim,\
-                            kseqs, use_filter, spacing, skip_cached, canon, mincount, entropy_minimization)
+                            kseqs, use_filter, spacing, skip_cached, canon, mincount, entropy_minimization, enct)
     switch(sketch_type) {
         case HLL: SKETCH_CORE(hll::hll_t); break;
         case BLOOM_FILTER: SKETCH_CORE(bf::bf_t); break;
         case RANGE_MINHASH: SKETCH_CORE(mh::RangeMinHash<uint64_t>); break;
         case COUNTING_RANGE_MINHASH: SKETCH_CORE(mh::CountingRangeMinHash<uint64_t>); break;
-        default: RUNTIME_ERROR("Not supported sketch type");
+        case BB_MINHASH: SKETCH_CORE(mh::BBitMinHasher<uint64_t>); break;
+        case BB_SUPERMINHASH: SKETCH_CORE(SuperMinHashType); break;
+        default: {
+            char buf[128];
+            std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));
+            RUNTIME_ERROR(buf);
+        }
     }
 #undef SKETCH_CORE
     LOG_INFO("Successfully finished sketching from %zu files\n", inpaths.size());
@@ -525,7 +699,7 @@ template<typename FType1, typename FType2,
             std::is_floating_point<FType1>::value && std::is_floating_point<FType2>::value
           >::type
          >
-typename std::common_type<FType1, FType2>::type containment_index(FType1 containment, FType2 ksinv) {
+typename std::common_type<FType1, FType2>::type containment_dist(FType1 containment, FType2 ksinv) {
     // Adapter from Mash https://github.com/Marbl/Mash
     return containment ? -std::log(containment) * ksinv: 1.;
 }
@@ -538,12 +712,13 @@ template<typename FType1, typename FType2,
 typename std::common_type<FType1, FType2>::type full_dist_index(FType1 ji, FType2 ksinv) {
     return 1. - std::pow(2.*ji/(1. + ji), ksinv);
 }
+
 template<typename FType1, typename FType2,
          typename=typename std::enable_if<
             std::is_floating_point<FType1>::value && std::is_floating_point<FType2>::value
           >::type
          >
-typename std::common_type<FType1, FType2>::type full_containment_index(FType1 containment, FType2 ksinv) {
+typename std::common_type<FType1, FType2>::type full_containment_dist(FType1 containment, FType2 ksinv) {
     return 1. - std::pow(containment, ksinv);
 }
 
@@ -556,7 +731,8 @@ INLINE void perform_core_op(T &dists, size_t nhlls, SketchType *hlls, const Func
     h1.free();
 }
 
-#ifdef ENABLE_COMPUTED_GOTO
+#if 0
+//#if defined(ENABLE_COMPUTED_GOTO) && !defined(__clang__)
 #define CORE_ITER(zomg) do {{\
         static constexpr void *TYPES[] {&&mash##zomg, &&ji##zomg, &&sizes##zomg, &&full_mash##zomg};\
         goto *TYPES[result_type];\
@@ -596,6 +772,97 @@ INLINE void perform_core_op(T &dists, size_t nhlls, SketchType *hlls, const Func
                 __builtin_unreachable();\
         } } while(0)
 #endif
+
+template<typename SketchType>
+void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size=BUFFER_FLUSH_SIZE,
+                   size_t nq=0)
+{
+    const float ksinv = 1./ k;
+    if(nq >= inpaths.size()) {
+        RUNTIME_ERROR(ks::sprintf("Wrong number of query/references. (ip size: %zu, nq: %zu\n", inpaths.size(), nq).data());
+    }
+    size_t nr = inpaths.size() - nq;
+    float *arr = static_cast<float *>(std::malloc(nr * nq * sizeof(float)));
+    if(!arr) throw std::bad_alloc();
+#if TIMING
+    auto start = std::chrono::high_resolution_clock::now();
+#endif
+    std::future<void> write_future, fmt_future;
+    std::array<ks::string, 2> buffers;
+    for(auto &b: buffers) b.resize(4 * nr);
+    for(size_t qi = nr; qi < inpaths.size(); ++qi) {
+        switch(result_type) {
+#define dist_sim(x, y) dist_index(similarity(x, y), ksinv)
+#define fulldist_sim(x, y) full_dist_index(similarity(x, y), ksinv)
+#define fullcont_sim(x, y) full_containment_dist(containment_index(x, y), ksinv)
+#define cont_sim(x, y) containment_dist(containment_index(x, y), ksinv)
+#define DO_LOOP(func)\
+                for(size_t j = 0; j < nr; ++j) {\
+                    arr[(qi - nr) * nq + j] = func(hlls[j], hlls[qi]);\
+                }
+            case MASH_DIST:
+                #pragma omp parallel for schedule(dynamic)
+                DO_LOOP(dist_sim);
+                break;
+            case FULL_MASH_DIST:
+                #pragma omp parallel for schedule(dynamic)
+                DO_LOOP(fulldist_sim);
+                break;
+            case JI:
+                #pragma omp parallel for schedule(dynamic)
+                DO_LOOP(similarity);
+                break;
+            case SIZES:
+                #pragma omp parallel for schedule(dynamic)
+                DO_LOOP(us::union_size);
+                break;
+            case CONTAINMENT_INDEX:
+                #pragma omp parallel for schedule(dynamic)
+                DO_LOOP(containment_index);
+                break;
+            case CONTAINMENT_DIST:
+                #pragma omp parallel for schedule(dynamic)
+                DO_LOOP(cont_sim);
+                break;
+            case FULL_CONTAINMENT_DIST:
+                #pragma omp parallel for schedule(dynamic)
+                DO_LOOP(fullcont_sim);
+                break;
+            default: __builtin_unreachable();
+#undef DO_LOOP
+            switch(emit_fmt) {
+                case UT_TSV: case UPPER_TRIANGULAR: default:
+                    RUNTIME_ERROR(std::string("Illegal output format. numeric: ") + std::to_string(int(emit_fmt)));
+                case BINARY:
+                    if(write_future.valid()) write_future.get();
+                    write_future = std::async(std::launch::async, [ptr=arr + (qi - nr) * nq, nb=sizeof(float) * nr](const int fn) {
+                        ::write(fn, ptr, nb);
+                    }, ::fileno(ofp));
+                    break;
+                case FULL_TSV:
+                    if(fmt_future.valid()) fmt_future.get();
+                    fmt_future = std::async(std::launch::async, [&]() {
+                        auto &buffer = buffers[qi & 1];
+                        buffer += inpaths[qi];
+                        const char *fmt = use_scientific ? "\t%e": "\t%f";
+                        float *aptr = arr + (qi - nr) * nq;
+                        for(size_t i = 0; i < nq; ++i)
+                            buffer.sprintf(fmt, aptr[i]);
+                        buffer.putc_('\n');
+                        if(write_future.valid()) write_future.get();
+                        write_future = std::async(std::launch::async, [&]() {buffer.flush(::fileno(ofp));});
+                    });
+                    break;
+            }
+        }
+    }
+    if(fmt_future.valid()) fmt_future.get();
+    if(write_future.valid()) write_future.get();
+#if TIMING
+    auto end = std::chrono::high_resolution_clock::now();
+#endif
+    std::free(arr);
+}
 
 template<typename SketchType>
 void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size=BUFFER_FLUSH_SIZE) {
@@ -642,17 +909,35 @@ enum CompReading: unsigned {
 };
 }
 
-template<typename T>
-T construct(unsigned p);
-template<> hll::hll_t construct<hll::hll_t>(unsigned p) {return hll::hll_t(p);}
-template<> mh::BBitMinHasher<uint64_t> construct<mh::BBitMinHasher<uint64_t>>(unsigned p) {return mh::BBitMinHasher<uint64_t>(p, bbnbits);}
-//dist_sketch_and_cmp<sketchtype>(inpaths, cms, kseqs, ofp, pairofp, sp, sketch_size, mincount, estim, jestim, cache_sketch, result_type, emit_fmt, presketched_only, nthreads,
-//use_scientific, suffix, prefix, canon, entropy_minimization, spacing);
+#define FILL_SKETCH_MIN(MinType)  \
+    {\
+        Encoder<MinType> enc(nullptr, 0, sp, nullptr, canon);\
+        if(cms.empty()) {\
+            auto &h = sketch;\
+            if(enct == BONSAI) enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            else enc.for_each_hash([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+        } else {\
+            sketch::cm::ccm_t &cm = cms[tid];\
+            if(enct == BONSAI) enc.for_each([&,mincount](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            else          enc.for_each_hash([&,mincount](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            cm.clear();\
+        }\
+        CONST_IF(!samesketch) new(final_sketches + i) final_type(std::move(sketch)); \
+    }
+
+
 template<typename SketchType>
 void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sketch::cm::ccm_t> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,
                          Spacer sp,
                          unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,
-                         bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing) {
+                         bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,
+                         size_t nq=0, EncodingType enct=BONSAI)
+{
+    // nq -- number of queries
+    //       for convenience, we will perform our comparisons (all-p) against (all-q) [remainder]
+    //       and use the same guts for all portions of the process
+    //       except for the final comparison and output.
+    assert(nq <= inpaths.size());
     using final_type = typename FinalSketch<SketchType>::final_type;
     std::vector<SketchType> sketches;
     sketches.reserve(inpaths.size());
@@ -668,13 +953,6 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sk
     CONST_IF(samesketch) {
         if(final_sketches == nullptr) throw std::bad_alloc();
     }
-#if 0
-    for(auto &&pair: map) {
-        *bcp++ = pair.first;
-        new(pp++) FinalType(std::move(pair.second));
-    }
-    {decltype(map) tmap(std::move(map));} // Free map now that it's not needed
-#endif
 
     std::atomic<uint32_t> ncomplete;
     ncomplete.store(0);
@@ -702,23 +980,11 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sk
                 }
             } else {
                 const int tid = omp_get_thread_num();
-#define FILL_SKETCH_MIN(MinType) \
-        Encoder<MinType> enc(nullptr, 0, sp, nullptr, canon);\
-        if(cms.empty()) {\
-            auto &h = sketch;\
-            enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
-        } else {\
-            sketch::cm::ccm_t &cm = cms[tid];\
-            enc.for_each([&,mincount](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
-            cm.clear();\
-        }\
-        CONST_IF(!samesketch) new(final_sketches + i) final_type(std::move(sketch));
                 if(entropy_minimization) {
                     FILL_SKETCH_MIN(score::Entropy);
                 } else {
                     FILL_SKETCH_MIN(score::Lex);
                 }
-#undef FILL_SKETCH_MIN
                 CONST_IF(samesketch) {
                     if(cache_sketch && !isf) sketch.write(fpath);
                 } else if(cache_sketch) final_sketches[i].write(fpath);
@@ -757,7 +1023,11 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sk
     }
     // binary formats don't have headers we handle here
     static constexpr uint32_t buffer_flush_size = BUFFER_FLUSH_SIZE;
-    dist_loop<final_type>(pairofp, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size);
+    if(nq == 0) {
+        dist_loop<final_type>(pairofp, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size);
+    } else {
+        partdist_loop<final_type>(pairofp, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size, nq);
+    }
     CONST_IF(!samesketch) {
 #if __cplusplus >= 201703L
         std::destroy_n(
@@ -775,14 +1045,75 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sk
     }
 }
 
+#define DIST_LONG_OPTS \
+static option_struct dist_long_options[] = {\
+    LO_FLAG("full-tsv", 'T', emit_fmt, FULL_TSV)\
+    LO_FLAG("emit-binary", 'b', emit_fmt, BINARY)\
+    LO_FLAG("phylip", 'U', emit_fmt, UPPER_TRIANGULAR)\
+    LO_FLAG("no-canon", 'C', canon, false)\
+    LO_FLAG("by-entropy", 'g', entropy_minimization, true) \
+    LO_FLAG("use-bb-minhash", '8', sketch_type, BB_MINHASH)\
+    LO_FLAG("full-mash-dist", 'l', result_type, FULL_MASH_DIST)\
+    LO_FLAG("mash-dist", 'M', result_type, MASH_DIST)\
+    LO_FLAG("countmin", 'y', sm, CBF)\
+    LO_FLAG("sketch-by-fname", 'N', sm, BY_FNAME)\
+    LO_FLAG("sizes", 'Z', result_type, SIZES)\
+    LO_FLAG("use-scientific", 'e', use_scientific, true)\
+    LO_FLAG("cache-sketches", 'W', cache_sketch, true)\
+    LO_FLAG("presketched", 'H', presketched_only, true)\
+    LO_FLAG("avoid-sorting", 'n', avoid_fsorting, true)\
+    LO_ARG("out-sizes", 'o') \
+    LO_ARG("query-paths", 'Q') \
+    LO_ARG("out-dists", 'O') \
+    LO_ARG("bbits", 'B')\
+    LO_ARG("original", 'E')\
+    LO_ARG("improved", 'I')\
+    LO_ARG("ertl-joint-mle", 'J')\
+    LO_ARG("ertl-mle", 'm')\
+    LO_ARG("paths", 'F')\
+    LO_ARG("prefix", 'P')\
+    LO_ARG("nhashes", 'q')\
+    LO_ARG("seed", 'R')\
+    LO_ARG("sketch-size", 'S')\
+    LO_ARG("bbits", 'B')\
+    LO_ARG("original", 'E')\
+    LO_ARG("improved", 'I')\
+    LO_ARG("ertl-joint-mle", 'J')\
+    LO_ARG("ertl-mle", 'm')\
+    LO_ARG("paths", 'F')\
+    LO_ARG("prefix", 'P')\
+    LO_ARG("nhashes", 'q')\
+    LO_ARG("seed", 'R')\
+    LO_ARG("sketch-size", 'S')\
+    LO_ARG("kmer-length", 'k')\
+    LO_ARG("min-count", 'c')\
+    LO_ARG("nthreads", 'p')\
+    LO_ARG("cm-sketch-size", 't')\
+    LO_ARG("spacing", 's')\
+    LO_ARG("window-size", 'w')\
+    LO_ARG("suffix", 'x')\
+    LO_ARG("help", 'h')\
+    LO_FLAG("use-range-minhash", 128, sketch_type, RANGE_MINHASH)\
+    LO_FLAG("use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)\
+    LO_FLAG("use-full-khash-sets", 130, sketch_type, FULL_KHASH_SET)\
+    LO_FLAG("containment-index", 131, result_type, CONTAINMENT_INDEX) \
+    LO_FLAG("containment-dist", 132, result_type, CONTAINMENT_DIST) \
+    LO_FLAG("full-containment-dist", 133, result_type, FULL_CONTAINMENT_DIST) \
+    LO_FLAG("use-bloom-filter", 134, sketch_type, BLOOM_FILTER)\
+    LO_FLAG("use-super-minhash", 135, sketch_type, BB_SUPERMINHASH)\
+    LO_FLAG("use-nthash", 136, enct, NTHASH)\
+    {0,0,0,0}\
+};
+
 int dist_main(int argc, char *argv[]) {
     int wsz(0), k(31), sketch_size(10), use_scientific(false), co, cache_sketch(false),
-        nthreads(1), mincount(30), nhashes(4), cmsketchsize(-1);
-    bool canon(true), presketched_only(false),
-entropy_minimization(false),
-         avoid_fsorting(false), use_bbmh(false);
+        nthreads(1), mincount(5), nhashes(4), cmsketchsize(-1);
+    int canon(true), presketched_only(false), entropy_minimization(false),
+         avoid_fsorting(false);
+    Sketch sketch_type = HLL;
          // bool sketch_query_by_seq(true);
     EmissionFormat emit_fmt = UT_TSV;
+    EncodingType enct = BONSAI;
     double factor = 1.;
     EmissionType result_type(JI);
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
@@ -793,45 +1124,38 @@ entropy_minimization(false),
     std::vector<std::string> querypaths;
     uint64_t seedseedseed = 1337u;
     if(argc == 1) dist_usage(*argv);
-    while((co = getopt(argc, argv, "n:Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:8TgDazlICbMEeHJhZBNyUmqW?")) >= 0) {
+    int option_index;
+    DIST_LONG_OPTS
+    while((co = getopt_long(argc, argv, "n:Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:8TgDazlICbMEeHJhZBNyUmqW?", dist_long_options, &option_index)) >= 0) {
         switch(co) {
-            case '8': use_bbmh = true;                 break;
-            case 'T': emit_fmt = FULL_TSV;             break; // This also sets the emit_fmt bit for BINARY
-            case 'B': bbnbits = std::atoi(optarg);     break;
-            case 'b': emit_fmt = BINARY;               break;
-            case 'C': canon = false;                   break;
-            //case 'D': sketch_query_by_seq = false;     break;
-            case 'E': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
-            case 'F': paths_file = optarg;             break;
-            case 'H': presketched_only = true;         break;
-            case 'I': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
-            case 'J': jestim = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
-            case 'M': result_type = MASH_DIST;         break;
-            case 'N': sm = BY_FNAME;                   break;
-            case 'P': prefix = optarg;                 break;
-            case 'Q': querypaths.emplace_back(optarg); LOG_EXIT("Error: querypaths method temporarily removed before integration into a separate subcommand."); break;
+            case 'B': bbnbits    = std::atoi(optarg);   break;
+            case 'F': paths_file = optarg;              break;
+            case 'P': prefix     = optarg;              break;
+            case 'U': emit_fmt   =  UPPER_TRIANGULAR;   break;
+            case 'l': result_type = FULL_MASH_DIST;     break;
+            case 'T': emit_fmt = FULL_TSV;              break;
+            case 'Q': querypaths = std::move(get_paths(optarg)); break;
             case 'R': seedseedseed = std::strtoull(optarg, nullptr, 10); break;
-            case 'S': sketch_size = std::atoi(optarg); break;
-            case 'U': emit_fmt = UPPER_TRIANGULAR;     break;
-            case 'W': cache_sketch = true;             break;
-            case 'Z': result_type = SIZES;             break;
-            //case 'a': reading_type = AUTODETECT;       break;
-            case 'c': mincount = std::atoi(optarg);    break;
-            case 'e': use_scientific = true;           break;
+            case 'E': jestim   = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
+            case 'I': jestim   = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
+            case 'J': jestim   = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
+            case 'm': jestim   = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); LOG_WARNING("Note: ERTL_MLE is default. This flag is redundant.\n"); break;
+            case 'S': sketch_size = std::atoi(optarg);  break;
+            case 'e': use_scientific = true; break;
+            case 'C': canon = false; break;
+            case 'b': emit_fmt = BINARY;                break;
+            case 'c': mincount = std::atoi(optarg);     break;
             case 'g': entropy_minimization = true; LOG_WARNING("Entropy-based minimization is probably theoretically ill-founded, but it might be of practical value.\n"); break;
-            case 'k': k = std::atoi(optarg);           break;
-            case 'l': result_type = FULL_MASH_DIST;    break;
-            case 'm': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); break;
-            case 'n': avoid_fsorting = true;           break;
+            case 'k': k        = std::atoi(optarg);           break;
+            case 'M': result_type = MASH_DIST; break;
             case 'o': if((ofp = fopen(optarg, "w")) == nullptr) LOG_EXIT("Could not open file at %s for writing.\n", optarg); break;
-            case 'p': nthreads = std::atoi(optarg);    break;
-            case 'q': nhashes = std::atoi(optarg);     break;
+            case 'p': nthreads = std::atoi(optarg);     break;
+            case 'q': nhashes  = std::atoi(optarg);     break;
             case 't': cmsketchsize = std::atoi(optarg); break;
-            case 's': spacing = optarg;                break;
-            case 'w': wsz = std::atoi(optarg);         break;
-            case 'x': suffix = optarg;                 break;
-            case 'y': sm = CBF;                        break;
-            //case 'z': reading_type = GZ;               break;
+            case 's': spacing  = optarg;                break;
+            case 'w': wsz      = std::atoi(optarg);         break;
+            case 'W': cache_sketch = true; break;
+            case 'x': suffix   = optarg;                 break;
             case 'O': if((pairofp = fopen(optarg, "wb")) == nullptr)
                           LOG_EXIT("Could not open file at %s for writing.\n", optarg);
                       pairofp_labels = std::string(optarg) + ".labels";
@@ -847,8 +1171,18 @@ entropy_minimization(false),
         std::fprintf(stderr, "No paths. See usage.\n"), dist_usage(*argv);
     omp_set_num_threads(nthreads);
     Spacer sp(k, wsz, parse_spacing(spacing.data(), k));
-    if(!presketched_only && !avoid_fsorting)
+    if(!presketched_only && !avoid_fsorting) {
         detail::sort_paths_by_fsize(inpaths);
+        detail::sort_paths_by_fsize(querypaths);
+    }
+    size_t nq = querypaths.size();
+    inpaths.reserve(inpaths.size() + querypaths.size());
+    for(auto &p: querypaths)
+        inpaths.push_back(std::move(p));
+    {
+        decltype(querypaths) tmp;
+        std::swap(tmp, querypaths);
+    }
     std::vector<sketch::cm::ccm_t> cms;
     KSeqBufferHolder kseqs(nthreads);
     switch(sm) {
@@ -866,11 +1200,27 @@ entropy_minimization(false),
         case EXACT: default: break;
     }
 #define CALL_DIST(sketchtype) \
-        dist_sketch_and_cmp<sketchtype>(inpaths, cms, kseqs, ofp, pairofp, sp, sketch_size, mincount, estim, jestim, cache_sketch, result_type, emit_fmt, presketched_only, nthreads, use_scientific, suffix, prefix, canon, entropy_minimization, spacing);
-    if(use_bbmh) {
-        CALL_DIST(mh::BBitMinHasher<uint64_t>);
-    } else {
-        CALL_DIST(hll::hll_t);
+        dist_sketch_and_cmp<sketchtype>(inpaths, cms, kseqs, ofp, pairofp, sp, sketch_size, mincount, estim, jestim, cache_sketch, result_type, emit_fmt, presketched_only, nthreads, use_scientific, suffix, prefix, canon, entropy_minimization, spacing, nq, enct);
+    switch(sketch_type) {
+        case BB_MINHASH:
+            CALL_DIST(mh::BBitMinHasher<uint64_t>); break;
+        case BB_SUPERMINHASH:
+            CALL_DIST(SuperMinHashType); break;
+        case HLL:
+            CALL_DIST(hll::hll_t); break;
+        case RANGE_MINHASH:
+            CALL_DIST(mh::RangeMinHash<uint64_t>); break;
+        case COUNTING_RANGE_MINHASH:
+            CALL_DIST(mh::CountingRangeMinHash<uint64_t>); break;
+        case BLOOM_FILTER:
+            CALL_DIST(bf::bf_t); break;
+        case FULL_KHASH_SET:
+            CALL_DIST(khset64_t); break;
+        default: {
+                char buf[128];
+                std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));
+                RUNTIME_ERROR(buf);
+        }
     }
 
     std::future<void> label_future;
@@ -925,129 +1275,13 @@ int print_binary_main(int argc, char *argv[]) {
 }
 
 int setdist_main(int argc, char *argv[]) {
-    int wsz(0), k(31), use_scientific(false), co;
-    bool canon(true);
-    EmissionFormat emit_fmt = UT_TSV;
-    EmissionType emit_type = JI;
-    unsigned bufsize(BUFFER_FLUSH_SIZE);
-    int nt(1);
-    std::string spacing, paths_file;
-    FILE *ofp(stdout), *pairofp(stdout);
-    while((co = getopt(argc, argv, "F:c:p:o:O:S:B:k:s:lTfCMeZh?")) >= 0) {
-        switch(co) {
-            case 'B': std::stringstream(optarg) << bufsize; break;
-            case 'k': k = std::atoi(optarg);                break;
-            case 'p': nt = std::atoi(optarg);       break;
-            case 's': spacing = optarg;             break;
-            case 'C': canon = false;                break;
-            case 'w': wsz = std::atoi(optarg);      break;
-            case 'F': paths_file = optarg;          break;
-            case 'o': ofp = fopen(optarg, "w");     break;
-            case 'O': pairofp = fopen(optarg, "w"); break;
-            case 'e': use_scientific = true;        break;
-            case 'l': emit_type = FULL_MASH_DIST;   break;
-            case 'M': emit_type = MASH_DIST;        break;
-            case 'Z': emit_type = SIZES;            break;
-            case 'U': emit_fmt = UPPER_TRIANGULAR;  break;
-            case 'b': emit_fmt = BINARY;            break;
-            case 'T': emit_fmt = FULL_TSV;          break;
-            case 'h': case '?': dist_usage(*argv);
-        }
-    }
-    omp_set_num_threads(nt);
-    std::vector<char> rdbuf(bufsize);
-    spvec_t sv(parse_spacing(spacing.data(), k));
-    Spacer sp(k, wsz, sv);
-    std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
-                                                       : std::vector<std::string>(argv + optind, argv + argc));
-    KSeqBufferHolder h(nt);
-    std::vector<khash_t(all)> hashes;
-    while(hashes.size() < inpaths.size()) hashes.emplace_back(khash_t(all){0, 0, 0, 0, 0, 0, 0});
-    const size_t nhashes(hashes.size());
-    if(wsz < sp.c_) wsz = sp.c_;
-    if(inpaths.size() == 0) {
-        std::fprintf(stderr, "No paths. See usage.\n");
-        dist_usage(*argv);
-    }
-    #pragma omp parallel for
-    for(size_t i = 0; i < nhashes; ++i) {
-        fill_set_genome<score::Lex>(inpaths[i].data(), sp, &hashes[i], i, nullptr, canon, h.data() + omp_get_thread_num());
-    }
-    LOG_DEBUG("Filled genomes. Now analyzing data.\n");
-    ks::string str;
-    str.sprintf("#Path\tCardinality (exact)\n");
-    {
-        const int fn(fileno(ofp));
-        for(size_t i(0); i < nhashes; ++i) {
-            str.sprintf("%s\t%zu\n", inpaths[i].data(), kh_size(&hashes[i]));
-            if(str.size() > BUFFER_FLUSH_SIZE) str.flush(fn);
-        }
-        str.flush(fn);
-    }
-    // TODO: Emit overlaps and symmetric differences.
-    if(ofp != stdout) std::fclose(ofp);
-    std::vector<float> dists(nhashes - 1);
-    str.clear();
-    const double ksinv = 1./static_cast<double>(k);
-    if((emit_fmt & BINARY) == 0) {
-        if(emit_fmt == UPPER_TRIANGULAR) throw sketch::common::NotImplementedError("Not Implemented: upper triangular phylip for setdist.");
-        str.sprintf("##Names\t");
-        for(auto &path: inpaths) str.sprintf("%s\t", path.data());
-        str.back() = '\n';
-            str.write(fileno(pairofp)); str.free();
-        setvbuf(pairofp, rdbuf.data(), _IOLBF, rdbuf.size());
-        for(size_t i = 0; i < nhashes; ++i) {
-            const khash_t(all) *h1(&hashes[i]);
-            size_t j;
-#define DO_LOOP(val) for(j = i + 1; j < nhashes; ++j) dists[j - i - 1] = (val)
-            if(emit_type == JI) {
-                #pragma omp parallel for
-                DO_LOOP(jaccard_index(&hashes[j], h1));
-            } else if(emit_type == MASH_DIST) {
-                #pragma omp parallel for
-                DO_LOOP(dist_index(jaccard_index(&hashes[j], h1), ksinv));
-            } else if(emit_type == FULL_MASH_DIST) {
-                #pragma omp parallel for
-                DO_LOOP(full_dist_index(jaccard_index(&hashes[j], h1), ksinv));
-            } else {
-                #pragma omp parallel for
-                DO_LOOP(union_size(&hashes[j], h1));
-            }
-#undef DO_LOOP
-            submit_emit_dists<float>(fileno(pairofp), dists.data(), hashes.size(), i, str, inpaths, emit_fmt, use_scientific);
-            std::free(h1->keys); std::free(h1->vals); std::free(h1->flags);
-        }
-    } else {
-        dm::DistanceMatrix<float> dm(nhashes);
-        for(size_t i = 0; i < nhashes; ++i) {
-            auto span = dm.row_span(i);
-            auto &dists = span.first;
-            auto h1 = &hashes[i];
-            size_t j;
-#define DO_LOOP(val) for(j = i + 1; j < nhashes; ++j) dists[j - i - 1] = (val)
-            if(emit_type == JI) {
-                #pragma omp parallel for
-                DO_LOOP(jaccard_index(&hashes[j], h1));
-            } else if(emit_type == MASH_DIST) {
-                #pragma omp parallel for
-                DO_LOOP(dist_index(jaccard_index(&hashes[j], h1), ksinv));
-            } else if(emit_type == FULL_MASH_DIST) {
-                #pragma omp parallel for
-                DO_LOOP(full_dist_index(jaccard_index(&hashes[j], h1), ksinv));
-            } else {
-                #pragma omp parallel for
-                DO_LOOP(union_size(&hashes[j], h1));
-            }
-#undef DO_LOOP
-            std::free(h1->keys); std::free(h1->vals); std::free(h1->flags);
-        }
-        if(emit_fmt == FULL_TSV) dm.printf(ofp, use_scientific, &inpaths);
-        else {
-            assert(emit_fmt == BINARY);
-            dm.write(ofp);
-        }
-    }
-    return EXIT_SUCCESS;
+    LOG_WARNING("setdist_main has been deprecated and will be removed in the future. Calling `dashing dist` with --use-full-khash-sets\n");
+    std::vector<char *> av(argc);
+    for(ssize_t i = 0; i < argc; ++i)
+        av[i] = argv[i];
+    std::string additional = "--use-full-khash-sets";
+    av.insert(av.begin() + 1, &additional[0]);
+    return dist_main(av.size(), av.data());
 }
 
 int hll_main(int argc, char *argv[]) {
