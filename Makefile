@@ -16,6 +16,7 @@ EXTRA_LD?=
 DBG:=
 OS:=$(shell uname)
 FLAGS=
+GIT_VERSION := $(shell git describe --abbrev=4 --always)
 
 OPT_MINUS_OPENMP= -O3 -funroll-loops\
 	  -pipe -fno-strict-aliasing -march=native -mpclmul -DUSE_PDQSORT \
@@ -23,8 +24,10 @@ OPT_MINUS_OPENMP= -O3 -funroll-loops\
 	$(FLAGS) $(EXTRA)
 OPT=$(OPT_MINUS_OPENMP) -fopenmp -lgomp
 XXFLAGS=-fno-rtti
-CXXFLAGS=$(OPT) $(XXFLAGS) -std=c++14 $(WARNINGS)
-CXXFLAGS_MINUS_OPENMP=$(OPT_MINUS_OPENMP) $(XXFLAGS) -std=c++1z $(WARNINGS) -Wno-cast-align -Wno-gnu-zero-variadic-macro-arguments
+CXXFLAGS=$(OPT) $(XXFLAGS) -std=c++14 $(WARNINGS) \
+	 -DDASHING_VERSION=\"$(GIT_VERSION)\"
+CXXFLAGS_MINUS_OPENMP=$(OPT_MINUS_OPENMP) $(XXFLAGS) -std=c++1z $(WARNINGS) -Wno-cast-align -Wno-gnu-zero-variadic-macro-arguments \
+	 -DDASHING_VERSION=\"$(GIT_VERSION)\"
 CCFLAGS=$(OPT) $(CFLAGS) -std=c11 $(WARNINGS)
 LIB=-lz
 LD=-L. $(EXTRA_LD) -Lbonsai/zlib
