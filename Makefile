@@ -98,11 +98,14 @@ test/%.zo: test/%.cpp
 bonsai/zlib/libz.a:
 	+cd bonsai/zlib && ./configure && make libz.a
 
+bonsai/zlib/libz.so:
+	+cd bonsai/zlib && ./configure && make && touch libz.so
+
 zobj: $(ALL_ZOBJS)
 
 STATIC_GOMP?=$(shell $(CXX) --print-file-name=libgomp.a)
 
-%: src/%.cpp $(ALL_ZOBJS) $(DEPS)
+%: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.so
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
 %_d: src/%.cpp $(ALL_ZOBJS) $(DEPS)

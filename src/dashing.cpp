@@ -51,7 +51,9 @@ enum EncodingType {
 
 struct khset64_t: public kh::khset64_t {
     void addh(uint64_t v) {this->insert(v);}
-    double cardinality_estimate() const {return this->size();}
+    double cardinality_estimate() const {
+        return this->size();
+    }
     khset64_t(): kh::khset64_t() {}
     khset64_t(size_t reservesz): kh::khset64_t(reservesz) {}
     khset64_t(const std::string &s): khset64_t(s.data()) {}
@@ -1199,6 +1201,10 @@ int dist_main(int argc, char *argv[]) {
         }
         case EXACT: default: break;
     }
+    if(enct == NTHASH) {
+        std::fprintf(stderr, "Use nthash's rolling hash for kmers. This comes at the expense of reversibility\n");
+    }
+
 #define CALL_DIST(sketchtype) \
         dist_sketch_and_cmp<sketchtype>(inpaths, cms, kseqs, ofp, pairofp, sp, sketch_size, mincount, estim, jestim, cache_sketch, result_type, emit_fmt, presketched_only, nthreads, use_scientific, suffix, prefix, canon, entropy_minimization, spacing, nq, enct);
     switch(sketch_type) {
