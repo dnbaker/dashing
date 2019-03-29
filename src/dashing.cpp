@@ -1,5 +1,4 @@
 #include "tinythreadpp/source/fast_mutex.h"
-#include <fstream>
 #include <omp.h>
 #include "bonsai/bonsai/include/util.h"
 #include "bonsai/bonsai/include/database.h"
@@ -1139,6 +1138,7 @@ using namespace bns;
 
 int main(int argc, char *argv[]) {
     bns::executable = argv[0];
+    std::fprintf(stderr, "Dashing version: %s\n", DASHING_VERSION);
     if(argc == 1) main_usage(argv);
     if(std::strcmp(argv[1], "sketch") == 0) return sketch_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "dist") == 0) return dist_main(argc - 1, argv + 1);
