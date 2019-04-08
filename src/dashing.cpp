@@ -1134,6 +1134,7 @@ int dist_main(int argc, char *argv[]) {
     DIST_LONG_OPTS
     while((co = getopt_long(argc, argv, "n:Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:8TgDazlICbMEeHJhZBNyUmqW?", dist_long_options, &option_index)) >= 0) {
         switch(co) {
+            case '8': sketch_type = BB_MINHASH; break;
             case 'B': bbnbits    = std::atoi(optarg);   break;
             case 'F': paths_file = optarg;              break;
             case 'P': prefix     = optarg;              break;
