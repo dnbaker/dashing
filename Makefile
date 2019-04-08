@@ -106,7 +106,7 @@ zobj: $(ALL_ZOBJS)
 STATIC_GOMP?=$(shell $(CXX) --print-file-name=libgomp.a)
 
 %: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.so
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
 
 %_d: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g \
