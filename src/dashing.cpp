@@ -863,7 +863,6 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
                 break;
         }
     }
-    std::fprintf(stderr, "Finished partdist computation\n");
     if(fmt_future.valid()) fmt_future.get();
     if(write_future.valid()) write_future.get();
 #if TIMING
@@ -1026,7 +1025,8 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sk
     str.clear();
     if(emit_fmt == UT_TSV) {
         str.sprintf("##Names\t");
-        for(const auto &path: inpaths) str.sprintf("%s\t", path.data());
+        for(size_t i = 0; i < inpaths.size() - nq; ++i)
+            str.sprintf("%s\t", inpaths[i].data());
         str.back() = '\n';
         str.write(fileno(pairofp)); str.free();
     } else if(emit_fmt == UPPER_TRIANGULAR) { // emit_fmt == UPPER_TRIANGULAR
