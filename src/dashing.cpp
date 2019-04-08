@@ -164,8 +164,10 @@ static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
         case BLOOM_FILTER: return nblog2 + 3; // 8 bits per byte
         case RANGE_MINHASH: return size_t(1) << (nblog2 - 3); // 8 bytes per minimizer
         case COUNTING_RANGE_MINHASH: return (size_t(1) << (nblog2)) / (sizeof(uint64_t) + sizeof(uint32_t));
-        case BB_MINHASH: case BB_SUPERMINHASH:
+        case BB_MINHASH:
             return nblog2 - std::floor(std::log2(bbnbits / 8));
+        case BB_SUPERMINHASH:
+            return size_t(1) << (nblog2 - int(std::log2(bbnbits / 8)));
         case FULL_KHASH_SET: return 16; // Reserve hash set size a bit. Mostly meaningless, resizing as necessary.
         default: {
             char buf[128];
@@ -401,7 +403,7 @@ void sketch_usage(const char *arg) {
                          "--use-bb-minhash/-8\tCreate b-bit minhash sketches\n"
                          "--use-bloom-filter\tCreate bloom filter sketches\n"
                          "--use-range-minhash\tCreate range minhash sketches\n"
-                         "--use-super-minhash\tCreate range minhash sketches\n"
+                         "--use-super-minhash\tCreate b-bit super minhash sketches\n"
                          "--use-counting-range-minhash\tCreate range minhash sketches\n"
                          "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n"
                          "----\n"
@@ -776,8 +778,8 @@ INLINE void perform_core_op(T &dists, size_t nhlls, SketchType *hlls, const Func
 #endif
 
 template<typename SketchType>
-void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size=BUFFER_FLUSH_SIZE,
-                   size_t nq=0)
+void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size,
+                   size_t nq)
 {
     const float ksinv = 1./ k;
     if(nq >= inpaths.size()) {
@@ -793,6 +795,7 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
     std::array<ks::string, 2> buffers;
     for(auto &b: buffers) b.resize(4 * nr);
     for(size_t qi = nr; qi < inpaths.size(); ++qi) {
+        size_t qind =  qi - nr;
         switch(result_type) {
 #define dist_sim(x, y) dist_index(similarity(x, y), ksinv)
 #define fulldist_sim(x, y) full_dist_index(similarity(x, y), ksinv)
@@ -800,7 +803,7 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
 #define cont_sim(x, y) containment_dist(containment_index(x, y), ksinv)
 #define DO_LOOP(func)\
                 for(size_t j = 0; j < nr; ++j) {\
-                    arr[(qi - nr) * nq + j] = func(hlls[j], hlls[qi]);\
+                    arr[qind * nr + j] = func(hlls[j], hlls[qi]);\
                 }
             case MASH_DIST:
                 #pragma omp parallel for schedule(dynamic)
@@ -832,32 +835,35 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
                 break;
             default: __builtin_unreachable();
 #undef DO_LOOP
-            switch(emit_fmt) {
-                case UT_TSV: case UPPER_TRIANGULAR: default:
-                    RUNTIME_ERROR(std::string("Illegal output format. numeric: ") + std::to_string(int(emit_fmt)));
-                case BINARY:
+        }
+        switch(emit_fmt) {
+            case BINARY:
+                if(write_future.valid()) write_future.get();
+                write_future = std::async(std::launch::async, [ptr=arr + (qi - nr) * nq, nb=sizeof(float) * nr](const int fn) {
+                    ::write(fn, ptr, nb);
+                }, ::fileno(ofp));
+                break;
+            case UT_TSV: case UPPER_TRIANGULAR: default:
+                // RUNTIME_ERROR(std::string("Illegal output format. numeric: ") + std::to_string(int(emit_fmt)));
+            case FULL_TSV:
+                if(fmt_future.valid()) fmt_future.get();
+                fmt_future = std::async(std::launch::async, [nr,qi,ofp,ind=qi-nr,nq,&inpaths,use_scientific,arr,&buffers,&write_future]() {
+                    auto &buffer = buffers[qi & 1];
+                    buffer += inpaths[qi];
+                    const char *fmt = use_scientific ? "\t%e": "\t%f";
+                    float *aptr = arr + ind * nr;
+                    for(size_t i = 0; i < nr; ++i) {
+                        assert(aptr + i < (arr + nq*nr));
+                        buffer.sprintf(fmt, aptr[i]);
+                    }
+                    buffer.putc_('\n');
                     if(write_future.valid()) write_future.get();
-                    write_future = std::async(std::launch::async, [ptr=arr + (qi - nr) * nq, nb=sizeof(float) * nr](const int fn) {
-                        ::write(fn, ptr, nb);
-                    }, ::fileno(ofp));
-                    break;
-                case FULL_TSV:
-                    if(fmt_future.valid()) fmt_future.get();
-                    fmt_future = std::async(std::launch::async, [&]() {
-                        auto &buffer = buffers[qi & 1];
-                        buffer += inpaths[qi];
-                        const char *fmt = use_scientific ? "\t%e": "\t%f";
-                        float *aptr = arr + (qi - nr) * nq;
-                        for(size_t i = 0; i < nq; ++i)
-                            buffer.sprintf(fmt, aptr[i]);
-                        buffer.putc_('\n');
-                        if(write_future.valid()) write_future.get();
-                        write_future = std::async(std::launch::async, [&]() {buffer.flush(::fileno(ofp));});
-                    });
-                    break;
-            }
+                    write_future = std::async(std::launch::async, [ofp,&buffer]() {buffer.flush(::fileno(ofp));});
+                });
+                break;
         }
     }
+    std::fprintf(stderr, "Finished partdist computation\n");
     if(fmt_future.valid()) fmt_future.get();
     if(write_future.valid()) write_future.get();
 #if TIMING
@@ -867,7 +873,11 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
 }
 
 template<typename SketchType>
-void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size=BUFFER_FLUSH_SIZE) {
+void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size=BUFFER_FLUSH_SIZE, size_t nq=0) {
+    if(nq) {
+        partdist_loop<SketchType>(ofp, hlls, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size, nq);
+        return;
+    }
     const float ksinv = 1./ k;
     const int pairfi = fileno(ofp);
     omp_set_num_threads(nthreads);
@@ -1023,13 +1033,7 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sk
         std::fprintf(pairofp, "%zu\n", inpaths.size());
         std::fflush(pairofp);
     }
-    // binary formats don't have headers we handle here
-    static constexpr uint32_t buffer_flush_size = BUFFER_FLUSH_SIZE;
-    if(nq == 0) {
-        dist_loop<final_type>(pairofp, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size);
-    } else {
-        partdist_loop<final_type>(pairofp, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size, nq);
-    }
+    dist_loop<final_type>(pairofp, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, BUFFER_FLUSH_SIZE, nq);
     CONST_IF(!samesketch) {
 #if __cplusplus >= 201703L
         std::destroy_n(
