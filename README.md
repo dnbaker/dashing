@@ -76,7 +76,11 @@ Using hash sets provides a ground truth at the expense of greatly increased runt
 b-bit minhashing:             --use-bb-minhash
 bottom-k minhashing:          --use-range-minhash
 weighted bottom-k minhashing: --use-counting-range-minhash
+SuperMinHash:                 --use-super-minhash
 hash sets:                    --use-full-khash-sets
 bloom filters:                --use-bloom-filter
 ```
 
+References:
+[SuperMinHash](https://arxiv.org/abs/1706.05698), modified. (Use 32-bit register instead of float between 0 and 1 to make use of more information.)
+[Bloom Filter Jaccard Index](https://www.ncbi.nlm.nih.gov/pubmed/17444629)
