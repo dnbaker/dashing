@@ -13,6 +13,10 @@
 #include "getopt.h"
 #include <sys/stat.h>
 
+#if __cplusplus >= 201703L && __cpp_lib_execution
+#include <execution>
+#endif
+
 using namespace sketch;
 using circ::roundup;
 using hll::hll_t;
@@ -1011,11 +1015,8 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sk
         const int fn(fileno(ofp));
         for(size_t i(0); i < sketches.size(); ++i) {
             double card;
-            CONST_IF(samesketch) {
-                card = cardinality_estimate(sketches[i]);
-            } else {
-                card = cardinality_estimate(final_sketches[i]);
-            }
+            CONST_IF(samesketch) card = cardinality_estimate(sketches[i]);
+            else                 card = cardinality_estimate(final_sketches[i]);
             str.sprintf("%s\t%lf\n", inpaths[i].data(), card);
             if(str.size() >= BUFFER_FLUSH_SIZE) str.flush(fn);
         }
@@ -1037,7 +1038,7 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sk
     CONST_IF(!samesketch) {
 #if __cplusplus >= 201703L
         std::destroy_n(
-#  ifdef USE_PAR_EX
+#  if __cpp_lib_execution
             std::execution::par_unseq,
 #  endif
             final_sketches, inpaths.size());
