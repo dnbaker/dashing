@@ -307,12 +307,13 @@ void dist_usage(const char *arg) {
                          "Flags:\n"
                          "-h/-?, --help\tUsage\n\n\n"
                          "===Encoding Options===\n\n"
-                         "-k, --kmer-length\tSet kmer size [31]\n"
+                         "-k, --kmer-length\tSet kmer size [31], max 32\n"
                          "-s, --spacing\tadd a spacer of the format <int>x<int>,<int>x<int>,"
                          "..., where the first integer corresponds to the space "
                          "-w, --window-size\tSet window size [max(size of spaced kmer, [parameter])]\n"
                          "-S, --sketch-size\tSet sketch size [10, for 2**10 bytes each]\n"
-                         "--use-nthash\tUse nthash for encoding. (not reversible, but fast, rolling, and specialized for DNA)\n"
+                         "--use-nthash\tUse nthash for encoding. (not reversible, but fast, rolling, and specialized for DNA).\n"
+                         "            \tAs a warning, this does not currently ignore Ns in reads, but it does raise the limit"
                          "-C, --no-canon\tDo not canonicalize. [Default: canonicalize]\n\n\n"
                          "===Output Files===\n\n"
                          "-o, --out-sizes\tOutput for genome size estimates [stdout]\n"
@@ -375,7 +376,7 @@ void sketch_usage(const char *arg) {
                          "-h/-?:\tEmit usage\n"
                          "\n\n"
                          "Sketch options --\n\n"
-                         "--kmer-length/-k\tSet kmer size [31]\n"
+                         "--kmer-length/-k\tSet kmer size [31], max 32\n"
                          "--spacing/-s\tadd a spacer of the format <int>x<int>,<int>x<int>,"
                          "..., where the first integer corresponds to the space "
                          "between bases repeated the second integer number of times\n"
@@ -608,6 +609,8 @@ int sketch_main(int argc, char *argv[]) {
             case 'h': case '?': sketch_usage(*argv); break;
         }
     }
+    if(k > 32 and enct == BONSAI)
+        RUNTIME_ERROR("k must be <= 32 for non-rolling hashes.");
     nthreads = std::max(nthreads, 1);
     omp_set_num_threads(nthreads);
     Spacer sp(k, wsz, parse_spacing(spacing.data(), k));
@@ -1172,6 +1175,8 @@ int dist_main(int argc, char *argv[]) {
             case 'h': case '?': dist_usage(*argv);
         }
     }
+    if(k > 32 and enct == BONSAI)
+        RUNTIME_ERROR("k must be <= 32 for non-rolling hashes.");
     if(nthreads < 0) nthreads = 1;
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
                                                        : std::vector<std::string>(argv + optind, argv + argc));
@@ -1302,7 +1307,7 @@ int hll_main(int argc, char *argv[]) {
     std::string spacing, paths_file;
     if(argc < 2) {
         usage: LOG_EXIT("Usage: %s <opts> <paths>\nFlags:\n"
-                        "-k:\tkmer length (Default: 31. Max: 31)\n"
+                        "-k:\tkmer length (Default: 31. Max: 32)\n"
                         "-w:\twindow size (Default: -1)  Must be -1 (ignored) or >= kmer length.\n"
                         "-s:\tspacing (default: none). format: <value>x<times>,<value>x<times>,...\n"
                         "   \tOmitting x<times> indicates 1 occurrence of spacing <value>\n"
