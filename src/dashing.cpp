@@ -1382,6 +1382,12 @@ int union_main(int argc, char *argv[]) {
     return 0;
 }
 
+int view_main(int argc, char *argv[]) {
+    if(argc < 2) RUNTIME_ERROR("Usage: dashing view f1.hll [f2.hll ...]. Only HLLs currently supported.");
+    for(int i = 1; i < argc; hll::hll_t(argv[i++]).printf(stdout));
+    return 0;
+}
+
 } // namespace bns
 
 using namespace bns;
@@ -1396,11 +1402,12 @@ int main(int argc, char *argv[]) {
     else if(std::strcmp(argv[1], "union") == 0) return union_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "setdist") == 0) return setdist_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "hll") == 0) return hll_main(argc - 1, argv + 1);
+    else if(std::strcmp(argv[1], "view") == 0) return view_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "printmat") == 0) return print_binary_main(argc - 1, argv + 1);
     else {
         for(const char *const *p(argv + 1); *p; ++p)
             if(std::string(*p) == "-h" || std::string(*p) == "--help") main_usage(argv);
-        std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options. [Subcommands: sketch, dist, setdist, hll, union, printmat.]\n",
+        std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options. [Subcommands: sketch, dist, setdist, hll, union, printmat, view.]\n",
                      *argv, *argv);
         RUNTIME_ERROR(std::string("Invalid subcommand ") + argv[1] + " provided.");
     }
