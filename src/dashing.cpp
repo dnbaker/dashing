@@ -44,8 +44,38 @@ enum EmissionType {
     FULL_MASH_DIST = 3,
     FULL_CONTAINMENT_DIST = 4,
     CONTAINMENT_INDEX = 5,
-    CONTAINMENT_DIST = 6
+    CONTAINMENT_DIST = 6,
+    SYMMETRIC_CONTAINMENT_INDEX = 7,
+    SYMMETRIC_CONTAINMENT_DIST = 8,
 };
+
+static const char *emt2str(EmissionType result_type) {
+    switch(result_type) {
+        case MASH_DIST: return "MASH_DIST";
+        case JI: return "JI";
+        case SIZES: return "SIZES";
+        case FULL_MASH_DIST: return "FULL_MASH_DIST";
+        case FULL_CONTAINMENT_DIST: return "FULL_CONTAINMENT_DIST";
+        case CONTAINMENT_INDEX: return "CONTAINMENT_INDEX";
+        case CONTAINMENT_DIST: return "CONTAINMENT_DIST";
+        case SYMMETRIC_CONTAINMENT_INDEX: return "SYMMETRIC_CONTAINMENT_INDEX";
+        case SYMMETRIC_CONTAINMENT_DIST: return "SYMMETRIC_CONTAINMENT_DIST";
+        default: break;
+    }
+    return "ILLEGAL_EMISSION_FMT";
+}
+
+static constexpr bool is_symmetric(EmissionType result_type) {
+    switch(result_type) {
+        case MASH_DIST: case JI: case SIZES:
+        case FULL_MASH_DIST: case SYMMETRIC_CONTAINMENT_INDEX: case SYMMETRIC_CONTAINMENT_DIST:
+            return true;
+
+        case CONTAINMENT_INDEX: case CONTAINMENT_DIST: case FULL_CONTAINMENT_DIST:
+        default: break;
+    }
+    return false;
+}
 
 enum EncodingType {
     BONSAI,
@@ -363,6 +393,8 @@ void dist_usage(const char *arg) {
                          "--sizes\tEmit union sizes (default: jaccard index)\n"
                          "--containment-index\tEmit Containment Index (|A & B| / |A|)\n"
                          "--containment-dist \tEmit distance metric using containment index. [Let C = (|A & B| / |A|). C ? -log(C) / k : 1.] \n"
+                         "--symmetric-containment-dist\tEmit symmetric containment index symcon(A, B) = max(C(A, B), C(B, A))\n"
+                         "--symmetric-containment-index\ttEmit distance metric using maximum containment index. symdist(A, B) = min(cdist(A,B), cdist(B, A))\n"
                          "--full-containment-dist \tEmit distance metric using containment index, without log approximation. [Let C = (|A & B| / |A|). C ? 1. - C^(1/k) : 1.] \n"
                 , arg);
     std::exit(EXIT_FAILURE);
@@ -742,26 +774,6 @@ INLINE void perform_core_op(T &dists, size_t nhlls, SketchType *hlls, const Func
     h1.free();
 }
 
-#if 0
-//#if defined(ENABLE_COMPUTED_GOTO) && !defined(__clang__)
-#define CORE_ITER(zomg) do {{\
-        static constexpr void *TYPES[] {&&mash##zomg, &&ji##zomg, &&sizes##zomg, &&full_mash##zomg};\
-        goto *TYPES[result_type];\
-        mash##zomg:\
-            perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) {return dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
-            goto next_step##zomg;\
-        ji##zomg:\
-            perform_core_op(dists, nsketches, hlls, similarity<const SketchType>, i);\
-           goto next_step##zomg;\
-        sizes##zomg:\
-            perform_core_op(dists, nsketches, hlls, us::union_size<SketchType>, i);\
-           goto next_step##zomg;\
-        full_mash##zomg:\
-            perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) {return full_dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
-           goto next_step##zomg;\
-        next_step##zomg: ;\
-    } } while(0);
-#else
 #define CORE_ITER(zomg) do {\
         switch(result_type) {\
             case MASH_DIST: {\
@@ -779,10 +791,14 @@ INLINE void perform_core_op(T &dists, size_t nhlls, SketchType *hlls, const Func
             case FULL_MASH_DIST:\
                 perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) {return full_dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
                 break;\
-            default:\
-                __builtin_unreachable();\
+            case SYMMETRIC_CONTAINMENT_DIST:\
+                perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) {return dist_index(std::max(containment_index(x, y), containment_index(y, x)), ksinv);}, i);\
+                break;\
+            case SYMMETRIC_CONTAINMENT_INDEX:\
+                perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) {return std::max(containment_index(x, y), containment_index(y, x));}, i);\
+                break;\
+            default: __builtin_unreachable();\
         } } while(0)
-#endif
 
 template<typename SketchType>
 void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size,
@@ -883,6 +899,11 @@ void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> 
     if(nq) {
         partdist_loop<SketchType>(ofp, hlls, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size, nq);
         return;
+    }
+    if(!is_symmetric(result_type)) {
+        char buf[512];
+        std::sprintf(buf, "Can't perform symmetric distance comparisons with a symmetric method (%s/%d)\n", emt2str(result_type), int(result_type));
+        RUNTIME_ERROR(buf);
     }
     const float ksinv = 1./ k;
     const int pairfi = fileno(ofp);
@@ -1112,6 +1133,8 @@ static option_struct dist_long_options[] = {\
     LO_FLAG("use-bloom-filter", 134, sketch_type, BLOOM_FILTER)\
     LO_FLAG("use-super-minhash", 135, sketch_type, BB_SUPERMINHASH)\
     LO_FLAG("use-nthash", 136, enct, NTHASH)\
+    LO_FLAG("symmetric-containment-index", 137, result_type, SYMMETRIC_CONTAINMENT_INDEX) \
+    LO_FLAG("symmetric-containment-dist", 138, result_type, SYMMETRIC_CONTAINMENT_DIST) \
     {0,0,0,0}\
 };
 
@@ -1184,11 +1207,17 @@ int dist_main(int argc, char *argv[]) {
         std::fprintf(stderr, "No paths. See usage.\n"), dist_usage(*argv);
     omp_set_num_threads(nthreads);
     Spacer sp(k, wsz, parse_spacing(spacing.data(), k));
+    size_t nq = querypaths.size();
+    if(nq == 0 && !is_symmetric(result_type)) {
+        querypaths = inpaths;
+        nq = querypaths.size();
+        LOG_WARNING("=====Note===== No query files provided, but an asymmetric distance was requested. Switching to a query/reference format with all references as queries.\n"
+                    "In the future, this will throw an error.\nYou must provide query and reference paths (-Q/-F) to calculate asymmetric distances.\n");
+    }
     if(!presketched_only && !avoid_fsorting) {
         detail::sort_paths_by_fsize(inpaths);
         detail::sort_paths_by_fsize(querypaths);
     }
-    size_t nq = querypaths.size();
     inpaths.reserve(inpaths.size() + querypaths.size());
     for(auto &p: querypaths)
         inpaths.push_back(std::move(p));
@@ -1212,27 +1241,24 @@ int dist_main(int argc, char *argv[]) {
         }
         case EXACT: default: break;
     }
-    if(enct == NTHASH) {
+    if(enct == NTHASH)
         std::fprintf(stderr, "Use nthash's rolling hash for kmers. This comes at the expense of reversibility\n");
-    }
-
 #define CALL_DIST(sketchtype) \
-        dist_sketch_and_cmp<sketchtype>(inpaths, cms, kseqs, ofp, pairofp, sp, sketch_size, mincount, estim, jestim, cache_sketch, result_type, emit_fmt, presketched_only, nthreads, use_scientific, suffix, prefix, canon, entropy_minimization, spacing, nq, enct);
+    dist_sketch_and_cmp<sketchtype>(inpaths, cms, kseqs, ofp, pairofp, sp, sketch_size,\
+                                    mincount, estim, jestim, cache_sketch, result_type,\
+                                    emit_fmt, presketched_only, nthreads,\
+                                    use_scientific, suffix, prefix, canon,\
+                                    entropy_minimization, spacing, nq, enct);
+
     switch(sketch_type) {
-        case BB_MINHASH:
-            CALL_DIST(mh::BBitMinHasher<uint64_t>); break;
-        case BB_SUPERMINHASH:
-            CALL_DIST(SuperMinHashType); break;
-        case HLL:
-            CALL_DIST(hll::hll_t); break;
-        case RANGE_MINHASH:
-            CALL_DIST(mh::RangeMinHash<uint64_t>); break;
+        case BB_MINHASH:      CALL_DIST(mh::BBitMinHasher<uint64_t>); break;
+        case BB_SUPERMINHASH: CALL_DIST(SuperMinHashType); break;
+        case HLL:             CALL_DIST(hll::hll_t); break;
+        case RANGE_MINHASH:   CALL_DIST(mh::RangeMinHash<uint64_t>); break;
+        case BLOOM_FILTER:    CALL_DIST(bf::bf_t); break;
+        case FULL_KHASH_SET:  CALL_DIST(khset64_t); break;
         case COUNTING_RANGE_MINHASH:
-            CALL_DIST(mh::CountingRangeMinHash<uint64_t>); break;
-        case BLOOM_FILTER:
-            CALL_DIST(bf::bf_t); break;
-        case FULL_KHASH_SET:
-            CALL_DIST(khset64_t); break;
+                              CALL_DIST(mh::CountingRangeMinHash<uint64_t>); break;
         default: {
                 char buf[128];
                 std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));
