@@ -123,17 +123,17 @@ STATIC_GOMP?=$(shell $(CXX) --print-file-name=libgomp.a)
 
 %_128: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mno-avx2 -msse2 -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
-%_s: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a
-	ln -sf $(STATIC_GOMP) && \
+
+libgomp.a:
+	ln -sf $(STATIC_GOMP)
+
+%_s: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a static_gomp
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -static-libstdc++ -static-libgcc bonsai/zlib/libz.a  -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
-%_s128: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a
-	ln -sf $(STATIC_GOMP) && \
+%_s128: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a libgomp.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mno-avx2 -msse2 -static-libstdc++ -static-libgcc bonsai/zlib/libz.a  -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
-%_s256: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a
-	ln -sf $(STATIC_GOMP) && \
+%_s256: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a libgomp.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mavx2 -msse2 -static-libstdc++ -static-libgcc bonsai/zlib/libz.a  -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
-%_s512: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a
-	ln -sf $(STATIC_GOMP) && \
+%_s512: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a libgomp.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mavx512dq -mavx512vl -mavx512bw -static-libstdc++ -static-libgcc bonsai/zlib/libz.a  -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 %_di: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -fno-inline -O1 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
@@ -141,6 +141,14 @@ STATIC_GOMP?=$(shell $(CXX) --print-file-name=libgomp.a)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -pg -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 %_pgi: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -pg -fno-inline -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+
+linux_release:
+	+rm -f dashing_s128 dashing_s256 dashing_s512 && \
+		make dashing_s128 dashing_s256 dashing_s512 && \
+		mv dashing_s128 dashing_s256 dashing_s512 release/linux && \
+		cd release/linux && gzip -f9 dashing_s128 dashing_s256 dashing_s512
 clean:
-	rm -f $(EX) $(D_EX) libzstd.a bonsai/bonsai/clhash.o clhash.o bonsai/klib/kthread.o bonsai/klib/kstring.o && cd bonsai/zstd && make clean && cd ../zlib && make clean && cd ../..
+	rm -f $(EX) $(D_EX) libzstd.a bonsai/bonsai/clhash.o clhash.o \
+	bonsai/klib/kthread.o bonsai/klib/kstring.o libgomp.a \
+	&& cd bonsai/zstd && make clean && cd ../zlib && make clean && cd ../..
 mostlyclean: clean
