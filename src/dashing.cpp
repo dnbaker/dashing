@@ -901,8 +901,8 @@ void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> 
         return;
     }
     if(!is_symmetric(result_type)) {
-        char buf[512];
-        std::sprintf(buf, "Can't perform symmetric distance comparisons with a symmetric method (%s/%d)\n", emt2str(result_type), int(result_type));
+        char buf[1024];
+        std::sprintf(buf, "Can't perform symmetric distance comparisons with a symmetric method (%s/%d). To perform an asymmetric distance comparison between a given set and itself, provide the same list of filenames to both -Q and -F.\n", emt2str(result_type), int(result_type));
         RUNTIME_ERROR(buf);
     }
     const float ksinv = 1./ k;
