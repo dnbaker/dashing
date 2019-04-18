@@ -649,8 +649,10 @@ int sketch_main(int argc, char *argv[]) {
             case 'h': case '?': sketch_usage(*argv); break;
         }
     }
-    if(k > 32 and enct == BONSAI)
+    if(k > 32 && enct == BONSAI)
         RUNTIME_ERROR("k must be <= 32 for non-rolling hashes.");
+    if(k > 32 && spacing.size())
+        RUNTIME_ERROR("kmers must be unspaced for k > 32");
     nthreads = std::max(nthreads, 1);
     omp_set_num_threads(nthreads);
     Spacer sp(k, wsz, parse_spacing(spacing.data(), k));
@@ -1212,8 +1214,10 @@ int dist_main(int argc, char *argv[]) {
             case 'h': case '?': dist_usage(*argv);
         }
     }
-    if(k > 32 and enct == BONSAI)
+    if(k > 32 && enct == BONSAI)
         RUNTIME_ERROR("k must be <= 32 for non-rolling hashes.");
+    if(k > 32 && spacing.size())
+        RUNTIME_ERROR("kmers must be unspaced for k > 32");
     if(nthreads < 0) nthreads = 1;
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
                                                        : std::vector<std::string>(argv + optind, argv + argc));
