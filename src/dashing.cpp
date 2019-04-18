@@ -80,7 +80,8 @@ static constexpr bool is_symmetric(EmissionType result_type) {
 enum EncodingType {
     BONSAI,
     NTHASH,
-    RK
+    RK,
+    CYCLIC
 };
 
 struct khset64_t: public kh::khset64_t {
@@ -343,7 +344,8 @@ void dist_usage(const char *arg) {
                          "-w, --window-size\tSet window size [max(size of spaced kmer, [parameter])]\n"
                          "-S, --sketch-size\tSet sketch size [10, for 2**10 bytes each]\n"
                          "--use-nthash\tUse nthash for encoding. (not reversible, but fast, rolling, and specialized for DNA).\n"
-                         "            \tAs a warning, this does not currently ignore Ns in reads, but it does raise the limit"
+                         "            \tAs a warning, this does not currently ignore Ns in reads, but it does allow us to use kmers with k > 32\n"
+                         "--use-cyclic-hash\tUses a cyclic hash for encoding. Not reversible, but fast. Ns are correctly ignored.\n"
                          "-C, --no-canon\tDo not canonicalize. [Default: canonicalize]\n\n\n"
                          "===Output Files===\n\n"
                          "-o, --out-sizes\tOutput for genome size estimates [stdout]\n"
@@ -529,6 +531,7 @@ void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, co
     uint32_t sketch_size = bytesl2_to_arg(ssarg, SketchEnum<SketchType>::value);
     while(sketches.size() < (u32)nthreads) sketches.push_back(construct<SketchType>(sketch_size)), set_estim_and_jestim(sketches.back(), estim, jestim);
     std::vector<std::string> fnames(nthreads);
+    RollingHasher<uint64_t> rolling_hasher(k, canon);
 
 #define MAIN_SKETCH_LOOP(MinType)\
     for(size_t i = 0; i < inpaths.size(); ++i) {\
@@ -542,14 +545,18 @@ void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, co
             auto &cm = cms[tid];\
             if(enct == NTHASH)\
                 enc.for_each_hash([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.add(kmer);}, inpaths[i].data(), &kseqs[tid]);\
-            else \
+            else if(enct == BONSAI)\
                 enc.for_each([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            else \
+                rolling_hasher.for_each_hash([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
             cm.clear();  \
         } else {\
             if(enct == NTHASH)\
                 enc.for_each_hash([&](u64 kmer){h.add(kmer);}, inpaths[i].data(), &kseqs[tid]);\
-            else\
+            else if(enct == BONSAI)\
                 enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            else\
+                rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
         }\
         h.write(fname.data());\
         h.clear();\
@@ -599,6 +606,7 @@ static option_struct sketch_long_options[] = {\
     LO_FLAG("use-bloom-filter", 131, sketch_type, BLOOM_FILTER)\
     LO_FLAG("use-super-minhash", 132, sketch_type, BB_SUPERMINHASH)\
     LO_FLAG("use-nthash", 133, enct, NTHASH)\
+    LO_FLAG("use-cyclic-hash", 134, enct, CYCLIC)\
     {0,0,0,0}\
 };
 
@@ -641,8 +649,10 @@ int sketch_main(int argc, char *argv[]) {
             case 'h': case '?': sketch_usage(*argv); break;
         }
     }
-    if(k > 32 and enct == BONSAI)
+    if(k > 32 && enct == BONSAI)
         RUNTIME_ERROR("k must be <= 32 for non-rolling hashes.");
+    if(k > 32 && spacing.size())
+        RUNTIME_ERROR("kmers must be unspaced for k > 32");
     nthreads = std::max(nthreads, 1);
     omp_set_num_threads(nthreads);
     Spacer sp(k, wsz, parse_spacing(spacing.data(), k));
@@ -954,11 +964,15 @@ enum CompReading: unsigned {
         if(cms.empty()) {\
             auto &h = sketch;\
             if(enct == BONSAI) enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
-            else enc.for_each_hash([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            else if(enct == NTHASH) enc.for_each_hash([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            else rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
         } else {\
             sketch::cm::ccm_t &cm = cms[tid];\
-            if(enct == BONSAI) enc.for_each([&,mincount](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
-            else          enc.for_each_hash([&,mincount](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            auto lfunc = [&,mincount](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);};\
+            \
+            if(enct == BONSAI)      enc.for_each(lfunc, inpaths[i].data(), &kseqs[tid]);\
+            else if(enct == NTHASH) enc.for_each_hash(lfunc, inpaths[i].data(), &kseqs[tid]);\
+            else         rolling_hasher.for_each_hash(lfunc, inpaths[i].data(), &kseqs[tid]);\
             cm.clear();\
         }\
         CONST_IF(!samesketch) new(final_sketches + i) final_type(std::move(sketch)); \
@@ -997,6 +1011,7 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sk
     ncomplete.store(0);
     const unsigned k = sp.k_;
     const unsigned wsz = sp.w_;
+    RollingHasher<uint64_t> rolling_hasher(k, canon);
     #pragma omp parallel for schedule(dynamic)
     for(size_t i = 0; i < sketches.size(); ++i) {
         const std::string &path(inpaths[i]);
@@ -1135,6 +1150,7 @@ static option_struct dist_long_options[] = {\
     LO_FLAG("use-nthash", 136, enct, NTHASH)\
     LO_FLAG("symmetric-containment-index", 137, result_type, SYMMETRIC_CONTAINMENT_INDEX) \
     LO_FLAG("symmetric-containment-dist", 138, result_type, SYMMETRIC_CONTAINMENT_DIST) \
+    LO_FLAG("use-cyclic-hash", 139, enct, CYCLIC)\
     {0,0,0,0}\
 };
 
@@ -1198,8 +1214,10 @@ int dist_main(int argc, char *argv[]) {
             case 'h': case '?': dist_usage(*argv);
         }
     }
-    if(k > 32 and enct == BONSAI)
+    if(k > 32 && enct == BONSAI)
         RUNTIME_ERROR("k must be <= 32 for non-rolling hashes.");
+    if(k > 32 && spacing.size())
+        RUNTIME_ERROR("kmers must be unspaced for k > 32");
     if(nthreads < 0) nthreads = 1;
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
                                                        : std::vector<std::string>(argv + optind, argv + argc));
