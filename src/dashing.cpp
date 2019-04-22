@@ -778,7 +778,7 @@ typename std::common_type<FType1, FType2>::type full_containment_dist(FType1 con
 template<typename SketchType, typename T, typename Func>
 INLINE void perform_core_op(T &dists, size_t nhlls, SketchType *hlls, const Func &func, size_t i) {
     auto &h1 = hlls[i];
-    #pragma omp parallel for
+    #pragma omp parallel for schedule(dynamic)
     for(size_t j = i + 1; j < nhlls; ++j)
         dists[j - i - 1] = func(hlls[j], h1);
     h1.free();
