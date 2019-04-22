@@ -147,6 +147,11 @@ linux_release:
 		make dashing_s128 dashing_s256 dashing_s512 && \
 		mv dashing_s128 dashing_s256 dashing_s512 release/linux && \
 		cd release/linux && gzip -f9 dashing_s128 dashing_s256 dashing_s512
+osx_release:
+	+rm -f dashing_s128 dashing_s256 && \
+		make dashing_s128 dashing_s256 && \
+		mv dashing_s128 dashing_s256 release/osx && \
+		cd release/osx && gzip -f9 dashing_s128 dashing_s256
 clean:
 	rm -f $(EX) $(D_EX) libzstd.a bonsai/bonsai/clhash.o clhash.o \
 	bonsai/klib/kthread.o bonsai/klib/kstring.o libgomp.a \

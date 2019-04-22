@@ -2,6 +2,12 @@
 
 dashing sketches and computes distances between fasta and fastq data.
 
+
+# Use
+
+The easiest way to use dashing is to grab a binary release. These are located in `dashing/release/{osx,linux}/dashing_s{128,256,512}`, where `dashing_s128`, `dashing_s256`, and `dashing_s512`
+work, respectively, on systems supporting SSE2, AVX2, and AVX512BW. If these don't work, you'll need to build from source.
+
 # Build
 Clone this repository recursively, and use make.
 
@@ -66,7 +72,7 @@ This would involve a loss of precision from the larger models.
 This currently doesn't support data structures besides HLLs, but we plan to make this change at a later date.
 
 
-## Alterative Data Structures
+## Alternative Data Structures
 
 Dashing supports comparisons with a variety of data structures, which have speed and accuracy tradeoffs for given situations.
 By default, HyperLogLog sketches are used, while b-bit minhashing, bottom-k minhashing, bloom filters, and hash sets are supported. 
