@@ -357,7 +357,7 @@ void dist_usage(const char *arg) {
                          " When filtering with count-min sketches by either -y or -N, set minimum count:"
                          "-c, --min-count\tSet minimum count for kmers to pass count-min filtering.\n"
                          "-q, --nhashes\tSet count-min number of hashes. Default: [4]\n"
-                         "-t, --cm-sketch-size\tSet count-min sketch size (log2). Default: ceil(log2(max_filesize)) + 2\n"
+                         "-t, --cm-sketch-size\tSet count-min sketch size (log2). Default: 20\n"
                          "-R, --seed\tSet seed for seeds for count-min sketches\n\n\n"
                          "===Runtime Options\n\n"
                          "-F, --paths\tGet paths to genomes from file rather than positional arguments\n"
@@ -425,6 +425,7 @@ void sketch_usage(const char *arg) {
                          "--suffix/-x\tSet suffix in sketch file names [empty]\n"
                          "--paths/-F\tGet paths to genomes from file rather than positional arguments\n"
                          "--skip-cached/-c\tSkip alreday produced/cached sketches (save sketches to disk in directory of the file [default] or in folder specified by -P\n"
+                         "--avoid-sorting\tAvoid sorting files by genome sizes. This avoids a computational step, but can result in degraded load-balancing.\n\n\n"
                          "\n\n"
                          "Estimation methods --\n\n"
                          "--original/-E\tUse Flajolet with inclusion/exclusion quantitation method for hll. [Default: Ertl MLE]\n"
@@ -436,7 +437,7 @@ void sketch_usage(const char *arg) {
                          "--countmin/-b\tFilter all input data by count-min sketch.\n\n\n"
                          "Options for count-min filtering --\n\n"
                          "--nhashes/-H\tSet count-min number of hashes. Default: [4]\n"
-                         "--cm-sketch-size/-q\tSet count-min sketch size (log2). Default: ceil(log2(max_filesize)) + 2\n"
+                         "--cm-sketch-size/-q\tSet count-min sketch size (log2). Default: 20\n"
                          "--min-count/-n\tProvide minimum expected count for fastq data. If unspecified, all kmers are passed.\n"
                          "--seed/-R\tSet seed for seeds for count-min sketches\n\n\n"
                          "Sketch Type Options --\n\n"
@@ -489,21 +490,6 @@ enum sketching_method: int {
     BY_FNAME = 2
 };
 
-
-size_t fsz2countcm(uint64_t fsz, double factor=1.) {
-    return std::log2(roundup(size_t(fsz * factor))) + 2; // plus 2 to account for the fact that the file is likely compressed
-}
-
-size_t fsz2count(uint64_t fsz) {
-    static constexpr size_t mul = 4; // Take these estimates and multiply by 4 just to be safe
-    // This should be adapted according to the error rate of the pcbf
-    if(fsz < 300ull << 20) return 1 * mul;
-    if(fsz < 500ull << 20) return 3 * mul;
-    if(fsz < 1ull << 30)  return 10 * mul;
-    if(fsz < 3ull << 30)  return 20 * mul;
-    return static_cast<size_t>(std::pow(2., std::log((fsz >> 30))) * 30.) * mul;
-    // This likely does not account for compression.
-}
 
 /*
  *
@@ -608,14 +594,15 @@ static option_struct sketch_long_options[] = {\
     LO_FLAG("use-super-minhash", 132, sketch_type, BB_SUPERMINHASH)\
     LO_FLAG("use-nthash", 133, enct, NTHASH)\
     LO_FLAG("use-cyclic-hash", 134, enct, CYCLIC)\
+    LO_FLAG("avoid-sorting", 135, avoid_fsorting, true)\
     {0,0,0,0}\
 };
 
 // Main functions
 int sketch_main(int argc, char *argv[]) {
-    int wsz(0), k(31), sketch_size(10), skip_cached(false), co, nthreads(1), mincount(1), nhashes(1), cmsketchsize(-1);
+    int wsz(0), k(31), sketch_size(10), skip_cached(false), co, nthreads(1), mincount(1), nhashes(4), cmsketchsize(-1);
     int canon(true);
-    int entropy_minimization = false;
+    int entropy_minimization = false, avoid_fsorting = false;
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = static_cast<hll::JointEstimationMethod>(hll::EstimationMethod::ERTL_MLE);
     std::string spacing, paths_file, suffix, prefix;
@@ -667,13 +654,12 @@ int sketch_main(int argc, char *argv[]) {
         std::fprintf(stderr, "No paths. See usage.\n");
         sketch_usage(*argv);
     }
-    detail::sort_paths_by_fsize(inpaths);
+    if(!avoid_fsorting)
+        detail::sort_paths_by_fsize(inpaths);
     if(sm != EXACT) {
         if(cmsketchsize < 0) {
-            cmsketchsize = fsz2countcm(
-                std::accumulate(inpaths.begin(), inpaths.end(), 0u,
-                                [](unsigned x, const auto &y) ->unsigned {return std::max(x, (unsigned)posix_fsize(y.data()));})
-            );
+            cmsketchsize = 20;
+            LOG_WARNING("Note: count-min sketch size not set. Defaulting to 20 for log2(sketch_size).\n");
         }
         if(sm == CBF)
             use_filter = std::vector<bool>(inpaths.size(), true);
@@ -1165,7 +1151,6 @@ int dist_main(int argc, char *argv[]) {
          // bool sketch_query_by_seq(true);
     EmissionFormat emit_fmt = UT_TSV;
     EncodingType enct = BONSAI;
-    double factor = 1.;
     EmissionType result_type(JI);
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = static_cast<hll::JointEstimationMethod>(hll::EstimationMethod::ERTL_MLE);
@@ -1249,11 +1234,8 @@ int dist_main(int argc, char *argv[]) {
     KSeqBufferHolder kseqs(nthreads);
     switch(sm) {
         case CBF: case BY_FNAME: {
-            if(cmsketchsize < 0) {
-                cmsketchsize = fsz2countcm(
-                std::accumulate(inpaths.begin(), inpaths.end(), 0u,
-                                [](unsigned x, const auto &y) ->unsigned {return std::max(x, (unsigned)posix_fsize(y.data()));}), factor);
-            }
+            cmsketchsize = 20;
+            LOG_WARNING("CM Sketch size not set. Defaulting to 20, 1048576 entries per table\n");
             unsigned nbits = std::log2(mincount) + 1;
             while(cms.size() < static_cast<unsigned>(nthreads))
                 cms.emplace_back(nbits, cmsketchsize, nhashes, (cms.size() ^ seedseedseed) * 1337uL);
