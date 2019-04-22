@@ -490,21 +490,6 @@ enum sketching_method: int {
 };
 
 
-size_t fsz2countcm(uint64_t fsz, double factor=1.) {
-    return std::log2(roundup(size_t(fsz * factor))) + 2; // plus 2 to account for the fact that the file is likely compressed
-}
-
-size_t fsz2count(uint64_t fsz) {
-    static constexpr size_t mul = 4; // Take these estimates and multiply by 4 just to be safe
-    // This should be adapted according to the error rate of the pcbf
-    if(fsz < 300ull << 20) return 1 * mul;
-    if(fsz < 500ull << 20) return 3 * mul;
-    if(fsz < 1ull << 30)  return 10 * mul;
-    if(fsz < 3ull << 30)  return 20 * mul;
-    return static_cast<size_t>(std::pow(2., std::log((fsz >> 30))) * 30.) * mul;
-    // This likely does not account for compression.
-}
-
 /*
  *
   enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
@@ -1164,7 +1149,6 @@ int dist_main(int argc, char *argv[]) {
          // bool sketch_query_by_seq(true);
     EmissionFormat emit_fmt = UT_TSV;
     EncodingType enct = BONSAI;
-    double factor = 1.;
     EmissionType result_type(JI);
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = static_cast<hll::JointEstimationMethod>(hll::EstimationMethod::ERTL_MLE);
@@ -1248,11 +1232,8 @@ int dist_main(int argc, char *argv[]) {
     KSeqBufferHolder kseqs(nthreads);
     switch(sm) {
         case CBF: case BY_FNAME: {
-            if(cmsketchsize < 0) {
-                cmsketchsize = fsz2countcm(
-                std::accumulate(inpaths.begin(), inpaths.end(), 0u,
-                                [](unsigned x, const auto &y) ->unsigned {return std::max(x, (unsigned)posix_fsize(y.data()));}), factor);
-            }
+            cmsketchsize = 20;
+            LOG_WARNING("CM Sketch size not set. Defaulting to 20, 1048576 entries per table\n");
             unsigned nbits = std::log2(mincount) + 1;
             while(cms.size() < static_cast<unsigned>(nthreads))
                 cms.emplace_back(nbits, cmsketchsize, nhashes, (cms.size() ^ seedseedseed) * 1337uL);
