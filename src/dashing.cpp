@@ -114,6 +114,7 @@ enum EmissionFormat: unsigned {
     UPPER_TRIANGULAR = 2,
     PHYLIP_UPPER_TRIANGULAR = 2,
     FULL_TSV = 3,
+    JSON = 4
 };
 
 enum Sketch: int {
@@ -398,7 +399,7 @@ void sketch_usage(const char *arg) {
                          "Filtering Options --\n\n"
                          "Default: consume all kmers. Alternate options: \n"
                          "--sketch-by-fname\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
-                         "--count-min/-b\tFilter all input data by count-min sketch.\n\n\n"
+                         "--countmin/-b\tFilter all input data by count-min sketch.\n\n\n"
                          "Options for count-min filtering --\n\n"
                          "--nhashes/-H\tSet count-min number of hashes. Default: [4]\n"
                          "--cm-sketch-size/-q\tSet count-min sketch size (log2). Default: ceil(log2(max_filesize)) + 2\n"
@@ -597,6 +598,7 @@ int sketch_main(int argc, char *argv[]) {
             case 'S': sketch_size = std::atoi(optarg); break;
             case 'k': k = std::atoi(optarg); break;
             case '8': sketch_type = BB_MINHASH; break;
+            case 'b': sm = CBF; break;
             case 'n':
                       mincount = std::atoi(optarg);
                       std::fprintf(stderr, "mincount: %d\n", mincount);
