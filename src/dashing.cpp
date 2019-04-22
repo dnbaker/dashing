@@ -44,13 +44,44 @@ enum EmissionType {
     FULL_MASH_DIST = 3,
     FULL_CONTAINMENT_DIST = 4,
     CONTAINMENT_INDEX = 5,
-    CONTAINMENT_DIST = 6
+    CONTAINMENT_DIST = 6,
+    SYMMETRIC_CONTAINMENT_INDEX = 7,
+    SYMMETRIC_CONTAINMENT_DIST = 8,
 };
+
+static const char *emt2str(EmissionType result_type) {
+    switch(result_type) {
+        case MASH_DIST: return "MASH_DIST";
+        case JI: return "JI";
+        case SIZES: return "SIZES";
+        case FULL_MASH_DIST: return "FULL_MASH_DIST";
+        case FULL_CONTAINMENT_DIST: return "FULL_CONTAINMENT_DIST";
+        case CONTAINMENT_INDEX: return "CONTAINMENT_INDEX";
+        case CONTAINMENT_DIST: return "CONTAINMENT_DIST";
+        case SYMMETRIC_CONTAINMENT_INDEX: return "SYMMETRIC_CONTAINMENT_INDEX";
+        case SYMMETRIC_CONTAINMENT_DIST: return "SYMMETRIC_CONTAINMENT_DIST";
+        default: break;
+    }
+    return "ILLEGAL_EMISSION_FMT";
+}
+
+static constexpr bool is_symmetric(EmissionType result_type) {
+    switch(result_type) {
+        case MASH_DIST: case JI: case SIZES:
+        case FULL_MASH_DIST: case SYMMETRIC_CONTAINMENT_INDEX: case SYMMETRIC_CONTAINMENT_DIST:
+            return true;
+
+        case CONTAINMENT_INDEX: case CONTAINMENT_DIST: case FULL_CONTAINMENT_DIST:
+        default: break;
+    }
+    return false;
+}
 
 enum EncodingType {
     BONSAI,
     NTHASH,
-    RK
+    RK,
+    CYCLIC
 };
 
 struct khset64_t: public kh::khset64_t {
@@ -314,7 +345,8 @@ void dist_usage(const char *arg) {
                          "-w, --window-size\tSet window size [max(size of spaced kmer, [parameter])]\n"
                          "-S, --sketch-size\tSet sketch size [10, for 2**10 bytes each]\n"
                          "--use-nthash\tUse nthash for encoding. (not reversible, but fast, rolling, and specialized for DNA).\n"
-                         "            \tAs a warning, this does not currently ignore Ns in reads, but it does raise the limit"
+                         "            \tAs a warning, this does not currently ignore Ns in reads, but it does allow us to use kmers with k > 32\n"
+                         "--use-cyclic-hash\tUses a cyclic hash for encoding. Not reversible, but fast. Ns are correctly ignored.\n"
                          "-C, --no-canon\tDo not canonicalize. [Default: canonicalize]\n\n\n"
                          "===Output Files===\n\n"
                          "-o, --out-sizes\tOutput for genome size estimates [stdout]\n"
@@ -364,6 +396,8 @@ void dist_usage(const char *arg) {
                          "--sizes\tEmit union sizes (default: jaccard index)\n"
                          "--containment-index\tEmit Containment Index (|A & B| / |A|)\n"
                          "--containment-dist \tEmit distance metric using containment index. [Let C = (|A & B| / |A|). C ? -log(C) / k : 1.] \n"
+                         "--symmetric-containment-dist\tEmit symmetric containment index symcon(A, B) = max(C(A, B), C(B, A))\n"
+                         "--symmetric-containment-index\ttEmit distance metric using maximum containment index. symdist(A, B) = min(cdist(A,B), cdist(B, A))\n"
                          "--full-containment-dist \tEmit distance metric using containment index, without log approximation. [Let C = (|A & B| / |A|). C ? 1. - C^(1/k) : 1.] \n"
                 , arg);
     std::exit(EXIT_FAILURE);
@@ -498,6 +532,7 @@ void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, co
     uint32_t sketch_size = bytesl2_to_arg(ssarg, SketchEnum<SketchType>::value);
     while(sketches.size() < (u32)nthreads) sketches.push_back(construct<SketchType>(sketch_size)), set_estim_and_jestim(sketches.back(), estim, jestim);
     std::vector<std::string> fnames(nthreads);
+    RollingHasher<uint64_t> rolling_hasher(k, canon);
 
 #define MAIN_SKETCH_LOOP(MinType)\
     for(size_t i = 0; i < inpaths.size(); ++i) {\
@@ -511,14 +546,18 @@ void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, co
             auto &cm = cms[tid];\
             if(enct == NTHASH)\
                 enc.for_each_hash([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.add(kmer);}, inpaths[i].data(), &kseqs[tid]);\
-            else \
+            else if(enct == BONSAI)\
                 enc.for_each([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            else \
+                rolling_hasher.for_each_hash([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
             cm.clear();  \
         } else {\
             if(enct == NTHASH)\
                 enc.for_each_hash([&](u64 kmer){h.add(kmer);}, inpaths[i].data(), &kseqs[tid]);\
-            else\
+            else if(enct == BONSAI)\
                 enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            else\
+                rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
         }\
         h.write(fname.data());\
         h.clear();\
@@ -568,6 +607,7 @@ static option_struct sketch_long_options[] = {\
     LO_FLAG("use-bloom-filter", 131, sketch_type, BLOOM_FILTER)\
     LO_FLAG("use-super-minhash", 132, sketch_type, BB_SUPERMINHASH)\
     LO_FLAG("use-nthash", 133, enct, NTHASH)\
+    LO_FLAG("use-cyclic-hash", 134, enct, CYCLIC)\
     {0,0,0,0}\
 };
 
@@ -611,8 +651,10 @@ int sketch_main(int argc, char *argv[]) {
             case 'h': case '?': sketch_usage(*argv); break;
         }
     }
-    if(k > 32 and enct == BONSAI)
+    if(k > 32 && enct == BONSAI)
         RUNTIME_ERROR("k must be <= 32 for non-rolling hashes.");
+    if(k > 32 && spacing.size())
+        RUNTIME_ERROR("kmers must be unspaced for k > 32");
     nthreads = std::max(nthreads, 1);
     omp_set_num_threads(nthreads);
     Spacer sp(k, wsz, parse_spacing(spacing.data(), k));
@@ -738,32 +780,12 @@ typename std::common_type<FType1, FType2>::type full_containment_dist(FType1 con
 template<typename SketchType, typename T, typename Func>
 INLINE void perform_core_op(T &dists, size_t nhlls, SketchType *hlls, const Func &func, size_t i) {
     auto &h1 = hlls[i];
-    #pragma omp parallel for
+    #pragma omp parallel for schedule(dynamic)
     for(size_t j = i + 1; j < nhlls; ++j)
         dists[j - i - 1] = func(hlls[j], h1);
     h1.free();
 }
 
-#if 0
-//#if defined(ENABLE_COMPUTED_GOTO) && !defined(__clang__)
-#define CORE_ITER(zomg) do {{\
-        static constexpr void *TYPES[] {&&mash##zomg, &&ji##zomg, &&sizes##zomg, &&full_mash##zomg};\
-        goto *TYPES[result_type];\
-        mash##zomg:\
-            perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) {return dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
-            goto next_step##zomg;\
-        ji##zomg:\
-            perform_core_op(dists, nsketches, hlls, similarity<const SketchType>, i);\
-           goto next_step##zomg;\
-        sizes##zomg:\
-            perform_core_op(dists, nsketches, hlls, us::union_size<SketchType>, i);\
-           goto next_step##zomg;\
-        full_mash##zomg:\
-            perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) {return full_dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
-           goto next_step##zomg;\
-        next_step##zomg: ;\
-    } } while(0);
-#else
 #define CORE_ITER(zomg) do {\
         switch(result_type) {\
             case MASH_DIST: {\
@@ -781,10 +803,14 @@ INLINE void perform_core_op(T &dists, size_t nhlls, SketchType *hlls, const Func
             case FULL_MASH_DIST:\
                 perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) {return full_dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
                 break;\
-            default:\
-                __builtin_unreachable();\
+            case SYMMETRIC_CONTAINMENT_DIST:\
+                perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) {return dist_index(std::max(containment_index(x, y), containment_index(y, x)), ksinv);}, i);\
+                break;\
+            case SYMMETRIC_CONTAINMENT_INDEX:\
+                perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) {return std::max(containment_index(x, y), containment_index(y, x));}, i);\
+                break;\
+            default: __builtin_unreachable();\
         } } while(0)
-#endif
 
 template<typename SketchType>
 void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size,
@@ -886,6 +912,11 @@ void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> 
         partdist_loop<SketchType>(ofp, hlls, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size, nq);
         return;
     }
+    if(!is_symmetric(result_type)) {
+        char buf[1024];
+        std::sprintf(buf, "Can't perform symmetric distance comparisons with a symmetric method (%s/%d). To perform an asymmetric distance comparison between a given set and itself, provide the same list of filenames to both -Q and -F.\n", emt2str(result_type), int(result_type));
+        RUNTIME_ERROR(buf);
+    }
     const float ksinv = 1./ k;
     const int pairfi = fileno(ofp);
     omp_set_num_threads(nthreads);
@@ -935,11 +966,15 @@ enum CompReading: unsigned {
         if(cms.empty()) {\
             auto &h = sketch;\
             if(enct == BONSAI) enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
-            else enc.for_each_hash([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            else if(enct == NTHASH) enc.for_each_hash([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            else rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
         } else {\
             sketch::cm::ccm_t &cm = cms[tid];\
-            if(enct == BONSAI) enc.for_each([&,mincount](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
-            else          enc.for_each_hash([&,mincount](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            auto lfunc = [&,mincount](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);};\
+            \
+            if(enct == BONSAI)      enc.for_each(lfunc, inpaths[i].data(), &kseqs[tid]);\
+            else if(enct == NTHASH) enc.for_each_hash(lfunc, inpaths[i].data(), &kseqs[tid]);\
+            else         rolling_hasher.for_each_hash(lfunc, inpaths[i].data(), &kseqs[tid]);\
             cm.clear();\
         }\
         CONST_IF(!samesketch) new(final_sketches + i) final_type(std::move(sketch)); \
@@ -978,6 +1013,7 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sk
     ncomplete.store(0);
     const unsigned k = sp.k_;
     const unsigned wsz = sp.w_;
+    RollingHasher<uint64_t> rolling_hasher(k, canon);
     #pragma omp parallel for schedule(dynamic)
     for(size_t i = 0; i < sketches.size(); ++i) {
         const std::string &path(inpaths[i]);
@@ -1114,6 +1150,9 @@ static option_struct dist_long_options[] = {\
     LO_FLAG("use-bloom-filter", 134, sketch_type, BLOOM_FILTER)\
     LO_FLAG("use-super-minhash", 135, sketch_type, BB_SUPERMINHASH)\
     LO_FLAG("use-nthash", 136, enct, NTHASH)\
+    LO_FLAG("symmetric-containment-index", 137, result_type, SYMMETRIC_CONTAINMENT_INDEX) \
+    LO_FLAG("symmetric-containment-dist", 138, result_type, SYMMETRIC_CONTAINMENT_DIST) \
+    LO_FLAG("use-cyclic-hash", 139, enct, CYCLIC)\
     {0,0,0,0}\
 };
 
@@ -1177,8 +1216,10 @@ int dist_main(int argc, char *argv[]) {
             case 'h': case '?': dist_usage(*argv);
         }
     }
-    if(k > 32 and enct == BONSAI)
+    if(k > 32 && enct == BONSAI)
         RUNTIME_ERROR("k must be <= 32 for non-rolling hashes.");
+    if(k > 32 && spacing.size())
+        RUNTIME_ERROR("kmers must be unspaced for k > 32");
     if(nthreads < 0) nthreads = 1;
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
                                                        : std::vector<std::string>(argv + optind, argv + argc));
@@ -1186,11 +1227,17 @@ int dist_main(int argc, char *argv[]) {
         std::fprintf(stderr, "No paths. See usage.\n"), dist_usage(*argv);
     omp_set_num_threads(nthreads);
     Spacer sp(k, wsz, parse_spacing(spacing.data(), k));
+    size_t nq = querypaths.size();
+    if(nq == 0 && !is_symmetric(result_type)) {
+        querypaths = inpaths;
+        nq = querypaths.size();
+        LOG_WARNING("=====Note===== No query files provided, but an asymmetric distance was requested. Switching to a query/reference format with all references as queries.\n"
+                    "In the future, this will throw an error.\nYou must provide query and reference paths (-Q/-F) to calculate asymmetric distances.\n");
+    }
     if(!presketched_only && !avoid_fsorting) {
         detail::sort_paths_by_fsize(inpaths);
         detail::sort_paths_by_fsize(querypaths);
     }
-    size_t nq = querypaths.size();
     inpaths.reserve(inpaths.size() + querypaths.size());
     for(auto &p: querypaths)
         inpaths.push_back(std::move(p));
@@ -1214,27 +1261,24 @@ int dist_main(int argc, char *argv[]) {
         }
         case EXACT: default: break;
     }
-    if(enct == NTHASH) {
+    if(enct == NTHASH)
         std::fprintf(stderr, "Use nthash's rolling hash for kmers. This comes at the expense of reversibility\n");
-    }
-
 #define CALL_DIST(sketchtype) \
-        dist_sketch_and_cmp<sketchtype>(inpaths, cms, kseqs, ofp, pairofp, sp, sketch_size, mincount, estim, jestim, cache_sketch, result_type, emit_fmt, presketched_only, nthreads, use_scientific, suffix, prefix, canon, entropy_minimization, spacing, nq, enct);
+    dist_sketch_and_cmp<sketchtype>(inpaths, cms, kseqs, ofp, pairofp, sp, sketch_size,\
+                                    mincount, estim, jestim, cache_sketch, result_type,\
+                                    emit_fmt, presketched_only, nthreads,\
+                                    use_scientific, suffix, prefix, canon,\
+                                    entropy_minimization, spacing, nq, enct);
+
     switch(sketch_type) {
-        case BB_MINHASH:
-            CALL_DIST(mh::BBitMinHasher<uint64_t>); break;
-        case BB_SUPERMINHASH:
-            CALL_DIST(SuperMinHashType); break;
-        case HLL:
-            CALL_DIST(hll::hll_t); break;
-        case RANGE_MINHASH:
-            CALL_DIST(mh::RangeMinHash<uint64_t>); break;
+        case BB_MINHASH:      CALL_DIST(mh::BBitMinHasher<uint64_t>); break;
+        case BB_SUPERMINHASH: CALL_DIST(SuperMinHashType); break;
+        case HLL:             CALL_DIST(hll::hll_t); break;
+        case RANGE_MINHASH:   CALL_DIST(mh::RangeMinHash<uint64_t>); break;
+        case BLOOM_FILTER:    CALL_DIST(bf::bf_t); break;
+        case FULL_KHASH_SET:  CALL_DIST(khset64_t); break;
         case COUNTING_RANGE_MINHASH:
-            CALL_DIST(mh::CountingRangeMinHash<uint64_t>); break;
-        case BLOOM_FILTER:
-            CALL_DIST(bf::bf_t); break;
-        case FULL_KHASH_SET:
-            CALL_DIST(khset64_t); break;
+                              CALL_DIST(mh::CountingRangeMinHash<uint64_t>); break;
         default: {
                 char buf[128];
                 std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));
