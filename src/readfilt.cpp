@@ -64,6 +64,7 @@ int main(int argc, char *argv[]) {
     std::fprintf(stderr, "Querying with sketch size = %d\n", p);
     bns::Encoder<> enc(k, canon);
 #if USE_SPARSE
+    const auto hllhist = hll::detail::sum_counts(hll.core());
     sparse::SparseHLL<> qhll(hll.p());
     std::map<uint32_t, uint8_t> rmap;
 #else
@@ -92,10 +93,14 @@ int main(int argc, char *argv[]) {
             enc.for_each(func, ks2->seq.s, ks2->seq.l);
         }
 #if USE_SPARSE
+        auto vals = sparse::pair_query(rmap, hll, &hllhist);
         qhll.fill_from_pairs(rmap.begin(), rmap.end());
         rmap.clear();
-#endif
+        double ci = qhll.containment_index(hll, &hllhist);
+        assert(vals[2] / (vals[0] + vals[2]) == ci);
+#else
         double ci = qhll.containment_index(hll);
+#endif
         if(ci >= frac_cutoff)
             emit(ks, ks2, ofp, ci);
 #if USE_SPARSE
