@@ -58,7 +58,7 @@ EX=$(patsubst src/%.cpp,%,$(wildcard src/*.cpp))
 D_EX=$(patsubst src/%.cpp,%_d,$(wildcard src/*.cpp))
 
 
-all: update dashing
+all: dashing
 
 d: $(D_EX)
 
