@@ -1,4 +1,3 @@
-#include "tinythreadpp/source/fast_mutex.h"
 #include <omp.h>
 #include "bonsai/bonsai/include/util.h"
 #include "bonsai/bonsai/include/database.h"

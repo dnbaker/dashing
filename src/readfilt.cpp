@@ -1,0 +1,83 @@
+#include <omp.h>
+#include "bonsai/bonsai/include/util.h"
+#include "bonsai/bonsai/include/database.h"
+#include "bonsai/bonsai/include/bitmap.h"
+#include "bonsai/hll/hll.h"
+#include "getopt.h"
+using namespace sketch::hll;
+
+int usage() {
+    std::fprintf(stderr, "readfilt <flags> in.fq [in2.fq]\n-f\tFraction cutoff (0.8)\n-s\tPath to HLL\n-o\toutput [stdout]\n-k\tSet kmer [21]\n");
+    return 1;
+}
+
+inline int emit(kseq_t *ks1, kseq_t *ks2, std::FILE *ofp, double ci) {
+    if(ks1->qual.s) {
+        const char *comment = ks1->comment.s ? ks1->comment.s: "";
+        if(unlikely(std::fprintf(ofp, "@%s %s|%lf\n%s\n+\n%s\n", ks1->name.s, comment, ci, ks1->seq.s, ks1->qual.s) < 0)) return -1;
+        if(ks2) {
+            comment = ks2->comment.s ? ks2->comment.s: "";
+            if(unlikely(std::fprintf(ofp, "@%s %s|%lf\n%s\n+\n%s\n", ks2->name.s, comment, ci, ks2->seq.s, ks2->qual.s) < 0)) return -1;
+        }
+    } else {
+        const char *comment = ks1->comment.s ? ks1->comment.s: "";
+        std::fprintf(ofp, ">%s %s|%lf\n%s\n", ks1->name.s, comment, ci, ks1->seq.s);
+        if(ks2) {
+            comment = ks2->comment.s ? ks2->comment.s: "";
+            std::fprintf(ofp, ">%s %s|%lf\n%s\n", ks2->name.s, comment, ci, ks2->seq.s);
+        }
+    }
+    return 0;
+}
+
+int main(int argc, char *argv[]) {
+    std::string hllpath;
+    int c, k = 21;
+    bool canon = true;
+    const char *opath = nullptr;
+    double frac_cutoff = 0.8;
+    while((c = getopt(argc, argv, "Ch?k:s:f:")) >= 0) {
+        switch(c) {
+            case 's': hllpath = optarg; break;
+            case 'f': frac_cutoff = std::atof(optarg); break;
+            case 'k': k = std::atoi(optarg); break;
+            case 'o': opath = optarg; break;
+            case 'C': canon = false; break;
+            case 'h': case '?': return usage();
+        }
+    }
+    std::FILE *ofp = opath ? std::fopen(opath, "w"): stdout;
+    std::vector<std::string> inputs(argv + optind, argv + argc);
+    if(inputs.empty()) throw "a party";
+    if(inputs.size() > 2) throw std::string("WOOO");
+    std::fprintf(stderr, "Processing %zu files (%s, %s) with sketch from %s\n", inputs.size(), inputs[0].data(), inputs.size() > 1 ? inputs[1].data(): "single-end", hllpath.data());
+    hll_t hll(hllpath);
+    gzFile ifp1 = gzopen(inputs[0].data(), "rb"), ifp2 = inputs.size() > 1 ? gzopen(inputs[1].data(), "rb"): nullptr;
+    if(ifp1 == nullptr) throw 1;
+    kseq_t *ks = kseq_init(ifp1), *ks2 = ifp2 ? kseq_init(ifp2): nullptr;
+    int rc;
+    int p = hll.p();
+    std::fprintf(stderr, "Querying with sketch size = %d\n", p);
+    bns::Encoder<> enc(k, canon);
+    hll_t qhll = hll.clone();
+    while(likely((rc = kseq_read(ks)) >= 0)) {
+        enc.for_each([&qhll](uint64_t kmer) {qhll.addh(kmer);}, ks->seq.s, ks->seq.l);
+        if(ks2) {
+            if(unlikely((rc = kseq_read(ks2)) < 0)) {
+                std::fprintf(stderr, "Warning: mismatched numbers of reads between paired-end files. Error code: %d\n", rc);
+                break;
+            }
+            enc.for_each([&qhll](uint64_t kmer) {qhll.addh(kmer);}, ks2->seq.s, ks2->seq.l);
+        }
+        double ci = qhll.containment_index(hll);
+        if(ci >= frac_cutoff) {
+            emit(ks, ks2, ofp, ci);
+        }
+        qhll.reset();
+    }
+    gzclose(ifp1);
+    if(ifp2) gzclose(ifp2);
+    kseq_destroy(ks);
+    if(ks2) kseq_destroy(ks2);
+    if(ofp != stdout) std::fclose(ofp);
+}
