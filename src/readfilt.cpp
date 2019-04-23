@@ -3,8 +3,12 @@
 #include "bonsai/bonsai/include/database.h"
 #include "bonsai/bonsai/include/bitmap.h"
 #include "bonsai/hll/hll.h"
+#include "bonsai/hll/sparse.h"
+#include <map>
 #include "getopt.h"
-using namespace sketch::hll;
+
+using namespace sketch;
+using namespace hll;
 
 int usage() {
     std::fprintf(stderr, "readfilt <flags> in.fq [in2.fq]\n-f\tFraction cutoff (0.8)\n-s\tPath to HLL\n-o\toutput [stdout]\n-k\tSet kmer [21]\n");
@@ -59,21 +63,46 @@ int main(int argc, char *argv[]) {
     int p = hll.p();
     std::fprintf(stderr, "Querying with sketch size = %d\n", p);
     bns::Encoder<> enc(k, canon);
+#if USE_SPARSE
+    sparse::SparseHLL<> qhll(hll.p());
+    std::map<uint32_t, uint8_t> rmap;
+#else
     hll_t qhll = hll.clone();
+#endif
     while(likely((rc = kseq_read(ks)) >= 0)) {
-        enc.for_each([&qhll](uint64_t kmer) {qhll.addh(kmer);}, ks->seq.s, ks->seq.l);
+#if USE_SPARSE
+        qhll.clear();
+#endif
+        auto func = [&](uint64_t kmer) {
+#if USE_SPARSE
+            kmer = hll.hash(kmer);
+            auto pos = kmer >> (64 - p);
+            uint8_t v = clz(((kmer << 1)|1) << (p - 1)) + 1;
+            rmap[pos] = std::max(rmap[pos], v);
+#else
+            qhll.addh(kmer);
+#endif
+        };
+        enc.for_each(func, ks->seq.s, ks->seq.l);
         if(ks2) {
             if(unlikely((rc = kseq_read(ks2)) < 0)) {
                 std::fprintf(stderr, "Warning: mismatched numbers of reads between paired-end files. Error code: %d\n", rc);
                 break;
             }
-            enc.for_each([&qhll](uint64_t kmer) {qhll.addh(kmer);}, ks2->seq.s, ks2->seq.l);
+            enc.for_each(func, ks2->seq.s, ks2->seq.l);
         }
+#if USE_SPARSE
+        qhll.fill_from_pairs(rmap.begin(), rmap.end());
+        rmap.clear();
+#endif
         double ci = qhll.containment_index(hll);
-        if(ci >= frac_cutoff) {
+        if(ci >= frac_cutoff)
             emit(ks, ks2, ofp, ci);
-        }
+#if USE_SPARSE
+        qhll.clear();
+#else
         qhll.reset();
+#endif
     }
     gzclose(ifp1);
     if(ifp2) gzclose(ifp2);
