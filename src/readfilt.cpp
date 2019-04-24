@@ -56,6 +56,7 @@ int main(int argc, char *argv[]) {
     if(inputs.size() > 2) throw std::string("WOOO");
     std::fprintf(stderr, "Processing %zu files (%s, %s) with sketch from %s\n", inputs.size(), inputs[0].data(), inputs.size() > 1 ? inputs[1].data(): "single-end", hllpath.data());
     hll_t hll(hllpath);
+    hll.csum();
     gzFile ifp1 = gzopen(inputs[0].data(), "rb"), ifp2 = inputs.size() > 1 ? gzopen(inputs[1].data(), "rb"): nullptr;
     if(ifp1 == nullptr) throw 1;
     kseq_t *ks = kseq_init(ifp1), *ks2 = ifp2 ? kseq_init(ifp2): nullptr;
@@ -99,6 +100,7 @@ int main(int argc, char *argv[]) {
         double ci = qhll.containment_index(hll, &hllhist);
         assert(vals[2] / (vals[0] + vals[2]) == ci);
 #else
+        qhll.csum();
         double ci = qhll.containment_index(hll);
 #endif
         if(ci >= frac_cutoff)
