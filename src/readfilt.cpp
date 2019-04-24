@@ -95,10 +95,14 @@ int main(int argc, char *argv[]) {
         }
 #if USE_SPARSE
         auto vals = sparse::pair_query(rmap, hll, &hllhist);
+#if !NDEBUG
         qhll.fill_from_pairs(rmap.begin(), rmap.end());
         rmap.clear();
         double ci = qhll.containment_index(hll, &hllhist);
         assert(vals[2] / (vals[0] + vals[2]) == ci);
+#else
+        double ci = vals[2] / (vals[0] + vals[2]);
+#endif
 #else
         qhll.csum();
         double ci = qhll.containment_index(hll);
