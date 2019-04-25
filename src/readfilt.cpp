@@ -11,14 +11,14 @@ using namespace sketch;
 using namespace hll;
 
 int usage() {
-    std::fprintf(stderr, "readfilt <flags> in.fq [in2.fq]\n-f\tFraction cutoff (0.8)\n-s\tPath to HLL\n-o\toutput [stdout]\n-k\tSet kmer [21]\n");
+    std::fprintf(stderr, "readfilt <flags> in.fq [in2.fq]\n-f\tFraction cutoff (0.5)\n-s\tPath to HLL\n-o\toutput [stdout]\n-k\tSet kmer [21]\n");
     return 1;
 }
 
-inline int emit(kseq_t *ks1, kseq_t *ks2, std::FILE *ofp, double ci) {
+inline int emit(kseq_t *ks1, kseq_t *ks2, std::FILE *ofp, double ci, const std::array<double, 3> &res) {
     if(ks1->qual.s) {
         const char *comment = ks1->comment.s ? ks1->comment.s: "";
-        if(unlikely(std::fprintf(ofp, "@%s %s|%lf\n%s\n+\n%s\n", ks1->name.s, comment, ci, ks1->seq.s, ks1->qual.s) < 0)) return -1;
+        if(unlikely(std::fprintf(ofp, "@%s %s|CI:%lf|%lf|%lf|%lf|\n%s\n+\n%s\n", ks1->name.s, comment, ci, res[0], res[1], res[2], ks1->seq.s, ks1->qual.s) < 0)) return -1;
         if(ks2) {
             comment = ks2->comment.s ? ks2->comment.s: "";
             if(unlikely(std::fprintf(ofp, "@%s %s|%lf\n%s\n+\n%s\n", ks2->name.s, comment, ci, ks2->seq.s, ks2->qual.s) < 0)) return -1;
@@ -35,11 +35,12 @@ inline int emit(kseq_t *ks1, kseq_t *ks2, std::FILE *ofp, double ci) {
 }
 
 int main(int argc, char *argv[]) {
+    if(argc == 1) return usage();
     std::string hllpath;
     int c, k = 21;
     bool canon = true;
     const char *opath = nullptr;
-    double frac_cutoff = 0.8;
+    double frac_cutoff = 0.5;
     while((c = getopt(argc, argv, "Ch?k:s:f:")) >= 0) {
         switch(c) {
             case 's': hllpath = optarg; break;
@@ -64,6 +65,7 @@ int main(int argc, char *argv[]) {
     int p = hll.p();
     std::fprintf(stderr, "Querying with sketch size = %d\n", p);
     bns::Encoder<> enc(k, canon);
+    size_t nread = 0;
 #if USE_SPARSE
     const auto hllhist = hll::detail::sum_counts(hll.core());
     sparse::SparseHLL<> qhll(hll.p());
@@ -72,6 +74,8 @@ int main(int argc, char *argv[]) {
     hll_t qhll = hll.clone();
 #endif
     while(likely((rc = kseq_read(ks)) >= 0)) {
+        if((++nread & 0xFFFu) == 0)
+            std::fprintf(stderr, "processed %zu reads\n", nread);
 #if USE_SPARSE
         qhll.clear();
 #endif
@@ -95,20 +99,29 @@ int main(int argc, char *argv[]) {
         }
 #if USE_SPARSE
         auto vals = sparse::pair_query(rmap, hll, &hllhist);
+#if VERBOSE_AF
+        std::fprintf(stderr, "vals: %lf/%lf/%lf\n", vals[0], vals[1], vals[2]);
+#endif
 #if !NDEBUG
         qhll.fill_from_pairs(rmap.begin(), rmap.end());
         rmap.clear();
-        double ci = qhll.containment_index(hll, &hllhist);
-        assert(vals[2] / (vals[0] + vals[2]) == ci);
+        auto vals = qhll.query(hll, &hllhist);
+        double ci = vals[2] / (vals[0] + vals[2]);
 #else
         double ci = vals[2] / (vals[0] + vals[2]);
 #endif
 #else
         qhll.csum();
-        double ci = qhll.containment_index(hll);
+        auto vals = ertl_joint(qhll, hll);
+        double ci = vals[2] / (vals[0] + vals[2]);
 #endif
         if(ci >= frac_cutoff)
-            emit(ks, ks2, ofp, ci);
+            emit(ks, ks2, ofp, ci, vals);
+#if 0
+        else {
+            std::fprintf(stderr, "ci (with vals %lf, %lf, %lf) of %lf failed\n", vals[0], vals[1], vals[2], ci);
+        }
+#endif
 #if USE_SPARSE
         qhll.clear();
 #else
