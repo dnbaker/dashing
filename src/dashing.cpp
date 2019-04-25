@@ -1234,9 +1234,10 @@ int dist_main(int argc, char *argv[]) {
     KSeqBufferHolder kseqs(nthreads);
     switch(sm) {
         case CBF: case BY_FNAME: {
-            cmsketchsize = 20;
+            cmsketchsize = cmsketchsize < 0 ? 20: cmsketchsize;
             LOG_WARNING("CM Sketch size not set. Defaulting to 20, 1048576 entries per table\n");
             unsigned nbits = std::log2(mincount) + 1;
+            cms.reserve(nthreads);
             while(cms.size() < static_cast<unsigned>(nthreads))
                 cms.emplace_back(nbits, cmsketchsize, nhashes, (cms.size() ^ seedseedseed) * 1337uL);
             break;
