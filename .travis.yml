@@ -31,6 +31,9 @@ script:
   - ls bonsai/bonsai/test/*.gz > fns.txt
   - cp fns.txt qns.txt
   - ./dashing dist --containment-index -Q qns.txt -F fns.txt
+  - ./dashing dist -p4 --containment-index -Q qns.txt -F fns.txt
+  - ./dashing dist -p4 --countmin --containment-index -Q qns.txt -F fns.txt
+  - make sparse
 notifications:
     slack: jhu-genomics:BbHYSks7DhOolq80IYf6m9oe
     rooms:
