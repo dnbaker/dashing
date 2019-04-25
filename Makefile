@@ -58,7 +58,7 @@ EX=$(patsubst src/%.cpp,%,$(wildcard src/*.cpp))
 D_EX=$(patsubst src/%.cpp,%_d,$(wildcard src/*.cpp))
 
 
-all: update dashing
+all: dashing
 
 d: $(D_EX)
 
@@ -106,7 +106,10 @@ zobj: $(ALL_ZOBJS)
 STATIC_GOMP?=$(shell $(CXX) --print-file-name=libgomp.a)
 
 %: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.so
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
+
+sparse%: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.so
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -DUSE_SPARSE -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
 
 %_d: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g \
@@ -157,3 +160,4 @@ clean:
 	bonsai/klib/kthread.o bonsai/klib/kstring.o libgomp.a \
 	&& cd bonsai/zstd && make clean && cd ../zlib && make clean && cd ../..
 mostlyclean: clean
+sparse: readfilt sparsereadfilt

@@ -1,4 +1,3 @@
-#include "tinythreadpp/source/fast_mutex.h"
 #include <omp.h>
 #include "bonsai/bonsai/include/util.h"
 #include "bonsai/bonsai/include/database.h"
@@ -529,7 +528,7 @@ void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, co
         Encoder<MinType> enc(nullptr, 0, sp, nullptr, canon);\
         auto &h = sketches[tid];\
         if(use_filter.size() && use_filter[i]) {\
-            auto &cm = cms[tid];\
+            auto &cm = cms.at(tid);\
             if(enct == NTHASH)\
                 enc.for_each_hash([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.add(kmer);}, inpaths[i].data(), &kseqs[tid]);\
             else if(enct == BONSAI)\
@@ -955,9 +954,8 @@ enum CompReading: unsigned {
             else if(enct == NTHASH) enc.for_each_hash([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
             else rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
         } else {\
-            sketch::cm::ccm_t &cm = cms[tid];\
-            auto lfunc = [&,mincount](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);};\
-            \
+            sketch::cm::ccm_t &cm = cms.at(tid);\
+            const auto lfunc = [&](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);};\
             if(enct == BONSAI)      enc.for_each(lfunc, inpaths[i].data(), &kseqs[tid]);\
             else if(enct == NTHASH) enc.for_each_hash(lfunc, inpaths[i].data(), &kseqs[tid]);\
             else         rolling_hasher.for_each_hash(lfunc, inpaths[i].data(), &kseqs[tid]);\
@@ -1234,8 +1232,10 @@ int dist_main(int argc, char *argv[]) {
     KSeqBufferHolder kseqs(nthreads);
     switch(sm) {
         case CBF: case BY_FNAME: {
-            cmsketchsize = cmsketchsize < 0 ? 20: cmsketchsize;
-            LOG_WARNING("CM Sketch size not set. Defaulting to 20, 1048576 entries per table\n");
+            if(cmsketchsize < 0) {
+                cmsketchsize = 20;
+                LOG_WARNING("CM Sketch size not set. Defaulting to 20, 1048576 entries per table\n");
+            }
             unsigned nbits = std::log2(mincount) + 1;
             cms.reserve(nthreads);
             while(cms.size() < static_cast<unsigned>(nthreads))
