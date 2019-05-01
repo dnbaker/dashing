@@ -99,14 +99,18 @@ bonsai/zlib/libz.a:
 	+cd bonsai/zlib && ./configure && make libz.a
 
 bonsai/zlib/libz.so:
-	+cd bonsai/zlib && ./configure && make && touch libz.so
+	+cd bonsai/zlib && ./configure && make && ls libz.so
 
 zobj: $(ALL_ZOBJS)
 
 STATIC_GOMP?=$(shell $(CXX) --print-file-name=libgomp.a)
 
-%: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.so
+# bonsai/zlib/libz.so
+%: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
+
+src/%.o: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.so
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -c -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
 
 sparse%: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.so
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -DUSE_SPARSE -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG

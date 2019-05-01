@@ -101,6 +101,7 @@ int main(int argc, char *argv[]) {
         double ci = qhll.containment_index(hll, &hllhist);
         assert(vals[2] / (vals[0] + vals[2]) == ci);
 #else
+        std::fprintf(stderr, "vals: only in query: %lf. only in reference: %lf. shared: %lf\n", vals[0], vals[1], vals[2]);
         double ci = vals[2] / (vals[0] + vals[2]);
 #endif
 #else
