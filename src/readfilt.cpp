@@ -67,6 +67,9 @@ int main(int argc, char *argv[]) {
     bns::Encoder<> enc(k, canon);
     size_t nread = 0;
 #if USE_SPARSE
+    if(p > 26) {
+        throw std::runtime_error("Sparse representation only supported for p <= 26");
+    }
     const auto hllhist = hll::detail::sum_counts(hll.core());
     sparse::SparseHLL<> qhll(hll.p());
     std::map<uint32_t, uint8_t> rmap;
