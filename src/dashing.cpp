@@ -382,17 +382,17 @@ void dist_usage(const char *arg) {
                          "--use-counting-range-minhash\tCreate range minhash sketches\n"
                          "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n\n\n"
                          "===Sketch-specific Options===\n\n"
-                         "-I, --improved\tUse Ertl's Improved Estimator for HLL\n"
-                         "-E, --original\tUse Ertl's Original Estimator for HLL\n"
+                         "-I, --improved      \tUse Ertl's Improved Estimator for HLL\n"
+                         "-E, --original      \tUse Ertl's Original Estimator for HLL\n"
                          "-J, --ertl-joint-mle\tUse Ertl's JMLE Estimator for HLL[default:Uses Ertl-MLE]\n\n\n"
                          "===b-bit Minhashing Options (apply for b-bit minhash and b-bit superminhash) ===\n\n"
                          "--bbits,-B\tSet `b` for b-bit minwise hashing to <int>. Default: 16\n\n\n"
                          "===Distance Emission Types===\n\n"
                          "Default: Jaccard Index\n"
                          "Alternatives:\n"
-                         "-M, --mash-dist\tEmit Mash distance [ji ? (-log(2. * ji / (1. + ji)) / k) : 1.]\n"
-                         "--full-mash-dist \tEmit full (not approximate) Mash distance. [1. - (2.*ji/(1. + ji))^(1/k)]\n"
-                         "--sizes\tEmit union sizes (default: jaccard index)\n"
+                         "-M, --mash-dist    \tEmit Mash distance [ji ? (-log(2. * ji / (1. + ji)) / k) : 1.]\n"
+                         "--full-mash-dist   \tEmit full (not approximate) Mash distance. [1. - (2.*ji/(1. + ji))^(1/k)]\n"
+                         "--sizes            \tEmit union sizes (default: jaccard index)\n"
                          "--containment-index\tEmit Containment Index (|A & B| / |A|)\n"
                          "--containment-dist \tEmit distance metric using containment index. [Let C = (|A & B| / |A|). C ? -log(C) / k : 1.] \n"
                          "--symmetric-containment-dist\tEmit symmetric containment index symcon(A, B) = max(C(A, B), C(B, A))\n"
@@ -1320,13 +1320,8 @@ int print_binary_main(int argc, char *argv[]) {
 }
 
 int setdist_main(int argc, char *argv[]) {
-    LOG_WARNING("setdist_main has been deprecated and will be removed in the future. Calling `dashing dist` with --use-full-khash-sets\n");
-    std::vector<char *> av(argc);
-    for(ssize_t i = 0; i < argc; ++i)
-        av[i] = argv[i];
-    std::string additional = "--use-full-khash-sets";
-    av.insert(av.begin() + 1, &additional[0]);
-    return dist_main(av.size(), av.data());
+    LOG_WARNING("setdist_main is deprecated and will be removed. Instead, call `dashing dist` with --use-full-khash-sets to use hash sets instead of sketches.\n");
+    return 1;
 }
 
 int hll_main(int argc, char *argv[]) {
