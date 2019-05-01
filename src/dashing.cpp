@@ -792,7 +792,7 @@ INLINE void perform_core_op(T &dists, size_t nhlls, SketchType *hlls, const Func
                 perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) {return dist_index(std::max(containment_index(x, y), containment_index(y, x)), ksinv);}, i);\
                 break;\
             case SYMMETRIC_CONTAINMENT_INDEX:\
-                perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) {return std::max(containment_index(x, y), containment_index(y, x));}, i);\
+                perform_core_op(dists, nsketches, hlls, [](const auto &x, const auto &y) {return std::max(containment_index(x, y), containment_index(y, x));}, i);\
                 break;\
             default: __builtin_unreachable();\
         } } while(0)
@@ -867,13 +867,12 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
                 // RUNTIME_ERROR(std::string("Illegal output format. numeric: ") + std::to_string(int(emit_fmt)));
             case FULL_TSV:
                 if(fmt_future.valid()) fmt_future.get();
-                fmt_future = std::async(std::launch::async, [nr,qi,ofp,ind=qi-nr,nq,&inpaths,use_scientific,arr,&buffers,&write_future]() {
+                fmt_future = std::async(std::launch::async, [nr,qi,ofp,ind=qi-nr,&inpaths,use_scientific,arr,&buffers,&write_future]() {
                     auto &buffer = buffers[qi & 1];
                     buffer += inpaths[qi];
                     const char *fmt = use_scientific ? "\t%e": "\t%f";
                     float *aptr = arr + ind * nr;
                     for(size_t i = 0; i < nr; ++i) {
-                        assert(aptr + i < (arr + nq*nr));
                         buffer.sprintf(fmt, aptr[i]);
                     }
                     buffer.putc_('\n');
@@ -1169,7 +1168,7 @@ int dist_main(int argc, char *argv[]) {
             case 'U': emit_fmt   =  UPPER_TRIANGULAR;   break;
             case 'l': result_type = FULL_MASH_DIST;     break;
             case 'T': emit_fmt = FULL_TSV;              break;
-            case 'Q': querypaths = std::move(get_paths(optarg)); break;
+            case 'Q': querypaths = get_paths(optarg); break;
             case 'R': seedseedseed = std::strtoull(optarg, nullptr, 10); break;
             case 'E': jestim   = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
             case 'I': jestim   = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
