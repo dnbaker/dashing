@@ -242,6 +242,11 @@ FINAL_OVERLOAD(mh::RangeMinHash<uint64_t>);
 FINAL_OVERLOAD(mh::BBitMinHasher<uint64_t>);
 FINAL_OVERLOAD(SuperMinHashType);
 FINAL_OVERLOAD(CBBMinHashType);
+FINAL_OVERLOAD(wj::WeightedSketcher<mh::CountingRangeMinHash<uint64_t>>);
+FINAL_OVERLOAD(wj::WeightedSketcher<mh::RangeMinHash<uint64_t>>);
+FINAL_OVERLOAD(wj::WeightedSketcher<mh::BBitMinHasher<uint64_t>>);
+FINAL_OVERLOAD(wj::WeightedSketcher<SuperMinHashType>);
+FINAL_OVERLOAD(wj::WeightedSketcher<CBBMinHashType>);
 template<typename T>struct SketchFileSuffix {static constexpr const char *suffix = ".sketch";};
 #define SSS(type, suf) template<> struct SketchFileSuffix<type> {static constexpr const char *suffix = suf;}
 SSS(mh::CountingRangeMinHash<uint64_t>, ".crmh");
@@ -295,6 +300,9 @@ double containment_index<x>(const x &b, const x &a) {\
 CONTAIN_OVERLOAD_FAIL(CRMFinal)
 CONTAIN_OVERLOAD_FAIL(RMFinal)
 CONTAIN_OVERLOAD_FAIL(bf::bf_t)
+CONTAIN_OVERLOAD_FAIL(wj::WeightedSketcher<CRMFinal>)
+CONTAIN_OVERLOAD_FAIL(wj::WeightedSketcher<RMFinal>)
+CONTAIN_OVERLOAD_FAIL(wj::WeightedSketcher<bf::bf_t>)
 
 
 void main_usage(char **argv) {
@@ -521,18 +529,15 @@ INLINE void set_estim_and_jestim(hll::hllbase_t<Hashstruct> &h, hll::EstimationM
 }
 using hll::EstimationMethod;
 using hll::JointEstimationMethod;
-template<typename T> T construct(size_t ssarg);
-template<typename T, typename=std::enable_if_t<wj::is_weighted_sketch<T>::value>>
-T construct_weighted(size_t ssarg) {
-    using base_type = typename T::base_type;
-    using cm_type = typename T::cm_type;
-    return T(cm_type(8, gargs.weighted_jaccard_cmsize, gargs.weighted_jaccard_nhashes), construct<base_type>(ssarg));
-}
 template<typename T>
 T construct(size_t ssarg) {
-    if(!wj::is_weighted_sketch<T>::value)
+    if constexpr(!wj::is_weighted_sketch<T>())
         return T(ssarg);
-    return construct_weighted<T>(ssarg);
+    else {
+        using base_type = typename T::base_type;
+        using cm_type = typename T::cm_type;
+        return T(cm_type(8, gargs.weighted_jaccard_cmsize, gargs.weighted_jaccard_nhashes), construct<base_type>(ssarg));
+    }
 }
 template<> mh::BBitMinHasher<uint64_t> construct<mh::BBitMinHasher<uint64_t>>(size_t p) {return mh::BBitMinHasher<uint64_t>(p, gargs.bbnbits);}
 
