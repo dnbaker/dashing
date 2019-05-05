@@ -23,7 +23,7 @@ OPT_MINUS_OPENMP= -O3 -funroll-loops\
 	$(FLAGS) $(EXTRA)
 OPT=$(OPT_MINUS_OPENMP) -fopenmp # -lgomp /* sometimes needed */-lomp /* for clang */
 XXFLAGS=-fno-rtti
-CXXFLAGS=$(OPT) $(XXFLAGS) -std=c++14 $(WARNINGS) \
+CXXFLAGS=$(OPT) $(XXFLAGS) -std=c++17 $(WARNINGS) \
 	 -DDASHING_VERSION=\"$(GIT_VERSION)\"
 CXXFLAGS_MINUS_OPENMP=$(OPT_MINUS_OPENMP) $(XXFLAGS) -std=c++1z $(WARNINGS) -Wno-cast-align -Wno-gnu-zero-variadic-macro-arguments \
 	 -DDASHING_VERSION=\"$(GIT_VERSION)\"
