@@ -16,6 +16,11 @@
 #include <execution>
 #endif
 
+#if __cpp_if_constexpr
+#else
+#error("Need if constexpr")
+#endif
+
 using namespace sketch;
 using circ::roundup;
 using hll::hll_t;
