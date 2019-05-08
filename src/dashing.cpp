@@ -37,7 +37,7 @@ using sketch::common::WangHash;
 static const char *executable = nullptr;
 
 struct GlobalArgs {
-    size_t weighted_jaccard_cmsize = 16;
+    size_t weighted_jaccard_cmsize = 22;
     size_t weighted_jaccard_nhashes = 8;
     uint32_t bbnbits = 16;
 };
@@ -552,13 +552,13 @@ template<typename T> struct Constructor<T, true> {
     static auto create(size_t ssarg) {
         using base_type = typename T::base_type;
         using cm_type = typename T::cm_type;
-        return T(cm_type(8, gargs.weighted_jaccard_cmsize, gargs.weighted_jaccard_nhashes), construct<base_type>(ssarg));
+        return T(cm_type(16, gargs.weighted_jaccard_cmsize, gargs.weighted_jaccard_nhashes), construct<base_type>(ssarg));
     }
 };
 
 template<typename T>
 T construct(size_t ssarg) {
-    Constructor<T, wj::is_weighted_sketch<T>()> constructor;
+    Constructor<T, wj::is_weighted_sketch<T>::value> constructor;
     return constructor.create(ssarg);
 }
 
