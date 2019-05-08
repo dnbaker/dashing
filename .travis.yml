@@ -25,6 +25,8 @@ script:
   - ./bonsai/unit circdebuff
   - ./bonsai/unit tax
   - cd ..
+  - gcc --version
+  - g++ --version
   - make dashing
   - ./dashing dist bonsai/bonsai/test/GCF_00*z
   - ./dashing dist -8 bonsai/bonsai/test/GCF_00*z

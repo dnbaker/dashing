@@ -5,7 +5,7 @@
 #include "bonsai/bonsai/include/setcmp.h"
 #include "hll/bbmh.h"
 #include "hll/mh.h"
-#include "hll/ccm.h"
+#include "hll/mult.h"
 #include "khset/khset.h"
 #include "distmat/distmat.h"
 #include <sstream>
@@ -35,6 +35,13 @@ using option_struct = struct option;
 namespace bns {
 using sketch::common::WangHash;
 static const char *executable = nullptr;
+
+struct GlobalArgs {
+    size_t weighted_jaccard_cmsize = 16;
+    size_t weighted_jaccard_nhashes = 8;
+    uint32_t bbnbits = 16;
+};
+static GlobalArgs gargs;
 
 enum EmissionType {
     MASH_DIST = 0,
@@ -84,6 +91,7 @@ enum EncodingType {
 };
 
 struct khset64_t: public kh::khset64_t {
+    using final_type = khset64_t;
     void addh(uint64_t v) {this->insert(v);}
     double cardinality_estimate() const {
         return this->size();
@@ -178,8 +186,15 @@ template<> struct SketchEnum<mh::BBitMinHasher<uint64_t>> {static constexpr Sket
 template<> struct SketchEnum<CBBMinHashType> {static constexpr Sketch value = COUNTING_BB_MINHASH;};
 template<> struct SketchEnum<khset64_t> {static constexpr Sketch value = FULL_KHASH_SET;};
 template<> struct SketchEnum<SuperMinHashType> {static constexpr Sketch value = BB_SUPERMINHASH;};
+template<> struct SketchEnum<wj::WeightedSketcher<hll::hll_t>> {static constexpr Sketch value = HLL;};
+template<> struct SketchEnum<wj::WeightedSketcher<bf::bf_t>> {static constexpr Sketch value = BLOOM_FILTER;};
+template<> struct SketchEnum<wj::WeightedSketcher<mh::RangeMinHash<uint64_t>>> {static constexpr Sketch value = RANGE_MINHASH;};
+template<> struct SketchEnum<wj::WeightedSketcher<mh::CountingRangeMinHash<uint64_t>>> {static constexpr Sketch value = COUNTING_RANGE_MINHASH;};
+template<> struct SketchEnum<wj::WeightedSketcher<mh::BBitMinHasher<uint64_t>>> {static constexpr Sketch value = BB_MINHASH;};
+template<> struct SketchEnum<wj::WeightedSketcher<CBBMinHashType>> {static constexpr Sketch value = COUNTING_BB_MINHASH;};
+template<> struct SketchEnum<wj::WeightedSketcher<khset64_t>> {static constexpr Sketch value = FULL_KHASH_SET;};
+template<> struct SketchEnum<wj::WeightedSketcher<SuperMinHashType>> {static constexpr Sketch value = BB_SUPERMINHASH;};
 
-static uint32_t bbnbits = 16;
 
 template<typename T>
 double cardinality_estimate(T &x) {
@@ -200,9 +215,9 @@ static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
         case RANGE_MINHASH: return size_t(1) << (nblog2 - 3); // 8 bytes per minimizer
         case COUNTING_RANGE_MINHASH: return (size_t(1) << (nblog2)) / (sizeof(uint64_t) + sizeof(uint32_t));
         case BB_MINHASH:
-            return nblog2 - std::floor(std::log2(bbnbits / 8));
+            return nblog2 - std::floor(std::log2(gargs.bbnbits / 8));
         case BB_SUPERMINHASH:
-            return size_t(1) << (nblog2 - int(std::log2(bbnbits / 8)));
+            return size_t(1) << (nblog2 - int(std::log2(gargs.bbnbits / 8)));
         case FULL_KHASH_SET: return 16; // Reserve hash set size a bit. Mostly meaningless, resizing as necessary.
         default: {
             char buf[128];
@@ -227,6 +242,11 @@ FINAL_OVERLOAD(mh::RangeMinHash<uint64_t>);
 FINAL_OVERLOAD(mh::BBitMinHasher<uint64_t>);
 FINAL_OVERLOAD(SuperMinHashType);
 FINAL_OVERLOAD(CBBMinHashType);
+FINAL_OVERLOAD(wj::WeightedSketcher<mh::CountingRangeMinHash<uint64_t>>);
+FINAL_OVERLOAD(wj::WeightedSketcher<mh::RangeMinHash<uint64_t>>);
+FINAL_OVERLOAD(wj::WeightedSketcher<mh::BBitMinHasher<uint64_t>>);
+FINAL_OVERLOAD(wj::WeightedSketcher<SuperMinHashType>);
+FINAL_OVERLOAD(wj::WeightedSketcher<CBBMinHashType>);
 template<typename T>struct SketchFileSuffix {static constexpr const char *suffix = ".sketch";};
 #define SSS(type, suf) template<> struct SketchFileSuffix<type> {static constexpr const char *suffix = suf;}
 SSS(mh::CountingRangeMinHash<uint64_t>, ".crmh");
@@ -280,6 +300,9 @@ double containment_index<x>(const x &b, const x &a) {\
 CONTAIN_OVERLOAD_FAIL(CRMFinal)
 CONTAIN_OVERLOAD_FAIL(RMFinal)
 CONTAIN_OVERLOAD_FAIL(bf::bf_t)
+CONTAIN_OVERLOAD_FAIL(wj::WeightedSketcher<CRMFinal>)
+CONTAIN_OVERLOAD_FAIL(wj::WeightedSketcher<RMFinal>)
+CONTAIN_OVERLOAD_FAIL(wj::WeightedSketcher<bf::bf_t>)
 
 
 void main_usage(char **argv) {
@@ -398,6 +421,11 @@ void dist_usage(const char *arg) {
                          "--symmetric-containment-dist\tEmit symmetric containment index symcon(A, B) = max(C(A, B), C(B, A))\n"
                          "--symmetric-containment-index\ttEmit distance metric using maximum containment index. symdist(A, B) = min(cdist(A,B), cdist(B, A))\n"
                          "--full-containment-dist \tEmit distance metric using containment index, without log approximation. [Let C = (|A & B| / |A|). C ? 1. - C^(1/k) : 1.] \n"
+                         "\n\n"
+                         "===Count-min-based Streaming Weighted Jaccard===\n"
+                         "--wj               \tEnable weighted jaccard adapter\n"
+                         "--wj-cm-sketch-size\tSet count-min sketch size for count-min streaming weighted jaccard [16]\n"
+                         "--wj-cm-nhashes    \tSet count-min sketch number of hashes for count-min streaming weighted jaccard [8]\n"
                 , arg);
     std::exit(EXIT_FAILURE);
 }
@@ -446,7 +474,11 @@ void sketch_usage(const char *arg) {
                          "--use-super-minhash\tCreate b-bit super minhash sketches\n"
                          "--use-counting-range-minhash\tCreate range minhash sketches\n"
                          "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n"
-                         "----\n"
+                         "\n\n"
+                         "===Count-min-based Streaming Weighted Jaccard===\n"
+                         "--wj               \tEnable weighted jaccard adapter\n"
+                         "--wj-cm-sketch-size\tSet count-min sketch size for count-min streaming weighted jaccard [16]\n"
+                         "--wj-cm-nhashes    \tSet count-min sketch number of hashes for count-min streaming weighted jaccard [8]\n"
                 , arg);
     std::exit(EXIT_FAILURE);
 }
@@ -490,6 +522,7 @@ enum sketching_method: int {
 };
 
 
+
 /*
  *
   enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
@@ -505,11 +538,31 @@ INLINE void set_estim_and_jestim(hll::hllbase_t<Hashstruct> &h, hll::EstimationM
 }
 using hll::EstimationMethod;
 using hll::JointEstimationMethod;
+
+template<typename T>
+T construct(size_t ssarg);
+template<typename T, bool is_weighted>
+struct Constructor;
+template<typename T> struct Constructor<T, false> {
+    static auto create(size_t ssarg) {
+        return T(ssarg);
+    }
+};
+template<typename T> struct Constructor<T, true> {
+    static auto create(size_t ssarg) {
+        using base_type = typename T::base_type;
+        using cm_type = typename T::cm_type;
+        return T(cm_type(8, gargs.weighted_jaccard_cmsize, gargs.weighted_jaccard_nhashes), construct<base_type>(ssarg));
+    }
+};
+
 template<typename T>
 T construct(size_t ssarg) {
-    return T(ssarg);
+    Constructor<T, wj::is_weighted_sketch<T>()> constructor;
+    return constructor.create(ssarg);
 }
-template<> mh::BBitMinHasher<uint64_t> construct<mh::BBitMinHasher<uint64_t>>(size_t p) {return mh::BBitMinHasher<uint64_t>(p, bbnbits);}
+
+template<> mh::BBitMinHasher<uint64_t> construct<mh::BBitMinHasher<uint64_t>>(size_t p) {return mh::BBitMinHasher<uint64_t>(p, gargs.bbnbits);}
 
 template<typename SketchType>
 void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<cm::ccm_t> &cms, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct=BONSAI) {
@@ -518,6 +571,9 @@ void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, co
     while(sketches.size() < (u32)nthreads) sketches.push_back(construct<SketchType>(sketch_size)), set_estim_and_jestim(sketches.back(), estim, jestim);
     std::vector<std::string> fnames(nthreads);
     RollingHasher<uint64_t> rolling_hasher(k, canon);
+#if !NDEBUG
+    for(size_t i = 0; i < inpaths.size(); std::fprintf(stderr, "Path: %s at %i\n", inpaths[i].data(), i), ++i);
+#endif
 
 #define MAIN_SKETCH_LOOP(MinType)\
     for(size_t i = 0; i < inpaths.size(); ++i) {\
@@ -585,6 +641,9 @@ static option_struct sketch_long_options[] = {\
     LO_ARG("spacing", 's')\
     LO_ARG("window-size", 'w')\
     LO_ARG("suffix", 'x')\
+    LO_ARG("wj-cm-sketch-size", 136)\
+    LO_ARG("wj-cm-nhashes", 137)\
+    LO_ARG("suffix", 'x')\
 \
     LO_FLAG("use-range-minhash", 128, sketch_type, RANGE_MINHASH)\
     LO_FLAG("use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)\
@@ -594,6 +653,7 @@ static option_struct sketch_long_options[] = {\
     LO_FLAG("use-nthash", 133, enct, NTHASH)\
     LO_FLAG("use-cyclic-hash", 134, enct, CYCLIC)\
     LO_FLAG("avoid-sorting", 135, avoid_fsorting, true)\
+    LO_FLAG("wj", 138, weighted_jaccard, true)\
     {0,0,0,0}\
 };
 
@@ -601,7 +661,7 @@ static option_struct sketch_long_options[] = {\
 int sketch_main(int argc, char *argv[]) {
     int wsz(0), k(31), sketch_size(10), skip_cached(false), co, nthreads(1), mincount(1), nhashes(4), cmsketchsize(-1);
     int canon(true);
-    int entropy_minimization = false, avoid_fsorting = false;
+    int entropy_minimization = false, avoid_fsorting = false, weighted_jaccard = false;
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = static_cast<hll::JointEstimationMethod>(hll::EstimationMethod::ERTL_MLE);
     std::string spacing, paths_file, suffix, prefix;
@@ -613,7 +673,7 @@ int sketch_main(int argc, char *argv[]) {
     SKETCH_LONG_OPTS
     while((co = getopt_long(argc, argv, "n:P:F:p:x:R:s:S:k:w:H:q:B:8JbfjEIcCeh?", sketch_long_options, &option_index)) >= 0) {
         switch(co) {
-            case 'B': bbnbits = std::atoi(optarg); break;
+            case 'B': gargs.bbnbits = std::atoi(optarg); break;
             case 'F': paths_file = optarg; break;
             case 'H': nhashes = std::atoi(optarg); break;
             case 'E': jestim = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
@@ -625,6 +685,10 @@ int sketch_main(int argc, char *argv[]) {
             case 'k': k = std::atoi(optarg); break;
             case '8': sketch_type = BB_MINHASH; break;
             case 'b': sm = CBF; break;
+            case 136:
+                gargs.weighted_jaccard_cmsize  = std::atoi(optarg); weighted_jaccard = true; break;
+            case 137:
+                gargs.weighted_jaccard_nhashes = std::atoi(optarg); weighted_jaccard = true; break;
             case 'n':
                       mincount = std::atoi(optarg);
                       std::fprintf(stderr, "mincount: %d\n", mincount);
@@ -1136,6 +1200,9 @@ static option_struct dist_long_options[] = {\
     LO_FLAG("symmetric-containment-index", 137, result_type, SYMMETRIC_CONTAINMENT_INDEX) \
     LO_FLAG("symmetric-containment-dist", 138, result_type, SYMMETRIC_CONTAINMENT_DIST) \
     LO_FLAG("use-cyclic-hash", 139, enct, CYCLIC)\
+    LO_ARG("wj-cm-sketch-size", 140)\
+    LO_ARG("wj-cm-nhashes", 141)\
+    LO_FLAG("wj", 142, weighted_jaccard, true)\
     {0,0,0,0}\
 };
 
@@ -1143,7 +1210,7 @@ int dist_main(int argc, char *argv[]) {
     int wsz(0), k(31), sketch_size(10), use_scientific(false), co, cache_sketch(false),
         nthreads(1), mincount(5), nhashes(4), cmsketchsize(-1);
     int canon(true), presketched_only(false), entropy_minimization(false),
-         avoid_fsorting(false);
+         avoid_fsorting(false), weighted_jaccard(false);
     Sketch sketch_type = HLL;
          // bool sketch_query_by_seq(true);
     EmissionFormat emit_fmt = UT_TSV;
@@ -1162,7 +1229,7 @@ int dist_main(int argc, char *argv[]) {
     while((co = getopt_long(argc, argv, "n:Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:8TgDazlICbMEeHJhZBNyUmqW?", dist_long_options, &option_index)) >= 0) {
         switch(co) {
             case '8': sketch_type = BB_MINHASH; break;
-            case 'B': bbnbits    = std::atoi(optarg);   break;
+            case 'B': gargs.bbnbits = std::atoi(optarg);   break;
             case 'F': paths_file = optarg;              break;
             case 'P': prefix     = optarg;              break;
             case 'U': emit_fmt   =  UPPER_TRIANGULAR;   break;
@@ -1195,6 +1262,10 @@ int dist_main(int argc, char *argv[]) {
                       pairofp_labels = std::string(optarg) + ".labels";
                       pairofp_path = optarg;
                       break;
+            case 140:
+                gargs.weighted_jaccard_cmsize  = std::atoi(optarg); weighted_jaccard = true; break;
+            case 141:
+                gargs.weighted_jaccard_nhashes = std::atoi(optarg); weighted_jaccard = true; break;
             case 'h': case '?': dist_usage(*argv);
         }
     }
@@ -1250,17 +1321,21 @@ int dist_main(int argc, char *argv[]) {
                                     mincount, estim, jestim, cache_sketch, result_type,\
                                     emit_fmt, presketched_only, nthreads,\
                                     use_scientific, suffix, prefix, canon,\
-                                    entropy_minimization, spacing, nq, enct);
+                                    entropy_minimization, spacing, nq, enct)
+
+#define CALL_DIST_WEIGHTED(sketchtype) CALL_DIST(sketch::wj::WeightedSketcher<sketchtype>)
+
+#define CALL_DIST_BOTH(sketchtype) do {if(weighted_jaccard) CALL_DIST_WEIGHTED(sketchtype); else CALL_DIST(sketchtype);} while(0)
 
     switch(sketch_type) {
-        case BB_MINHASH:      CALL_DIST(mh::BBitMinHasher<uint64_t>); break;
-        case BB_SUPERMINHASH: CALL_DIST(SuperMinHashType); break;
-        case HLL:             CALL_DIST(hll::hll_t); break;
-        case RANGE_MINHASH:   CALL_DIST(mh::RangeMinHash<uint64_t>); break;
-        case BLOOM_FILTER:    CALL_DIST(bf::bf_t); break;
-        case FULL_KHASH_SET:  CALL_DIST(khset64_t); break;
+        case BB_MINHASH:      CALL_DIST_BOTH(mh::BBitMinHasher<uint64_t>); break;
+        case BB_SUPERMINHASH: CALL_DIST_BOTH(SuperMinHashType); break;
+        case HLL:             CALL_DIST_BOTH(hll::hll_t); break;
+        case RANGE_MINHASH:   CALL_DIST_BOTH(mh::RangeMinHash<uint64_t>); break;
+        case BLOOM_FILTER:    CALL_DIST_BOTH(bf::bf_t); break;
+        case FULL_KHASH_SET:  CALL_DIST_BOTH(khset64_t); break;
         case COUNTING_RANGE_MINHASH:
-                              CALL_DIST(mh::CountingRangeMinHash<uint64_t>); break;
+                              CALL_DIST_BOTH(mh::CountingRangeMinHash<uint64_t>); break;
         default: {
                 char buf[128];
                 std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));
