@@ -423,6 +423,7 @@ void dist_usage(const char *arg) {
                          "--full-containment-dist \tEmit distance metric using containment index, without log approximation. [Let C = (|A & B| / |A|). C ? 1. - C^(1/k) : 1.] \n"
                          "\n\n"
                          "===Count-min-based Streaming Weighted Jaccard===\n"
+                         "--wj               \tEnable weighted jaccard adapter\n"
                          "--wj-cm-sketch-size\tSet count-min sketch size for count-min streaming weighted jaccard [16]\n"
                          "--wj-cm-nhashes    \tSet count-min sketch number of hashes for count-min streaming weighted jaccard [8]\n"
                 , arg);
@@ -473,7 +474,11 @@ void sketch_usage(const char *arg) {
                          "--use-super-minhash\tCreate b-bit super minhash sketches\n"
                          "--use-counting-range-minhash\tCreate range minhash sketches\n"
                          "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n"
-                         "----\n"
+                         "\n\n"
+                         "===Count-min-based Streaming Weighted Jaccard===\n"
+                         "--wj               \tEnable weighted jaccard adapter\n"
+                         "--wj-cm-sketch-size\tSet count-min sketch size for count-min streaming weighted jaccard [16]\n"
+                         "--wj-cm-nhashes    \tSet count-min sketch number of hashes for count-min streaming weighted jaccard [8]\n"
                 , arg);
     std::exit(EXIT_FAILURE);
 }
@@ -648,6 +653,7 @@ static option_struct sketch_long_options[] = {\
     LO_FLAG("use-nthash", 133, enct, NTHASH)\
     LO_FLAG("use-cyclic-hash", 134, enct, CYCLIC)\
     LO_FLAG("avoid-sorting", 135, avoid_fsorting, true)\
+    LO_FLAG("wj", 138, weighted_jaccard, true)\
     {0,0,0,0}\
 };
 
@@ -655,7 +661,7 @@ static option_struct sketch_long_options[] = {\
 int sketch_main(int argc, char *argv[]) {
     int wsz(0), k(31), sketch_size(10), skip_cached(false), co, nthreads(1), mincount(1), nhashes(4), cmsketchsize(-1);
     int canon(true);
-    int entropy_minimization = false, avoid_fsorting = false;
+    int entropy_minimization = false, avoid_fsorting = false, weighted_jaccard = false;
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = static_cast<hll::JointEstimationMethod>(hll::EstimationMethod::ERTL_MLE);
     std::string spacing, paths_file, suffix, prefix;
@@ -680,9 +686,9 @@ int sketch_main(int argc, char *argv[]) {
             case '8': sketch_type = BB_MINHASH; break;
             case 'b': sm = CBF; break;
             case 136:
-                gargs.weighted_jaccard_cmsize = std::atoi(optarg); break;
+                gargs.weighted_jaccard_cmsize  = std::atoi(optarg); weighted_jaccard = true; break;
             case 137:
-                gargs.weighted_jaccard_nhashes = std::atoi(optarg); break;
+                gargs.weighted_jaccard_nhashes = std::atoi(optarg); weighted_jaccard = true; break;
             case 'n':
                       mincount = std::atoi(optarg);
                       std::fprintf(stderr, "mincount: %d\n", mincount);
@@ -1196,6 +1202,7 @@ static option_struct dist_long_options[] = {\
     LO_FLAG("use-cyclic-hash", 139, enct, CYCLIC)\
     LO_ARG("wj-cm-sketch-size", 140)\
     LO_ARG("wj-cm-nhashes", 141)\
+    LO_FLAG("wj", 142, weighted_jaccard, true)\
     {0,0,0,0}\
 };
 
@@ -1256,9 +1263,9 @@ int dist_main(int argc, char *argv[]) {
                       pairofp_path = optarg;
                       break;
             case 140:
-                gargs.weighted_jaccard_cmsize = std::atoi(optarg); break;
+                gargs.weighted_jaccard_cmsize  = std::atoi(optarg); weighted_jaccard = true; break;
             case 141:
-                gargs.weighted_jaccard_nhashes = std::atoi(optarg); break;
+                gargs.weighted_jaccard_nhashes = std::atoi(optarg); weighted_jaccard = true; break;
             case 'h': case '?': dist_usage(*argv);
         }
     }
