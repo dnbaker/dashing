@@ -421,6 +421,10 @@ void dist_usage(const char *arg) {
                          "--symmetric-containment-dist\tEmit symmetric containment index symcon(A, B) = max(C(A, B), C(B, A))\n"
                          "--symmetric-containment-index\ttEmit distance metric using maximum containment index. symdist(A, B) = min(cdist(A,B), cdist(B, A))\n"
                          "--full-containment-dist \tEmit distance metric using containment index, without log approximation. [Let C = (|A & B| / |A|). C ? 1. - C^(1/k) : 1.] \n"
+                         "\n\n"
+                         "===Count-min-based Streaming Weighted Jaccard===\n"
+                         "--wj-cm-sketch-size\tSet count-min sketch size for count-min streaming weighted jaccard [16]\n"
+                         "--wj-cm-nhashes    \tSet count-min sketch number of hashes for count-min streaming weighted jaccard [8]\n"
                 , arg);
     std::exit(EXIT_FAILURE);
 }
@@ -632,6 +636,9 @@ static option_struct sketch_long_options[] = {\
     LO_ARG("spacing", 's')\
     LO_ARG("window-size", 'w')\
     LO_ARG("suffix", 'x')\
+    LO_ARG("wj-cm-sketch-size", 136)\
+    LO_ARG("wj-cm-nhashes", 137)\
+    LO_ARG("suffix", 'x')\
 \
     LO_FLAG("use-range-minhash", 128, sketch_type, RANGE_MINHASH)\
     LO_FLAG("use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)\
@@ -672,6 +679,10 @@ int sketch_main(int argc, char *argv[]) {
             case 'k': k = std::atoi(optarg); break;
             case '8': sketch_type = BB_MINHASH; break;
             case 'b': sm = CBF; break;
+            case 136:
+                gargs.weighted_jaccard_cmsize = std::atoi(optarg); break;
+            case 137:
+                gargs.weighted_jaccard_nhashes = std::atoi(optarg); break;
             case 'n':
                       mincount = std::atoi(optarg);
                       std::fprintf(stderr, "mincount: %d\n", mincount);
@@ -1183,6 +1194,8 @@ static option_struct dist_long_options[] = {\
     LO_FLAG("symmetric-containment-index", 137, result_type, SYMMETRIC_CONTAINMENT_INDEX) \
     LO_FLAG("symmetric-containment-dist", 138, result_type, SYMMETRIC_CONTAINMENT_DIST) \
     LO_FLAG("use-cyclic-hash", 139, enct, CYCLIC)\
+    LO_ARG("wj-cm-sketch-size", 140)\
+    LO_ARG("wj-cm-nhashes", 141)\
     {0,0,0,0}\
 };
 
@@ -1242,6 +1255,10 @@ int dist_main(int argc, char *argv[]) {
                       pairofp_labels = std::string(optarg) + ".labels";
                       pairofp_path = optarg;
                       break;
+            case 140:
+                gargs.weighted_jaccard_cmsize = std::atoi(optarg); break;
+            case 141:
+                gargs.weighted_jaccard_nhashes = std::atoi(optarg); break;
             case 'h': case '?': dist_usage(*argv);
         }
     }
