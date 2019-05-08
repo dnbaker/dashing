@@ -16,11 +16,6 @@
 #include <execution>
 #endif
 
-#if __cpp_if_constexpr
-#else
-#error("Need if constexpr")
-#endif
-
 using namespace sketch;
 using circ::roundup;
 using hll::hll_t;
@@ -534,16 +529,30 @@ INLINE void set_estim_and_jestim(hll::hllbase_t<Hashstruct> &h, hll::EstimationM
 }
 using hll::EstimationMethod;
 using hll::JointEstimationMethod;
+
 template<typename T>
-T construct(size_t ssarg) {
-    if constexpr(!wj::is_weighted_sketch<T>())
+T construct(size_t ssarg);
+template<typename T, bool is_weighted>
+struct Constructor;
+template<typename T> struct Constructor<T, false> {
+    static auto create(size_t ssarg) {
         return T(ssarg);
-    else {
+    }
+};
+template<typename T> struct Constructor<T, true> {
+    static auto create(size_t ssarg) {
         using base_type = typename T::base_type;
         using cm_type = typename T::cm_type;
         return T(cm_type(8, gargs.weighted_jaccard_cmsize, gargs.weighted_jaccard_nhashes), construct<base_type>(ssarg));
     }
+};
+
+template<typename T>
+T construct(size_t ssarg) {
+    Constructor<T, wj::is_weighted_sketch<T>()> constructor;
+    return constructor.create(ssarg);
 }
+
 template<> mh::BBitMinHasher<uint64_t> construct<mh::BBitMinHasher<uint64_t>>(size_t p) {return mh::BBitMinHasher<uint64_t>(p, gargs.bbnbits);}
 
 template<typename SketchType>
