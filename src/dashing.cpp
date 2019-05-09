@@ -288,10 +288,8 @@ template<>\
 double containment_index<x>(const x &b, const x &a) {\
     RUNTIME_ERROR(std::string("Containment index not implemented for ") + __PRETTY_FUNCTION__);\
 }
-CONTAIN_OVERLOAD_FAIL(CRMFinal)
 CONTAIN_OVERLOAD_FAIL(RMFinal)
 CONTAIN_OVERLOAD_FAIL(bf::bf_t)
-CONTAIN_OVERLOAD_FAIL(wj::WeightedSketcher<CRMFinal>)
 CONTAIN_OVERLOAD_FAIL(wj::WeightedSketcher<RMFinal>)
 CONTAIN_OVERLOAD_FAIL(wj::WeightedSketcher<bf::bf_t>)
 
