@@ -25,12 +25,6 @@ using sketch::common::NotImplementedError;
 #define BUFFER_FLUSH_SIZE (1u << 18)
 #endif
 
-#if ZWRAP_USE_ZSTD
-#define COMPRESSED_FILE_SUFFIX ".zst"
-#else
-#define COMPRESSED_FILE_SUFFIX ".gz"
-#endif
-
 using option_struct = struct option;
 namespace bns {
 using sketch::common::WangHash;
@@ -201,12 +195,9 @@ double cardinality_estimate(T &x) {
     return x.cardinality_estimate();
 }
 
-template<>
-double cardinality_estimate(hll::hll_t &x) {return x.report();}
-template<>
-double cardinality_estimate(mh::FinalBBitMinHash &x) {return x.est_cardinality_;}
-template<>
-double cardinality_estimate(mh::FinalDivBBitMinHash &x) {return x.est_cardinality_;}
+template<> double cardinality_estimate(hll::hll_t &x) {return x.report();}
+template<> double cardinality_estimate(mh::FinalBBitMinHash &x) {return x.est_cardinality_;}
+template<> double cardinality_estimate(mh::FinalDivBBitMinHash &x) {return x.est_cardinality_;}
 
 static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
     switch(sketch) {
