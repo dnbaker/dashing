@@ -530,8 +530,7 @@ INLINE void set_estim_and_jestim(hll::hllbase_t<Hashstruct> &h, hll::EstimationM
 using hll::EstimationMethod;
 using hll::JointEstimationMethod;
 
-template<typename T>
-T construct(size_t ssarg);
+template<typename T> T construct(size_t ssarg);
 template<typename T, bool is_weighted>
 struct Constructor;
 template<typename T> struct Constructor<T, false> {
@@ -575,7 +574,7 @@ void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, co
         Encoder<MinType> enc(nullptr, 0, sp, nullptr, canon);\
         auto &h = sketches[tid];\
         if(use_filter.size() && use_filter[i]) {\
-            auto &cm = cms.at(tid);\
+            auto &cm = cms[tid];\
             if(enct == NTHASH)\
                 enc.for_each_hash([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.add(kmer);}, inpaths[i].data(), &kseqs[tid]);\
             else if(enct == BONSAI)\
