@@ -923,7 +923,7 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
             case BINARY:
                 if(write_future.valid()) write_future.get();
                 write_future = std::async(std::launch::async, [ptr=arr + (qi - nr) * nq, nb=sizeof(float) * nr](const int fn) {
-                    ::write(fn, ptr, nb);
+                    if(unlikely(::write(fn, ptr, nb) != ssize_t(nb))) RUNTIME_ERROR("Error writing to binary file");
                 }, ::fileno(ofp));
                 break;
             case UT_TSV: case UPPER_TRIANGULAR: default:
