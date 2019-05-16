@@ -1368,16 +1368,9 @@ int print_binary_main(int argc, char *argv[]) {
     }
     std::FILE *fp;
     if(outpath.empty()) outpath = "/dev/stdout";
-#define PRINTMAT_INNER(type) \
-        dm::DistanceMatrix<type> mat(argv[optind]);\
-        LOG_DEBUG("Name of found: %s\n", dm::DistanceMatrix<type>::magic_string());\
-        if((fp = std::fopen(outpath.data(), "wb")) == nullptr) RUNTIME_ERROR(ks::sprintf("Could not open file at %s", outpath.data()).data());\
-        mat.printf(fp, use_scientific);
-    try {
-        PRINTMAT_INNER(float);
-    } catch(const std::runtime_error &re) {
-        PRINTMAT_INNER(double);
-    }
+    dm::DistanceMatrix<float> mat(argv[optind]);
+    if((fp = std::fopen(outpath.data(), "wb")) == nullptr) RUNTIME_ERROR(ks::sprintf("Could not open file at %s", outpath.data()).data());
+    mat.printf(fp, use_scientific);
     std::fclose(fp);
     return EXIT_SUCCESS;
 }
@@ -1478,6 +1471,10 @@ int view_main(int argc, char *argv[]) {
 
 using namespace bns;
 
+void version_info(char *argv[]) {
+    std::fprintf(stderr, "Dashing version: %s\n", DASHING_VERSION);
+    std::exit(1);
+}
 
 int main(int argc, char *argv[]) {
     bns::executable = argv[0];
@@ -1491,8 +1488,12 @@ int main(int argc, char *argv[]) {
     else if(std::strcmp(argv[1], "view") == 0) return view_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "printmat") == 0) return print_binary_main(argc - 1, argv + 1);
     else {
-        for(const char *const *p(argv + 1); *p; ++p)
-            if(std::string(*p) == "-h" || std::string(*p) == "--help") main_usage(argv);
+        for(const char *const *p(argv + 1); *p; ++p) {
+            std::string v(*p);
+            std::transform(v.begin(), v.end(), v.begin(), [](auto c) {return std::tolower(c);});
+            if(v == "-h" || v == "--help") main_usage(argv);
+            if(v == "-v" || v == "--version") version_info(argv);
+        }
         std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options. [Subcommands: sketch, dist, setdist, hll, union, printmat, view.]\n",
                      *argv, *argv);
         RUNTIME_ERROR(std::string("Invalid subcommand ") + argv[1] + " provided.");
