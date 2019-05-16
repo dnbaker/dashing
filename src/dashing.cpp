@@ -110,6 +110,7 @@ struct khset64_t: public kh::khset64_t {
         std::memset(ptr, 0, sizeof(*this));
     }
     void write(const std::string &s) const {write(s.data());}
+    void write(gzFile fp) const {kh::khset64_t::write(fp);}
     void write(const char *s) const {
         gzFile fp = gzopen(s, "wb");
         kh::khset64_t::write(fp);
@@ -130,6 +131,10 @@ struct khset64_t: public kh::khset64_t {
         uint64_t olap = 0;
         p1->for_each([&](auto v) {olap += p2->contains(v);});
         return static_cast<double>(olap) / (this->size());
+    }
+    khset64_t &operator+=(const khset64_t &o) {
+        o.for_each([this](auto x) {this->insert(x);});
+        return *this;
     }
     uint64_t union_size(const khset64_t &other) const {
         auto p1 = this, p2 = &other;
@@ -1426,13 +1431,42 @@ void union_usage [[noreturn]] (char *ex) {
     std::exit(1);
 }
 
+template<typename T>
+T &merge(T &dest, const T &src) {
+    return dest += src;
+}
+
+template<typename T>
+void union_core(std::vector<std::string> &paths, gzFile ofp) {
+    T ret(paths.back().data());
+    paths.pop_back();
+    if(paths.size() == 1) {
+        merge(ret, T(paths.back().data()));
+        paths.pop_back();
+        assert(paths.empty());
+        return;
+    }
+    T tmp(paths.back().data());
+    paths.pop_back();
+    merge(ret, tmp);
+    while(paths.size()) {
+        tmp.read(paths.back().data());
+        paths.pop_back();
+        merge(ret, tmp);
+    }
+    ret.write(ofp);
+}
+
 int union_main(int argc, char *argv[]) {
-    if(std::find_if(argv, argc + argv, [](const char *s) {return std::strcmp(s, "--help") == 0;}) != argc + argv)
+    if(std::find_if(argv, argc + argv,
+                    [](const char *s) {return std::strcmp(s, "--help") == 0;})
+       != argc + argv)
         union_usage(*argv);
     bool compress = false;
     int compression_level = 6;
     const char *opath = "/dev/stdout";
     std::vector<std::string> paths;
+    Sketch sketch_type = HLL;
     for(int c;(c = getopt(argc, argv, "o:F:zZ:h?")) >= 0;) {
         switch(c) {
             case 'h': union_usage(*argv);
@@ -1444,11 +1478,6 @@ int union_main(int argc, char *argv[]) {
     }
     if(argc == optind && paths.empty()) union_usage(*argv);
     std::for_each(argv + optind, argv + argc, [&](const char *s){paths.emplace_back(s);});
-    hll::hll_t hll(paths.back());
-    paths.pop_back();
-    for(auto &path: paths) {
-        hll += hll_t(path);
-    }
     char mode[6];
     if(compress && compression_level)
         std::sprintf(mode, "wb%d", compression_level % 23);
@@ -1456,7 +1485,12 @@ int union_main(int argc, char *argv[]) {
         std::sprintf(mode, "wT");
     gzFile ofp = gzopen(opath, mode);
     if(!ofp) throw std::runtime_error(std::string("Could not open file at ") + opath);
-    hll.write(ofp);
+    switch(sketch_type) {
+        case HLL: union_core<hll::hll_t>(paths, ofp); break;
+        case BLOOM_FILTER: union_core<bf::bf_t>(paths, ofp); break;
+        case FULL_KHASH_SET: union_core<khset64_t>(paths, ofp); break;
+        default: throw sketch::common::NotImplementedError(ks::sprintf("Union not implemented for %s\n", sketch_names[sketch_type]).data());
+    }
     gzclose(ofp);
     return 0;
 }
