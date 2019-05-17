@@ -85,6 +85,7 @@ enum EncodingType {
 };
 
 struct khset64_t: public kh::khset64_t {
+    // TODO: change to sorted hash sets for faster comparisons, implement parallel merge sort.
     using final_type = khset64_t;
     void addh(uint64_t v) {this->insert(v);}
     double cardinality_estimate() const {
@@ -1426,7 +1427,12 @@ void union_usage [[noreturn]] (char *ex) {
     std::fprintf(stderr, "Usage: %s genome1 <genome2>...\n"
                          "Flags:\n"
                          "-o: Write union sketch to file [/dev/stdout]\n"
-                         "-z: Emit compressed sketch\n",
+                         "-z: Emit compressed sketch\n"
+                         "-Z: Set gzip compression level\n"
+                         "-r: RangeMinHash sketches\n"
+                         "-H: Full Khash Sets\n"
+                         "-b: Bloom Filters\n"
+                ,
                  ex);
     std::exit(1);
 }
@@ -1459,7 +1465,7 @@ void union_core(std::vector<std::string> &paths, gzFile ofp) {
 
 int union_main(int argc, char *argv[]) {
     if(std::find_if(argv, argc + argv,
-                    [](const char *s) {return std::strcmp(s, "--help") == 0;})
+                    [](const char *s) {return std::strcmp(s, "--help") == 0 || std::strcmp(s, "-h") == 0;})
        != argc + argv)
         union_usage(*argv);
     bool compress = false;
@@ -1467,13 +1473,16 @@ int union_main(int argc, char *argv[]) {
     const char *opath = "/dev/stdout";
     std::vector<std::string> paths;
     Sketch sketch_type = HLL;
-    for(int c;(c = getopt(argc, argv, "o:F:zZ:h?")) >= 0;) {
+    for(int c;(c = getopt(argc, argv, "b:o:F:zZ:h?")) >= 0;) {
         switch(c) {
             case 'h': union_usage(*argv);
             case 'Z': compression_level = std::atoi(optarg); [[fallthrough]];
             case 'z': compress = true; break;
             case 'o': opath = optarg; break;
             case 'F': paths = get_paths(optarg); break;
+            case 'r': sketch_type = RANGE_MINHASH; break;
+            case 'H': sketch_type = FULL_KHASH_SET; break;
+            case 'b': sketch_type = BLOOM_FILTER; break;
         }
     }
     if(argc == optind && paths.empty()) union_usage(*argv);
@@ -1489,6 +1498,7 @@ int union_main(int argc, char *argv[]) {
         case HLL: union_core<hll::hll_t>(paths, ofp); break;
         case BLOOM_FILTER: union_core<bf::bf_t>(paths, ofp); break;
         case FULL_KHASH_SET: union_core<khset64_t>(paths, ofp); break;
+        case RANGE_MINHASH: union_core<mh::FinalRMinHash<uint64_t>>(paths, ofp); break;
         default: throw sketch::common::NotImplementedError(ks::sprintf("Union not implemented for %s\n", sketch_names[sketch_type]).data());
     }
     gzclose(ofp);
