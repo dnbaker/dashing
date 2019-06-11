@@ -1031,15 +1031,15 @@ enum CompReading: unsigned {
         Encoder<MinType> enc(nullptr, 0, sp, nullptr, canon);\
         if(cms.empty()) {\
             auto &h = sketch;\
-            if(enct == BONSAI) enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
-            else if(enct == NTHASH) enc.for_each_hash([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
-            else rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            if(enct == BONSAI) for_each_substr([&](const char *s) {enc.for_each([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
+            else if(enct == NTHASH) for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
+            else for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
         } else {\
             sketch::cm::ccm_t &cm = cms.at(tid);\
             const auto lfunc = [&](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);};\
-            if(enct == BONSAI)      enc.for_each(lfunc, inpaths[i].data(), &kseqs[tid]);\
-            else if(enct == NTHASH) enc.for_each_hash(lfunc, inpaths[i].data(), &kseqs[tid]);\
-            else         rolling_hasher.for_each_hash(lfunc, inpaths[i].data(), &kseqs[tid]);\
+            if(enct == BONSAI)      for_each_substr([&](const char *s) {enc.for_each(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
+            else if(enct == NTHASH) for_each_substr([&](const char *s) {enc.for_each_hash(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
+            else                    for_each_substr([&](const char *s) {rolling_hasher.for_each_hash(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
             cm.clear();\
         }\
         CONST_IF(!samesketch) new(final_sketches + i) final_type(std::move(sketch)); \
