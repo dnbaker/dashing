@@ -11,9 +11,15 @@
 #include <sstream>
 #include "getopt.h"
 #include <sys/stat.h>
+#include "substrs.h"
 
 #if __cplusplus >= 201703L && __cpp_lib_execution
 #include <execution>
+#endif
+#ifdef FNAME_SEP
+#pragma message("Not: FNAME_SEP already defined. [not default \"' '\"]")
+#else
+#define FNAME_SEP ' '
 #endif
 
 using namespace sketch;
@@ -312,6 +318,12 @@ size_t posix_fsize(const char *path) {
     return st.st_size;
 }
 
+size_t posix_fsizes(const std::string &path, const char sep=FNAME_SEP) {
+    size_t ret = 0;
+    for_each_substr([&ret](const char *s) {struct stat st; ::stat(s, &st); ret += st.st_size;}, path, sep);
+    return ret;
+}
+
 namespace detail {
 struct path_size {
     friend void swap(path_size&, path_size&);
@@ -339,7 +351,7 @@ void sort_paths_by_fsize(std::vector<std::string> &paths) {
     if(!fsizes) throw std::bad_alloc();
     #pragma omp parallel for
     for(size_t i = 0; i < paths.size(); ++i)
-        fsizes[i] = posix_fsize(paths[i].data());
+        fsizes[i] = posix_fsizes(paths[i].data());
     std::vector<path_size> ps(paths.size());
     #pragma omp parallel for
     for(size_t i = 0; i < paths.size(); ++i)
@@ -483,15 +495,24 @@ bool fname_is_fq(const std::string &path) {
     return path.find(fq1) != std::string::npos || path.find(fq2) != std::string::npos;
 }
 
+
 template<typename SketchType>
 std::string make_fname(const char *path, size_t sketch_p, int wsz, int k, int csz, const std::string &spacing, const std::string &suffix="", const std::string &prefix="") {
     std::string ret(prefix);
+    if(ret.size()) ret += '/';
     {
-        const char *p;
-        if(ret.size() && (p = strrchr(get_cstr(path), '/')))
-            ret += std::string(p);
-        else
-            ret += get_cstr(path);
+        const char *p, *p2;
+#if 0
+        if((p = std::strchr(path, FNAME_SEP)) != nullptr) {
+            ++p;
+        }
+        else p = path;
+#else
+		p = (p = std::strchr(path, FNAME_SEP)) ? p + 1: path;
+#endif
+        std::fprintf(stderr, "p is '%s'\n", p);
+        if(ret.size() && (p2 = strrchr(p, '/'))) ret += std::string(p2 + 1);
+        else                                     ret += p;
     }
     ret += ".w";
     ret + std::to_string(std::max(csz, wsz));
@@ -574,25 +595,28 @@ void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, co
         const int tid = omp_get_thread_num();\
         std::string &fname = fnames[tid];\
         fname = make_fname<SketchType>(inpaths[i].data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix);\
+        LOG_DEBUG("fname: %s from %s\n", fname.data(), inpaths[i].data());\
         if(skip_cached && isfile(fname)) continue;\
         Encoder<MinType> enc(nullptr, 0, sp, nullptr, canon);\
         auto &h = sketches[tid];\
         if(use_filter.size() && use_filter[i]) {\
             auto &cm = cms[tid];\
-            if(enct == NTHASH)\
-                enc.for_each_hash([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.add(kmer);}, inpaths[i].data(), &kseqs[tid]);\
-            else if(enct == BONSAI)\
-                enc.for_each([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
-            else \
-                rolling_hasher.for_each_hash([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            if(enct == NTHASH) {\
+                for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.add(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
+            } else if(enct == BONSAI) {\
+                for_each_substr([&](const char *s) {enc.for_each([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
+            } else {\
+                for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
+            }\
             cm.clear();  \
         } else {\
-            if(enct == NTHASH)\
-                enc.for_each_hash([&](u64 kmer){h.add(kmer);}, inpaths[i].data(), &kseqs[tid]);\
-            else if(enct == BONSAI)\
-                enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
-            else\
-                rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
+            if(enct == NTHASH) {\
+                for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){h.add(kmer);}, inpaths[i].data(), &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
+            } else if(enct == BONSAI) {\
+                for_each_substr([&](const char *s) {enc.for_each([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
+            } else {\
+                for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
+            }\
         }\
         h.write(fname.data());\
         h.clear();\
