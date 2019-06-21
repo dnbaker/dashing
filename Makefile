@@ -134,7 +134,7 @@ sparse%: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.so
 libgomp.a:
 	ln -sf $(STATIC_GOMP)
 
-%_s: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a static_gomp
+%_s: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a libgomp.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -static-libstdc++ -static-libgcc bonsai/zlib/libz.a  -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 %_s128: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a libgomp.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mno-avx2 -msse2 -static-libstdc++ -static-libgcc bonsai/zlib/libz.a  -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)

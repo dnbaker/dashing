@@ -23,7 +23,6 @@
 #endif
 
 using namespace sketch;
-using circ::roundup;
 using hll::hll_t;
 using sketch::common::NotImplementedError;
 
