@@ -150,6 +150,15 @@ struct khset64_t: public kh::khset64_t {
         p1->for_each([&](auto v) {olap += p2->contains(v);});
         return p1->size() + p2->size() - olap;
     }
+    std::array<double, 3> full_set_comparison(const khset64_t &o) const {
+        auto us = union_size(o);
+        auto is = size() + o.size();
+        if(is > us) is -= us;
+        else is = 0;
+        return {double(size() > is ? size() - is: size_t(0)),
+                double(o.size() > is ? o.size() - is: size_t(0)),
+                double(is)};
+    }
 };
 enum EmissionFormat: unsigned {
     UT_TSV = 0,
@@ -294,15 +303,28 @@ template<typename T>
 double containment_index(const T &a, const T &b) {
     return a.containment_index(b);
 }
+template<typename T>
+std::array<double, 3> set_triple(const T &a, const T &b) {
+    return a.full_set_comparison(b);
+}
+template<typename T>
+std::array<double, 3> set_triple(const wj::WeightedSketcher<T> &a, const wj::WeightedSketcher<T> &b) {
+    RUNTIME_ERROR("This should only be called on the finalized sketches");
+}
 #define CONTAIN_OVERLOAD_FAIL(x)\
 template<>\
 double containment_index<x>(const x &b, const x &a) {\
     RUNTIME_ERROR(std::string("Containment index not implemented for ") + __PRETTY_FUNCTION__);\
+}\
+template<>\
+std::array<double, 3> set_triple<x>(const x &b, const x &a) {\
+    RUNTIME_ERROR(std::string("set_triple not implemented for ") + __PRETTY_FUNCTION__);\
 }
 CONTAIN_OVERLOAD_FAIL(RMFinal)
 CONTAIN_OVERLOAD_FAIL(bf::bf_t)
 CONTAIN_OVERLOAD_FAIL(wj::WeightedSketcher<RMFinal>)
 CONTAIN_OVERLOAD_FAIL(wj::WeightedSketcher<bf::bf_t>)
+CONTAIN_OVERLOAD_FAIL(CRMFinal)
 
 
 void main_usage(char **argv) {
@@ -509,7 +531,6 @@ std::string make_fname(const char *path, size_t sketch_p, int wsz, int k, int cs
 #else
 		p = (p = std::strchr(path, FNAME_SEP)) ? p + 1: path;
 #endif
-        std::fprintf(stderr, "p is '%s'\n", p);
         if(ret.size() && (p2 = strrchr(p, '/'))) ret += std::string(p2 + 1);
         else                                     ret += p;
     }
@@ -727,8 +748,9 @@ int sketch_main(int argc, char *argv[]) {
     Spacer sp(k, wsz, parse_spacing(spacing.data(), k));
     std::vector<bool> use_filter;
     std::vector<cm::ccm_t> cms;
-    std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
-                                                       : std::vector<std::string>(argv + optind, argv + argc));
+    std::vector<std::string> inpaths(paths_file.size() && isfile(paths_file) 
+        ? get_paths(paths_file.data())
+        : std::vector<std::string>(argv + optind, argv + argc));
     LOG_INFO("Sketching genomes with sketch: %d/%s\n", sketch_type, sketch_names[sketch_type]);
     if(inpaths.empty()) {
         std::fprintf(stderr, "No paths. See usage.\n");
@@ -870,10 +892,19 @@ INLINE void perform_core_op(T &dists, size_t nhlls, SketchType *hlls, const Func
                 perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) {return full_dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
                 break;\
             case SYMMETRIC_CONTAINMENT_DIST:\
-                perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) {return dist_index(std::max(containment_index(x, y), containment_index(y, x)), ksinv);}, i);\
+                perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) { \
+                    const auto triple = set_triple(x, y);\
+                    auto di = dist_index(triple[2] / (std::min(triple[0], triple[1]) + triple[2]), ksinv);\
+                    assert(di <= dist_index(triple[2] / (triple[0] + triple[2]), ksinv));\
+                    assert(di <= dist_index(triple[2] / (triple[1] + triple[2]), ksinv));\
+                    return dist_index(triple[2] / (std::min(triple[0], triple[1]) + triple[2]), ksinv);\
+                }, i);\
                 break;\
             case SYMMETRIC_CONTAINMENT_INDEX:\
-                perform_core_op(dists, nsketches, hlls, [](const auto &x, const auto &y) {return std::max(containment_index(x, y), containment_index(y, x));}, i);\
+                perform_core_op(dists, nsketches, hlls, [&](const auto &x, const auto &y) {\
+                    const auto triple = set_triple(x, y);\
+                    return triple[2] / (std::min(triple[0], triple[1]) + triple[2]);\
+                }, i);\
                 break;\
             default: __builtin_unreachable();\
         } } while(0)
@@ -995,7 +1026,7 @@ void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> 
         for(size_t i = 0; i < nsketches; ++i) {
             std::vector<float> &dists = dps[i & 1];
             CORE_ITER(_a);
-            LOG_DEBUG("Finished chunk %zu of %zu\n", i + 1, nsketches);
+            //LOG_DEBUG("Finished chunk %zu of %zu\n", i + 1, nsketches);
             if(i) submitter.get();
             submitter = std::async(std::launch::async, submit_emit_dists<float>,
                                    pairfi, dists.data(), nsketches, i,
@@ -1301,7 +1332,7 @@ int dist_main(int argc, char *argv[]) {
     if(nq == 0 && !is_symmetric(result_type)) {
         querypaths = inpaths;
         nq = querypaths.size();
-        LOG_WARNING("=====Note===== No query files provided, but an asymmetric distance was requested. Switching to a query/reference format with all references as queries.\n"
+        LOG_WARNING("Note: No query files provided, but an asymmetric distance was requested. Switching to a query/reference format with all references as queries.\n"
                     "In the future, this will throw an error.\nYou must provide query and reference paths (-Q/-F) to calculate asymmetric distances.\n");
     }
     if(!presketched_only && !avoid_fsorting) {
