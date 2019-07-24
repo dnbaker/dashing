@@ -509,7 +509,6 @@ std::string make_fname(const char *path, size_t sketch_p, int wsz, int k, int cs
 #else
 		p = (p = std::strchr(path, FNAME_SEP)) ? p + 1: path;
 #endif
-        std::fprintf(stderr, "p is '%s'\n", p);
         if(ret.size() && (p2 = strrchr(p, '/'))) ret += std::string(p2 + 1);
         else                                     ret += p;
     }
