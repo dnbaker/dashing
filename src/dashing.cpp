@@ -607,7 +607,7 @@ void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, co
     std::vector<std::string> fnames(nthreads);
     RollingHasher<uint64_t> rolling_hasher(k, canon);
 #if !NDEBUG
-    for(size_t i = 0; i < inpaths.size(); std::fprintf(stderr, "Path: %s at %i\n", inpaths[i].data(), i), ++i);
+    for(size_t i = 0; i < inpaths.size(); std::fprintf(stderr, "Path: %s at %i\n", inpaths[i].data(), int(i)), ++i);
 #endif
 
 #define MAIN_SKETCH_LOOP(MinType)\
@@ -894,16 +894,19 @@ INLINE void perform_core_op(T &dists, size_t nhlls, SketchType *hlls, const Func
             case SYMMETRIC_CONTAINMENT_DIST:\
                 perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) { \
                     const auto triple = set_triple(x, y);\
-                    auto di = dist_index(triple[2] / (std::min(triple[0], triple[1]) + triple[2]), ksinv);\
+                    auto ret = triple[2] / (std::min(triple[0], triple[1]) + triple[2]);\
+                    auto di = dist_index(ret, ksinv);\
                     assert(di <= dist_index(triple[2] / (triple[0] + triple[2]), ksinv));\
                     assert(di <= dist_index(triple[2] / (triple[1] + triple[2]), ksinv));\
-                    return dist_index(triple[2] / (std::min(triple[0], triple[1]) + triple[2]), ksinv);\
+                    return di;\
                 }, i);\
                 break;\
             case SYMMETRIC_CONTAINMENT_INDEX:\
                 perform_core_op(dists, nsketches, hlls, [&](const auto &x, const auto &y) {\
                     const auto triple = set_triple(x, y);\
-                    return triple[2] / (std::min(triple[0], triple[1]) + triple[2]);\
+                    auto ret = triple[2] / (std::min(triple[0], triple[1]) + triple[2]);\
+                    assert(ret >= triple[2] / (std::max(triple[0], triple[1]) + triple[2]) || triple[1] == 0. || triple[0] == 0.);\
+                    return ret;\
                 }, i);\
                 break;\
             default: __builtin_unreachable();\
@@ -965,8 +968,26 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
                 #pragma omp parallel for schedule(dynamic)
                 DO_LOOP(fullcont_sim);
                 break;
-            default: __builtin_unreachable();
+            case SYMMETRIC_CONTAINMENT_INDEX:
+                #pragma omp parallel for schedule(dynamic)
+                for(size_t j = 0; j < nr; ++j) {
+                    auto tmp = set_triple(hlls[j], hlls[qi]);
+                    arr[qind * nr + j] = tmp[2] / (std::min(tmp[0], tmp[1]) + tmp[2]);
+                }
+                break;
+            case SYMMETRIC_CONTAINMENT_DIST:
+                #pragma omp parallel for schedule(dynamic)
+                for(size_t j = 0; j < nr; ++j) {
+                    auto tmp = set_triple(hlls[j], hlls[qi]);
+                    arr[qind * nr + j] = dist_index(tmp[2] / (std::min(tmp[0], tmp[1]) + tmp[2]), ksinv);
+                }
+                break;
+            default: throw std::runtime_error("Value not found");
 #undef DO_LOOP
+#undef dist_sim
+#undef cont_sim
+#undef fulldist_sim
+#undef fullcont_sim
         }
         switch(emit_fmt) {
             case BINARY:
