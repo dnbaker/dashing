@@ -102,8 +102,7 @@ struct khset64_t: public kh::khset64_t {
         this->read(s);
     }
     void cvt2shs() {
-        uint64_t *newp = (uint64_t *)std::malloc(sizeof(uint64_t) * this->n_occupied);
-        if(!newp) throw std::bad_alloc();
+        uint64_t *newp = this->keys;
         for(size_t ki = 0, i = 0; ki != this->n_buckets; ++ki) {
             if(kh_exist(this, ki))
                 newp[i++] = kh_key(this, ki);
