@@ -531,7 +531,9 @@ bool fname_is_fq(const std::string &path) {
 
 
 template<typename SketchType>
-std::string make_fname(const char *path, size_t sketch_p, int wsz, int k, int csz, const std::string &spacing, const std::string &suffix="", const std::string &prefix="") {
+std::string make_fname(const char *path, size_t sketch_p, int wsz, int k, int csz, const std::string &spacing,
+                       const std::string &suffix="", const std::string &prefix="",
+                       EncodingType enct=BONSAI) {
     std::string ret(prefix);
     if(ret.size()) ret += '/';
     {
@@ -554,6 +556,8 @@ std::string make_fname(const char *path, size_t sketch_p, int wsz, int k, int cs
     ret += ".spacing";
     ret += spacing;
     ret += '.';
+    ret += enct == BONSAI ? "": enct == NTHASH ? "nt.": "cyclic.";
+    // default: no note. cyclic or nthash otherwise.
     if(suffix.size()) {
         ret += "suf";
         ret += suffix;
@@ -627,7 +631,7 @@ void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, co
     for(size_t i = 0; i < inpaths.size(); ++i) {\
         const int tid = omp_get_thread_num();\
         std::string &fname = fnames[tid];\
-        fname = make_fname<SketchType>(inpaths[i].data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix);\
+        fname = make_fname<SketchType>(inpaths[i].data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix, enct);\
         LOG_DEBUG("fname: %s from %s\n", fname.data(), inpaths[i].data());\
         if(skip_cached && isfile(fname)) continue;\
         Encoder<MinType> enc(nullptr, 0, sp, nullptr, canon);\
@@ -1154,7 +1158,7 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sk
                 set_estim_and_jestim(sketch, estim, jestim); // HLL is the only type that needs this, and it's the same
             } else new(final_sketches + i) final_type(path.data()); // Read from path
         } else {
-            const std::string fpath(make_fname<SketchType>(path.data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix));
+            const std::string fpath(make_fname<SketchType>(path.data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix, enct));
             const bool isf = isfile(fpath);
             if(cache_sketch && isf) {
                 LOG_DEBUG("Sketch found at %s with size %zu, %u\n", fpath.data(), size_t(1ull << sketch_size), sketch_size);
