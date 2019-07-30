@@ -98,9 +98,20 @@ struct khset64_t: public kh::khset64_t {
     }
     khset64_t(): kh::khset64_t() {}
     khset64_t(size_t reservesz): kh::khset64_t(reservesz) {}
-    khset64_t(const std::string &s): khset64_t(s.data()) {}
-    khset64_t(const char *s) {
+    khset64_t(std::string s) {
         this->read(s);
+    }
+    void cvt2shs() {
+        uint64_t *newp = (uint64_t *)std::malloc(sizeof(uint64_t) * this->n_occupied);
+        if(!newp) throw std::bad_alloc();
+        for(size_t ki = 0, i = 0; ki != this->n_buckets; ++ki) {
+            if(kh_exist(this, ki))
+                newp[i++] = kh_key(this, ki);
+        }
+        this->keys = newp;
+        std::free(this->flags);
+        this->flags = nullptr;
+        std::sort(newp, newp + this->n_occupied);
     }
     void read(const std::string &s) {read(s.data());}
     void read(const char *s) {
@@ -111,7 +122,6 @@ struct khset64_t: public kh::khset64_t {
     void free() {
         auto ptr = reinterpret_cast<kh::khash_t(set64) *>(this);
         std::free(ptr->keys);
-        std::free(ptr->vals);
         std::free(ptr->flags);
         std::memset(ptr, 0, sizeof(*this));
     }
@@ -122,44 +132,42 @@ struct khset64_t: public kh::khset64_t {
         kh::khset64_t::write(fp);
         gzclose(fp);
     }
+    struct Counter
+    {
+      struct value_type { template<typename T> value_type(const T&) { } };
+      void push_back(const value_type&) { ++count; }
+      size_t count = 0;
+    };
+    std::array<double, 3> full_set_comparison(const khset64_t &other) const {
+        Counter c;
+        assert(std::is_sorted(this->keys, this->keys + this->n_occupied));
+        std::set_intersection(this->keys, this->keys + this->n_occupied,
+                              other.keys, other.keys + other.n_occupied,
+                              std::back_inserter(c));
+        double is = c.count;
+        return std::array<double, 3>{this->n_occupied - is, other.n_occupied - is, is};
+    }
     double jaccard_index(const khset64_t &other) const {
-        auto p1 = this, p2 = &other;
-        if(size() > other.size())
-            std::swap(p1, p2);
-        size_t olap = 0;
-        p1->for_each([&](auto v) {olap += p2->contains(v);});
-        return static_cast<double>(olap) / (p1->size() + p2->size() - olap);
+        auto cmps = full_set_comparison(other);
+        return double(cmps[2]) / (cmps[0] + cmps[1] + cmps[2]);
     }
     double containment_index(const khset64_t &other) const {
-        auto p1 = this, p2 = &other;
-        if(size() > other.size())
-            std::swap(p1, p2);
-        uint64_t olap = 0;
-        p1->for_each([&](auto v) {olap += p2->contains(v);});
-        return static_cast<double>(olap) / (this->size());
+        auto cmps = full_set_comparison(other);
+        return double(cmps[2]) / (cmps[0] + cmps[2]);
+    }
+    double symmetric_containment_index(const khset64_t &other) const {
+        auto cmps = full_set_comparison(other);
+        return double(cmps[2]) / (std::min(cmps[0], cmps[1]) + 1e-20 + cmps[2]);
     }
     khset64_t &operator+=(const khset64_t &o) {
-        o.for_each([this](auto x) {this->insert(x);});
-        return *this;
+        throw NotImplementedError("This shouldn't be called.");
     }
     uint64_t union_size(const khset64_t &other) const {
-        auto p1 = this, p2 = &other;
-        if(size() > other.size())
-            std::swap(p1, p2);
-        uint64_t olap = 0;
-        p1->for_each([&](auto v) {olap += p2->contains(v);});
-        return p1->size() + p2->size() - olap;
-    }
-    std::array<double, 3> full_set_comparison(const khset64_t &o) const {
-        auto us = union_size(o);
-        auto is = size() + o.size();
-        if(is > us) is -= us;
-        else is = 0;
-        return {double(size() > is ? size() - is: size_t(0)),
-                double(o.size() > is ? o.size() - is: size_t(0)),
-                double(is)};
+        auto cmps = full_set_comparison(other);
+        return cmps[0] + cmps[1] + cmps[2];
     }
 };
+
 enum EmissionFormat: unsigned {
     UT_TSV = 0,
     BINARY   = 1,
@@ -179,6 +187,7 @@ enum Sketch: int {
     BB_SUPERMINHASH,
     COUNTING_BB_MINHASH, // TODO make this work.
 };
+
 static const char *sketch_names [] {
     "HLL/HyperLogLog",
     "BF/BloomFilter",
@@ -281,10 +290,14 @@ template<> INLINE double similarity<CRMFinal>(const CRMFinal &a, const CRMFinal 
 }
 
 using RMFinal = mh::FinalRMinHash<uint64_t, std::greater<uint64_t>>;
+template<typename T>
+void sketch_finalize(T &x) {}
+template<>void sketch_finalize<khset64_t>(khset64_t &x) {x.cvt2shs();}
 namespace us {
 template<typename T> INLINE double union_size(const T &a, const T &b) {
     throw NotImplementedError(std::string("union_size not available for type ") + __PRETTY_FUNCTION__);
 }
+
 
 #define US_DEC(type) \
 template<> INLINE double union_size<type> (const type &a, const type &b) { \
@@ -689,7 +702,7 @@ static option_struct sketch_long_options[] = {\
     LO_FLAG("use-bloom-filter", 131, sketch_type, BLOOM_FILTER)\
     LO_FLAG("use-super-minhash", 132, sketch_type, BB_SUPERMINHASH)\
     LO_FLAG("use-nthash", 133, enct, NTHASH)\
-    LO_FLAG("use-cyclic-hash", 134, enct, CYCLIC)\
+    LO_FLAG("use-cyclic-hash", 134, enct, NTHASH)\
     LO_FLAG("avoid-sorting", 135, avoid_fsorting, true)\
     LO_FLAG("wj", 138, weighted_jaccard, true)\
     {0,0,0,0}\
@@ -1097,6 +1110,7 @@ enum CompReading: unsigned {
     }
 
 
+
 template<typename SketchType>
 void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sketch::cm::ccm_t> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,
                          Spacer sp,
@@ -1163,6 +1177,10 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sk
             }
         }
         ++ncomplete; // Atomic
+    }
+    _Pragma("omp parallel for")
+    for(size_t i = 0; i < sketches.size(); ++i) {
+        sketch_finalize(final_sketches[i]);
     }
     kseqs.free();
     ks::string str("#Path\tSize (est.)\n");
@@ -1268,7 +1286,7 @@ static option_struct dist_long_options[] = {\
     LO_FLAG("use-nthash", 136, enct, NTHASH)\
     LO_FLAG("symmetric-containment-index", 137, result_type, SYMMETRIC_CONTAINMENT_INDEX) \
     LO_FLAG("symmetric-containment-dist", 138, result_type, SYMMETRIC_CONTAINMENT_DIST) \
-    LO_FLAG("use-cyclic-hash", 139, enct, CYCLIC)\
+    LO_FLAG("use-cyclic-hash", 139, enct, NTHASH)\
     LO_ARG("wj-cm-sketch-size", 140)\
     LO_ARG("wj-cm-nhashes", 141)\
     LO_FLAG("wj", 142, weighted_jaccard, true)\
