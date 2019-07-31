@@ -32,6 +32,31 @@ using sketch::common::NotImplementedError;
 
 using option_struct = struct option;
 namespace bns {
+static int flatten_all(const std::vector<std::string> &fpaths, size_t nk, const std::string outpath) {
+    std::vector<dm::DistanceMatrix<float>> dms;
+    dms.reserve(nk);
+    for(const auto &fp: fpaths)
+        dms.emplace_back(fp.data());
+    const size_t ne = dms.front().num_entries();
+    assert(std::accumulate(dms.begin() + 1, dms.end(), true,
+           [fn](bool val, const auto &x) {return val && x.num_entries() == fn;}));
+    float *outp = static_cast<float *>(std::malloc(nk * ne * sizeof(float)));
+    if(!outp) return 1;
+
+    static constexpr size_t NB = 4096;
+    #pragma omp parallel for
+    for(size_t i = 0; i < ((NB - 1) + ne) / NB; ++i) {
+        auto spos = i * NB, espos = std::min((i + 1) * NB, ne);
+        auto destp = outp + spos * nk;//, endp = std::min(destp + nk, outp + ne);
+        do {for(auto j = 0u; j < nk;*destp++ = dms[j++][spos]);} while(++spos < espos);
+    }
+    std::FILE *ofp = fopen(outpath.data(), "wb");
+    if(!ofp) return 2;
+    if(::write(::fileno(ofp), outp, nk * ne * sizeof(float)) != nk * ne * sizeof(float)) return 2;
+    std::fclose(ofp);
+    std::free(outp);
+    return 0;
+}
 using sketch::common::WangHash;
 static const char *executable = nullptr;
 
@@ -1484,6 +1509,53 @@ int print_binary_main(int argc, char *argv[]) {
     return EXIT_SUCCESS;
 }
 
+int mkdist_main(int argc, char *argv[]) {
+    auto it = std::find_if(argv, argv + argc, [](auto x) {return std::strcmp("--multik", x) == 0;});
+    std::string _outpref;
+    if(it == argv + argc || argv + argc == ++it) {
+        RUNTIME_ERROR("required: --multik <outpref>,<start>,<end> [optional: ,<step>]");
+    }
+    int e, step, s;
+    auto pos = std::strchr(*it, ',');
+    if(!pos) RUNTIME_ERROR("Ill-formatted");
+    _outpref = std::string(*it, pos - *it);
+    s = std::atoi(++pos);
+    const char *outpref = _outpref.data();
+    std::fprintf(stderr, "outpref: %s\n", _outpref.data());
+    e = std::atoi(++pos);
+    if((pos = std::strchr(pos, ','))) {
+        step = std::atoi(++pos);
+        assert(step > 0 ? e > s: e < s);
+    } else step = e > s ? 1: -1;
+    std::vector<std::string> ea(2);
+    for(auto &i: ea) i.resize(_outpref.size() + 32);
+    std::vector<char *> args(argv, argv + argc);
+    size_t nk = 0;
+    std::vector<std::string> fpaths;
+    for(int ind = s; (e > s ? ind < e: ind > e); ind += step) {
+        char buf[256]{0};
+        ea[0] = std::string(buf, std::sprintf(buf, "-bO_%s_%d", outpref, ind));
+        ea[1] = std::string(buf, std::sprintf(buf, "-k%d", ind));
+        fpaths.push_back(std::string(buf, std::sprintf(buf, "_%s_%d", outpref, ind)));
+        size_t j = std::find_if(argv, argv + argc, [](auto x) {return std::strcmp("--multik", x) == 0;}) - argv;
+        assert(j != argc);
+        args[j] = &ea[0][0];
+        args[1] = &ea[1][0];
+        dist_main(args.size(), args.data());
+        ++nk;
+    }
+    std::string outpath = outpref;
+    outpath += ".bin";
+    return flatten_all(fpaths, nk, outpath);
+}
+
+int flatten_main(int argc, char *argv[]) {
+    if(argc < 3) throw 1;
+    std::vector<std::string> fpaths(argv + 2, argv + argc);
+    omp_set_num_threads(std::thread::hardware_concurrency());
+    return flatten_all(fpaths, fpaths.size(), argv[1]);
+}
+
 int setdist_main(int argc, char *argv[]) {
     LOG_WARNING("setdist_main is deprecated and will be removed. Instead, call `dashing dist` with --use-full-khash-sets to use hash sets instead of sketches.\n");
     return 1;
@@ -1633,6 +1705,8 @@ int main(int argc, char *argv[]) {
     else if(std::strcmp(argv[1], "setdist") == 0) return setdist_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "hll") == 0) return hll_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "view") == 0) return view_main(argc - 1, argv + 1);
+    else if(std::strcmp(argv[1], "mkdist") == 0) return mkdist_main(argc - 1, argv + 1);
+    else if(std::strcmp(argv[1], "flatten") == 0) return flatten_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "printmat") == 0) return print_binary_main(argc - 1, argv + 1);
     else {
         for(const char *const *p(argv + 1); *p; ++p) {
