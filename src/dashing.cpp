@@ -102,15 +102,17 @@ struct khset64_t: public kh::khset64_t {
         this->read(s);
     }
     void cvt2shs() {
+        if(this->flags == nullptr) return;
         uint64_t *newp = this->keys;
-        for(size_t ki = 0, i = 0; ki != this->n_buckets; ++ki) {
+        size_t i = 0;
+        for(size_t ki = 0; ki != this->n_buckets; ++ki) {
             if(kh_exist(this, ki))
                 newp[i++] = kh_key(this, ki);
         }
-        this->keys = newp;
+        assert(i == this->n_occupied);
         std::free(this->flags);
         this->flags = nullptr;
-        std::sort(newp, newp + this->n_occupied);
+        std::sort(newp, newp + i);
     }
     void read(const std::string &s) {read(s.data());}
     void read(const char *s) {
@@ -134,12 +136,17 @@ struct khset64_t: public kh::khset64_t {
     struct Counter
     {
       struct value_type { template<typename T> value_type(const T&) { } };
-      void push_back(const value_type&) { ++count; }
-      size_t count = 0;
+      void push_back(const value_type &x) { ++count; }
+      Counter(): count(0) {}
+      size_t count;
     };
     std::array<double, 3> full_set_comparison(const khset64_t &other) const {
+        if(flags) throw std::runtime_error("flags must be null by now\n");
+        if(other.flags) throw std::runtime_error("flags must be null by now (other)\n");
         Counter c;
         assert(std::is_sorted(this->keys, this->keys + this->n_occupied));
+        assert(std::is_sorted(other.keys, other.keys + other.n_occupied));
+        assert(c.count == 0);
         std::set_intersection(this->keys, this->keys + this->n_occupied,
                               other.keys, other.keys + other.n_occupied,
                               std::back_inserter(c));
@@ -1195,7 +1202,7 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sk
             double card;
             CONST_IF(samesketch) card = cardinality_estimate(sketches[i]);
             else                 card = cardinality_estimate(final_sketches[i]);
-            str.sprintf("%s\t%lf\n", inpaths[i].data(), card);
+            str.sprintf("%s\t%zu\n", inpaths[i].data(), size_t(card));
             if(str.size() >= BUFFER_FLUSH_SIZE) str.flush(fn);
         }
         str.flush(fn);
