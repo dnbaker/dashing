@@ -1,3 +1,4 @@
+#include "khset/khset.h"
 #include <omp.h>
 #include "bonsai/bonsai/include/util.h"
 #include "bonsai/bonsai/include/database.h"
@@ -43,7 +44,7 @@ static int flatten_all(const std::vector<std::string> &fpaths, size_t nk, const 
     float *outp = static_cast<float *>(std::malloc(nk * ne * sizeof(float)));
     if(!outp) return 1;
 
-    static constexpr size_t NB = 4096;
+    static constexpr uint64_t NB = 4096;
     #pragma omp parallel for
     for(size_t i = 0; i < ((NB - 1) + ne) / NB; ++i) {
         auto spos = i * NB, espos = std::min((i + 1) * NB, ne);
@@ -129,7 +130,8 @@ struct khset64_t: public kh::khset64_t {
     }
     void cvt2shs() {
         if(this->flags == nullptr) return;
-        uint64_t *newp = this->keys;
+        uint64_t *newp = reinterpret_cast<uint64_t *>(this->keys);
+        static_assert(sizeof(*newp) == sizeof(*this->keys), "same");
         size_t i = 0;
         for(size_t ki = 0; ki != this->n_buckets; ++ki) {
             if(kh_exist(this, ki))
@@ -821,7 +823,7 @@ int sketch_main(int argc, char *argv[]) {
             cms.emplace_back(nbits, cmsketchsize, nhashes, (cms.size() ^ seedseedseed) * 1337uL);
     }
     KSeqBufferHolder kseqs(nthreads);
-    if(wsz < sp.c_) wsz = sp.c_;
+    if(wsz < (int)sp.c_) wsz = sp.c_;
 #define SKETCH_CORE(type) \
     sketch_core<type>(sketch_size, nthreads, wsz, k, sp, inpaths,\
                             suffix, prefix, cms, estim, jestim,\
