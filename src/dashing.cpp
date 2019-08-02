@@ -53,7 +53,7 @@ static int flatten_all(const std::vector<std::string> &fpaths, size_t nk, const 
     std::FILE *ofp = fopen(outpath.data(), "wb");
     if(!ofp) return 2;
     if(::write(::fileno(ofp), &ne, sizeof(ne) ) != sizeof(ne)) return 3;
-    if(::write(::fileno(ofp), outp, nk * ne * sizeof(float)) != nk * ne * sizeof(float)) return 4;
+    if(::write(::fileno(ofp), outp, nk * ne * sizeof(float)) != ssize_t(nk * ne * sizeof(float))) return 4;
     std::fclose(ofp);
     std::free(outp);
     return 0;
