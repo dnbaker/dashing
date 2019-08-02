@@ -37,9 +37,9 @@ static int flatten_all(const std::vector<std::string> &fpaths, size_t nk, const 
     dms.reserve(nk);
     for(const auto &fp: fpaths)
         dms.emplace_back(fp.data());
-    const size_t ne = dms.front().num_entries();
+    const uint64_t ne = dms.front().num_entries();
     assert(std::accumulate(dms.begin() + 1, dms.end(), true,
-           [fn](bool val, const auto &x) {return val && x.num_entries() == fn;}));
+           [ne](bool val, const auto &x) {return val && x.num_entries() == ne;}));
     float *outp = static_cast<float *>(std::malloc(nk * ne * sizeof(float)));
     if(!outp) return 1;
 
@@ -52,7 +52,8 @@ static int flatten_all(const std::vector<std::string> &fpaths, size_t nk, const 
     }
     std::FILE *ofp = fopen(outpath.data(), "wb");
     if(!ofp) return 2;
-    if(::write(::fileno(ofp), outp, nk * ne * sizeof(float)) != nk * ne * sizeof(float)) return 2;
+    if(::write(::fileno(ofp), &ne, sizeof(ne) ) != sizeof(ne)) return 3;
+    if(::write(::fileno(ofp), outp, nk * ne * sizeof(float)) != nk * ne * sizeof(float)) return 4;
     std::fclose(ofp);
     std::free(outp);
     return 0;
@@ -1112,6 +1113,7 @@ void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> 
         if(emit_fmt == FULL_TSV) dm.printf(ofp, use_scientific, &inpaths);
         else {
             assert(emit_fmt == BINARY);
+            std::fprintf(stderr, "Writing to file\n");
             dm.write(ofp);
         }
     }
@@ -1549,8 +1551,13 @@ int mkdist_main(int argc, char *argv[]) {
     return flatten_all(fpaths, nk, outpath);
 }
 
+void flatten_usage() {
+    std::fprintf(stderr, "Usage: dashing flatten <output.bin> [in1.bin in2.bin...]\n");
+    std::exit(1);
+}
+
 int flatten_main(int argc, char *argv[]) {
-    if(argc < 3) throw 1;
+    if(argc < 3 || std::find_if(argv, argv + argc, [](auto x){return std::strcmp(x, "-h") == 0;}) != argv + argc) flatten_usage();
     std::vector<std::string> fpaths(argv + 2, argv + argc);
     omp_set_num_threads(std::thread::hardware_concurrency());
     return flatten_all(fpaths, fpaths.size(), argv[1]);
