@@ -821,7 +821,7 @@ int sketch_main(int argc, char *argv[]) {
             cms.emplace_back(nbits, cmsketchsize, nhashes, (cms.size() ^ seedseedseed) * 1337uL);
     }
     KSeqBufferHolder kseqs(nthreads);
-    if(wsz < sp.c_) wsz = sp.c_;
+    if(wsz < (int)sp.c_) wsz = sp.c_;
 #define SKETCH_CORE(type) \
     sketch_core<type>(sketch_size, nthreads, wsz, k, sp, inpaths,\
                             suffix, prefix, cms, estim, jestim,\
