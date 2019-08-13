@@ -1,5 +1,6 @@
-#include "khset/khset.h"
 #include <omp.h>
+#include "hll/common.h"
+#include "khset/khset.h"
 #include "bonsai/bonsai/include/util.h"
 #include "bonsai/bonsai/include/database.h"
 #include "bonsai/bonsai/include/bitmap.h"
@@ -42,7 +43,9 @@ static int flatten_all(const std::vector<std::string> &fpaths, size_t nk, const 
     assert(std::accumulate(dms.begin() + 1, dms.end(), true,
            [ne](bool val, const auto &x) {return val && x.num_entries() == ne;}));
     float *outp = static_cast<float *>(std::malloc(nk * ne * sizeof(float)));
-    if(!outp) return 1;
+    if(!outp) {
+        std::fprintf(stderr, "Allocation of %zu bytes failed\n", nk * ne * sizeof(float)); return 1;
+    }
 
     static constexpr uint64_t NB = 4096;
     #pragma omp parallel for
@@ -53,8 +56,8 @@ static int flatten_all(const std::vector<std::string> &fpaths, size_t nk, const 
     }
     std::FILE *ofp = fopen(outpath.data(), "wb");
     if(!ofp) return 2;
-    if(::write(::fileno(ofp), &ne, sizeof(ne) ) != sizeof(ne)) return 3;
-    if(::write(::fileno(ofp), outp, nk * ne * sizeof(float)) != ssize_t(nk * ne * sizeof(float))) return 4;
+    std::fwrite(&ne, sizeof(ne), 1, ofp);
+    std::fwrite(outp, nk * ne, sizeof(float), ofp);
     std::fclose(ofp);
     std::free(outp);
     return 0;
