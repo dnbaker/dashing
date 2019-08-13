@@ -44,7 +44,7 @@ static int flatten_all(const std::vector<std::string> &fpaths, size_t nk, const 
            [ne](bool val, const auto &x) {return val && x.num_entries() == ne;}));
     float *outp = static_cast<float *>(std::malloc(nk * ne * sizeof(float)));
     if(!outp) {
-        std::fprintf(stderr, "Allocation of %zu bytes failed\n", nk * ne * sizeof(float)); return 1;
+        std::fprintf(stderr, "Allocation of %zu bytes failed\n", size_t(nk * ne * sizeof(float))); return 1;
     }
 
     static constexpr uint64_t NB = 4096;
