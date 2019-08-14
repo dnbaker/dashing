@@ -112,8 +112,8 @@ libz.a: bonsai/zlib/libz.a
 %: src/%.o $(ALL_ZOBJS) $(DEPS) libz.so libzstd.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) libz.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
 
-%0: src/%.cpp $(ALL_ZOBJS) $(DEPS)
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -O0
+%0: src/%.cpp $(ALL_ZOBJS) $(DEPS) libz.so libzstd.a
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) libz.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
 src/%.o: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.so
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -c -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
