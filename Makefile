@@ -50,7 +50,7 @@ ZSTD_INCLUDE_DIRS=bonsai/zstd/zlibWrapper bonsai/zstd/lib/common bonsai/zstd/lib
 ZSTD_INCLUDE=$(patsubst %,-I%,$(ZSTD_INCLUDE_DIRS))
 ZFLAGS=-DZWRAP_USE_ZSTD=1
 ZCOMPILE_FLAGS= $(ZFLAGS) -lzstd
-ZW_OBJS=$(patsubst %.c,%.o,$(wildcard bonsai/zstd/zlibWrapper/*.c)) libzstd.a
+ZW_OBJS=$(patsubst %.c,%.o,bonsai/zstd/zlibWrapper/gzclose.c  bonsai/zstd/zlibWrapper/gzlib.c  bonsai/zstd/zlibWrapper/gzread.c  bonsai/zstd/zlibWrapper/gzwrite.c  bonsai/zstd/zlibWrapper/zstd_zlibwrapper.c) libzstd.a
 ALL_ZOBJS=$(ZOBJS) $(ZW_OBJS) bonsai/bonsai/clhash.o bonsai/klib/kthread.o
 INCLUDE=-Ibonsai/clhash/include -I.  -Ibonsai/zlib -Ibonsai/libpopcnt -Iinclude -Ibonsai/circularqueue $(ZSTD_INCLUDE) $(INCPLUS) -Ibonsai/hll -Ibonsai/hll/vec -Ibonsai -Ibonsai/bonsai/include/
 
