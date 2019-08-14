@@ -109,8 +109,8 @@ libz.so: bonsai/zlib/libz.so
 	cp bonsai/zlib/libz* .
 libz.a: bonsai/zlib/libz.a
 	cp $< $@
-%: src/%.cpp $(ALL_ZOBJS) $(DEPS) libz.so libzstd.a
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) libzstd.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
+%: src/%.o $(ALL_ZOBJS) $(DEPS) libz.so libzstd.a
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) libz.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
 
 %0: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -O0
