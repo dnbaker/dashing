@@ -14,17 +14,6 @@ before_install:
   - make update
 script:
   - make update
-  - cd bonsai
-  - make unit
-  - ./bonsai/unit hll
-  - ./bonsai/unit SIMDhash
-  - ./bonsai/unit popcnt
-  - ./bonsai/unit roundup64
-  - ./bonsai/unit set
-  - ./bonsai/unit counter
-  - ./bonsai/unit circdebuff
-  - ./bonsai/unit tax
-  - cd ..
   - gcc --version
   - g++ --version
   - make dashing

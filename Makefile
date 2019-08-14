@@ -96,21 +96,21 @@ test/%.zo: test/%.cpp
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c $< -o $@ $(LIB)
 
 bonsai/zlib/libz.a:
-	+cd bonsai/zlib && ./configure && make libz.a
+	+cd bonsai/zlib && ./configure && make
 
 bonsai/zlib/libz.so:
-	+cd bonsai/zlib && ./configure && make && ls libz.so
+	+cd bonsai/zlib && ./configure && make
 
 zobj: $(ALL_ZOBJS)
 
 STATIC_GOMP?=$(shell $(CXX) --print-file-name=libgomp.a)
 
 libz.so: bonsai/zlib/libz.so
-	cp $< $@
+	cp bonsai/zlib/libz* .
 libz.a: bonsai/zlib/libz.a
 	cp $< $@
-%: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.so libz.a
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) libz.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
+%: src/%.cpp $(ALL_ZOBJS) $(DEPS) libz.so libzstd.a
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) libzstd.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
 
 %0: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -O0
