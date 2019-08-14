@@ -1545,7 +1545,7 @@ int mkdist_main(int argc, char *argv[]) {
         ea[1] = std::string(buf, std::sprintf(buf, "-k%d", ind));
         fpaths.push_back(std::string(buf, std::sprintf(buf, "_%s_%d", outpref, ind)));
         size_t j = std::find_if(argv, argv + argc, [](auto x) {return std::strcmp("--multik", x) == 0;}) - argv;
-        assert(j != argc);
+        assert(j != size_t(argc));
         args[j] = &ea[0][0];
         args[1] = &ea[1][0];
         dist_main(args.size(), args.data());
