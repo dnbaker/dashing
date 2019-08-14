@@ -168,6 +168,7 @@ osx_release:
 clean:
 	rm -f $(EX) $(D_EX) libzstd.a bonsai/bonsai/clhash.o clhash.o \
 	bonsai/klib/kthread.o bonsai/klib/kstring.o libgomp.a \
-	&& cd bonsai/zstd && make clean && cd ../zlib && make clean && cd ../..
+	&& cd bonsai/zstd && make clean && cd ../zlib && make clean && cd ../.. \
+	&& rm -f libz.*
 mostlyclean: clean
 sparse: readfilt sparsereadfilt
