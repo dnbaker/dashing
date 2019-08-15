@@ -123,12 +123,17 @@ struct khset64_t: public kh::khset64_t {
     // TODO: change to sorted hash sets for faster comparisons, implement parallel merge sort.
     using final_type = khset64_t;
     void addh(uint64_t v) {this->insert(v);}
+    void add(uint64_t v) {this->insert(v);}
     double cardinality_estimate() const {
         return this->size();
     }
     khset64_t(): kh::khset64_t() {}
     khset64_t(size_t reservesz): kh::khset64_t(reservesz) {}
     khset64_t(std::string s) {
+        this->n_occupied = this->n_buckets = 0;
+        this->keys = 0;
+        this->flags = 0;
+        this->vals = 0;
         this->read(s);
     }
     void cvt2shs() {
@@ -148,8 +153,17 @@ struct khset64_t: public kh::khset64_t {
     void read(const std::string &s) {read(s.data());}
     void read(const char *s) {
         gzFile fp = gzopen(s, "rb");
-        kh::khset64_t::read(fp);
+        this->read(fp);
         gzclose(fp);
+    }
+    void read(gzFile fp) {
+        uint64_t nelem;
+        if(gzread(fp, &nelem, sizeof(nelem)) != sizeof(nelem))
+            throw std::runtime_error("Failure to read");
+        if((this->keys = static_cast<uint64_t *>(std::realloc(this->keys, nelem * sizeof(uint64_t)))) == nullptr)
+            throw std::bad_alloc();
+        if(gzread(fp, this->keys, nelem * sizeof(uint64_t)) != ssize_t(nelem * sizeof(uint64_t)))
+            throw std::runtime_error("Failure to read");
     }
     void free() {
         auto ptr = reinterpret_cast<kh::khash_t(set64) *>(this);
@@ -158,11 +172,22 @@ struct khset64_t: public kh::khset64_t {
         std::memset(ptr, 0, sizeof(*this));
     }
     void write(const std::string &s) const {write(s.data());}
-    void write(gzFile fp) const {kh::khset64_t::write(fp);}
     void write(const char *s) const {
         gzFile fp = gzopen(s, "wb");
-        kh::khset64_t::write(fp);
+        this->write(fp);
         gzclose(fp);
+    }
+    void write(gzFile fp) const {
+        uint64_t nelem = this->n_occupied;
+        std::vector<uint64_t> tmp(nelem);
+        auto it = tmp.begin();
+        for(khiter_t ki = 0; ki != this->n_buckets; ++ki)
+            if(kh_exist(this, ki))
+                *it++ = kh_key(this, ki);
+        std::sort(tmp.begin(), tmp.end());
+        if(gzwrite(fp, &nelem, sizeof(nelem)) != sizeof(nelem)) throw std::runtime_error("Failed to write khash set to disk.");
+        if(gzwrite(fp, this->keys, sizeof(*this->keys) * nelem) != ssize_t(sizeof(*this->keys) * nelem))
+            throw std::runtime_error("Failed to write khash set to disk.");
     }
     struct Counter
     {
@@ -692,6 +717,7 @@ void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, co
                 for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
             }\
         }\
+        sketch_finalize(h);\
         h.write(fname.data());\
         h.clear();\
     }
@@ -838,6 +864,7 @@ int sketch_main(int argc, char *argv[]) {
         case COUNTING_RANGE_MINHASH: SKETCH_CORE(mh::CountingRangeMinHash<uint64_t>); break;
         case BB_MINHASH: SKETCH_CORE(mh::BBitMinHasher<uint64_t>); break;
         case BB_SUPERMINHASH: SKETCH_CORE(SuperMinHashType); break;
+        case FULL_KHASH_SET: SKETCH_CORE(khset64_t); break;
         default: {
             char buf[128];
             std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));
@@ -1713,6 +1740,7 @@ int main(int argc, char *argv[]) {
     if(argc == 1) main_usage(argv);
     if(std::strcmp(argv[1], "sketch") == 0) return sketch_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "dist") == 0) return dist_main(argc - 1, argv + 1);
+    else if(std::strcmp(argv[1], "cmp") == 0) return dist_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "union") == 0) return union_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "setdist") == 0) return setdist_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "hll") == 0) return hll_main(argc - 1, argv + 1);
