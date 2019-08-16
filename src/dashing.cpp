@@ -160,7 +160,8 @@ struct khset64_t: public kh::khset64_t {
         uint64_t nelem;
         if(gzread(fp, &nelem, sizeof(nelem)) != sizeof(nelem))
             throw std::runtime_error("Failure to read");
-        if((this->keys = static_cast<uint64_t *>(std::realloc(this->keys, nelem * sizeof(uint64_t)))) == nullptr)
+        static_assert(sizeof(*this->keys) == sizeof(uint64_t), "must be same");
+        if((this->keys = static_cast<khint64_t *>(std::realloc(this->keys, nelem * sizeof(uint64_t)))) == nullptr)
             throw std::bad_alloc();
         if(gzread(fp, this->keys, nelem * sizeof(uint64_t)) != ssize_t(nelem * sizeof(uint64_t)))
             throw std::runtime_error("Failure to read");
