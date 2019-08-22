@@ -1,32 +1,7 @@
-#include <omp.h>
-#include "hll/common.h"
-#include "khset/khset.h"
-#include "bonsai/bonsai/include/util.h"
-#include "bonsai/bonsai/include/database.h"
-#include "bonsai/bonsai/include/bitmap.h"
-#include "bonsai/bonsai/include/setcmp.h"
-#include "hll/bbmh.h"
-#include "hll/mh.h"
-#include "hll/mult.h"
-#include "khset/khset.h"
-#include "distmat/distmat.h"
-#include <sstream>
-#include "getopt.h"
-#include <sys/stat.h>
-#include "substrs.h"
-
-#if __cplusplus >= 201703L && __cpp_lib_execution
-#include <execution>
-#endif
-#ifdef FNAME_SEP
-#pragma message("Not: FNAME_SEP already defined. [not default \"' '\"]")
-#else
-#define FNAME_SEP ' '
-#endif
+#include "dashing.h"
 
 using namespace sketch;
 using hll::hll_t;
-using sketch::common::NotImplementedError;
 
 #ifndef BUFFER_FLUSH_SIZE
 #define BUFFER_FLUSH_SIZE (1u << 18)
@@ -63,7 +38,6 @@ static int flatten_all(const std::vector<std::string> &fpaths, size_t nk, const 
     return 0;
 }
 using sketch::common::WangHash;
-static const char *executable = nullptr;
 
 struct GlobalArgs {
     size_t weighted_jaccard_cmsize = 22;
@@ -1714,7 +1688,7 @@ int union_main(int argc, char *argv[]) {
         case BLOOM_FILTER: union_core<bf::bf_t>(paths, ofp); break;
         case FULL_KHASH_SET: union_core<khset64_t>(paths, ofp); break;
         case RANGE_MINHASH: union_core<mh::FinalRMinHash<uint64_t>>(paths, ofp); break;
-        default: throw sketch::common::NotImplementedError(ks::sprintf("Union not implemented for %s\n", sketch_names[sketch_type]).data());
+        default: throw NotImplementedError(ks::sprintf("Union not implemented for %s\n", sketch_names[sketch_type]).data());
     }
     gzclose(ofp);
     return 0;
@@ -1728,36 +1702,3 @@ int view_main(int argc, char *argv[]) {
 
 } // namespace bns
 
-using namespace bns;
-
-void version_info(char *argv[]) {
-    std::fprintf(stderr, "Dashing version: %s\n", DASHING_VERSION);
-    std::exit(1);
-}
-
-int main(int argc, char *argv[]) {
-    bns::executable = argv[0];
-    std::fprintf(stderr, "Dashing version: %s\n", DASHING_VERSION);
-    if(argc == 1) main_usage(argv);
-    if(std::strcmp(argv[1], "sketch") == 0) return sketch_main(argc - 1, argv + 1);
-    else if(std::strcmp(argv[1], "dist") == 0) return dist_main(argc - 1, argv + 1);
-    else if(std::strcmp(argv[1], "cmp") == 0) return dist_main(argc - 1, argv + 1);
-    else if(std::strcmp(argv[1], "union") == 0) return union_main(argc - 1, argv + 1);
-    else if(std::strcmp(argv[1], "setdist") == 0) return setdist_main(argc - 1, argv + 1);
-    else if(std::strcmp(argv[1], "hll") == 0) return hll_main(argc - 1, argv + 1);
-    else if(std::strcmp(argv[1], "view") == 0) return view_main(argc - 1, argv + 1);
-    else if(std::strcmp(argv[1], "mkdist") == 0) return mkdist_main(argc - 1, argv + 1);
-    else if(std::strcmp(argv[1], "flatten") == 0) return flatten_main(argc - 1, argv + 1);
-    else if(std::strcmp(argv[1], "printmat") == 0) return print_binary_main(argc - 1, argv + 1);
-    else {
-        for(const char *const *p(argv + 1); *p; ++p) {
-            std::string v(*p);
-            std::transform(v.begin(), v.end(), v.begin(), [](auto c) {return std::tolower(c);});
-            if(v == "-h" || v == "--help") main_usage(argv);
-            if(v == "-v" || v == "--version") version_info(argv);
-        }
-        std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options. [Subcommands: sketch, dist, setdist, hll, union, printmat, view.]\n",
-                     *argv, *argv);
-        RUNTIME_ERROR(std::string("Invalid subcommand ") + argv[1] + " provided.");
-    }
-}
