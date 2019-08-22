@@ -14,7 +14,7 @@ Clone this repository recursively, and use make.
 
 ```bash
 git clone https://github.com/dnbaker/dashing
-cd dashing && make update dashing
+cd dashing && make dashing
 ```
 
 Dashing is written in C++14, which means that it requires a relatively new compiler.
