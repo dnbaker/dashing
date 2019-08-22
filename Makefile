@@ -186,6 +186,6 @@ clean:
 	rm -f $(EX) $(D_EX) libzstd.a bonsai/bonsai/clhash.o clhash.o \
 	bonsai/klib/kthread.o bonsai/klib/kstring.o libgomp.a \
 	&& cd bonsai/zstd && $(MAKE) clean && cd ../zlib && $(MAKE) clean && cd ../.. \
-	&& rm -f libz.*
+	&& rm -f libz.* && rm -f dashing.a
 mostlyclean: clean
 sparse: readfilt sparsereadfilt
