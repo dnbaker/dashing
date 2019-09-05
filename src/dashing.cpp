@@ -302,48 +302,8 @@ std::string make_fname(const char *path, size_t sketch_p, int wsz, int k, int cs
     ret += SketchFileSuffix<SketchType>::suffix;
     return ret;
 }
-
-
-
-/*
- *
-  enc.for_each([&](u64 kmer){h.addh(kmer);}, inpaths[i].data(), &kseqs[tid]);\
- */
-
-template<typename T>
-INLINE void set_estim_and_jestim(T &x, hll::EstimationMethod estim, hll::JointEstimationMethod jestim) {}
-
-template<typename Hashstruct>
-INLINE void set_estim_and_jestim(hll::hllbase_t<Hashstruct> &h, hll::EstimationMethod estim, hll::JointEstimationMethod jestim) {
-    h.set_estim(estim);
-    h.set_jestim(jestim);
-}
 using hll::EstimationMethod;
 using hll::JointEstimationMethod;
-
-template<typename T> T construct(size_t ssarg);
-template<typename T, bool is_weighted>
-struct Constructor;
-template<typename T> struct Constructor<T, false> {
-    static auto create(size_t ssarg) {
-        return T(ssarg);
-    }
-};
-template<typename T> struct Constructor<T, true> {
-    static auto create(size_t ssarg) {
-        using base_type = typename T::base_type;
-        using cm_type = typename T::cm_type;
-        return T(cm_type(16, gargs.weighted_jaccard_cmsize, gargs.weighted_jaccard_nhashes), construct<base_type>(ssarg));
-    }
-};
-
-template<typename T>
-T construct(size_t ssarg) {
-    Constructor<T, wj::is_weighted_sketch<T>::value> constructor;
-    return constructor.create(ssarg);
-}
-
-template<> mh::BBitMinHasher<uint64_t> construct<mh::BBitMinHasher<uint64_t>>(size_t p) {return mh::BBitMinHasher<uint64_t>(p, gargs.bbnbits);}
 
 template<typename SketchType>
 void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<cm::ccm_t> &cms, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct=BONSAI) {

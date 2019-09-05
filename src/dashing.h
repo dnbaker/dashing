@@ -29,6 +29,8 @@
 
 namespace bns {
 
+using CBBMinHashType = mh::CountingBBitMinHasher<uint64_t, uint16_t>; // Is counting to 65536 enough for a transcriptome?
+using SuperMinHashType = mh::SuperMinHash<>;
 static int flatten_all(const std::vector<std::string> &fpaths, size_t nk, const std::string outpath) {
     std::vector<dm::DistanceMatrix<float>> dms;
     dms.reserve(nk);
@@ -180,8 +182,8 @@ enum EncodingType {
     CYCLIC
 };
 
-using CBBMinHashType = mh::CountingBBitMinHasher<uint64_t, uint16_t>; // Is counting to 65536 enough for a transcriptome?
-using SuperMinHashType = mh::SuperMinHash<>;
+
+
 template<typename T> struct SketchEnum;
 template<> struct SketchEnum<hll::hll_t> {static constexpr Sketch value = HLL;};
 template<> struct SketchEnum<bf::bf_t> {static constexpr Sketch value = BLOOM_FILTER;};
@@ -199,6 +201,38 @@ template<> struct SketchEnum<wj::WeightedSketcher<mh::BBitMinHasher<uint64_t>>> 
 template<> struct SketchEnum<wj::WeightedSketcher<CBBMinHashType>> {static constexpr Sketch value = COUNTING_BB_MINHASH;};
 template<> struct SketchEnum<wj::WeightedSketcher<khset64_t>> {static constexpr Sketch value = FULL_KHASH_SET;};
 template<> struct SketchEnum<wj::WeightedSketcher<SuperMinHashType>> {static constexpr Sketch value = BB_SUPERMINHASH;};
+
+template<typename T>
+INLINE void set_estim_and_jestim(T &x, hll::EstimationMethod estim, hll::JointEstimationMethod jestim) {}
+
+template<typename Hashstruct>
+INLINE void set_estim_and_jestim(hll::hllbase_t<Hashstruct> &h, hll::EstimationMethod estim, hll::JointEstimationMethod jestim) {
+    h.set_estim(estim);
+    h.set_jestim(jestim);
+}
+template<typename T> T construct(size_t ssarg);
+template<typename T, bool is_weighted>
+struct Constructor;
+template<typename T> struct Constructor<T, false> {
+    static auto create(size_t ssarg) {
+        return T(ssarg);
+    }
+};
+template<typename T> struct Constructor<T, true> {
+    static auto create(size_t ssarg) {
+        using base_type = typename T::base_type;
+        using cm_type = typename T::cm_type;
+        return T(cm_type(16, gargs.weighted_jaccard_cmsize, gargs.weighted_jaccard_nhashes), construct<base_type>(ssarg));
+    }
+};
+
+template<typename T>
+T construct(size_t ssarg) {
+    Constructor<T, wj::is_weighted_sketch<T>::value> constructor;
+    return constructor.create(ssarg);
+}
+
+template<> mh::BBitMinHasher<uint64_t> construct<mh::BBitMinHasher<uint64_t>>(size_t p) {return mh::BBitMinHasher<uint64_t>(p, gargs.bbnbits);}
 
 
 template<typename T>
