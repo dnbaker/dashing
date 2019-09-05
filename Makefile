@@ -114,6 +114,8 @@ bonsai/zstd/zlibWrapper/%.c:
 dashing.a: src/dashing.o libz.a libzstd.a bonsai/klib/kthread.o bonsai/bonsai/clhash.o $(ALL_ZOBJS)
 	ar r dashing.a src/dashing.o libz.a libzstd.a $(ALL_ZOBJS) bonsai/klib/kthread.o bonsai/bonsai/clhash.o
 
+BACKUPOBJ=src/main.o src/union.o src/hllmain.o src/mkdistmain.o
+
 
 bonsai/zstd/zlibWrapper/%.o: bonsai/zstd/zlibWrapper/%.c
 	cd bonsai/bonsai && $(MAKE) libzstd.a && cd ../zstd && $(MAKE) lib  && cd zlibWrapper && $(MAKE) $(notdir $@)
@@ -129,8 +131,8 @@ dashing-ar: src/main.o dashing.a
 %: src/%.o dashing.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) dashing.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
 
-dashing: src/dashing.o $(ALL_ZOBJS) $(DEPS) libz.so libzstd.a src/main.o
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) src/main.o libz.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+dashing: src/dashing.o $(ALL_ZOBJS) $(DEPS) libz.so libzstd.a $(BACKUPOBJ)
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) $(BACKUPOBJ) libz.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
 %0: src/%.o $(ALL_ZOBJS) $(DEPS) libz.so libzstd.a src/main.o
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) src/main.o libz.a -O0 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
