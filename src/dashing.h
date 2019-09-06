@@ -27,10 +27,63 @@
 #define FNAME_SEP ' '
 #endif
 
+
+#ifndef BUFFER_FLUSH_SIZE
+#define BUFFER_FLUSH_SIZE (1u << 18)
+#endif
+
+#define LO_ARG(LONG, SHORT) {LONG, required_argument, 0, SHORT},
+#define LO_NO(LONG, SHORT) {LONG, no_argument, 0, SHORT},
+#define LO_FLAG(LONG, SHORT, VAR, VAL) {LONG, no_argument, (int *)&VAR, VAL},
+
+#define FILL_SKETCH_MIN(MinType)  \
+    {\
+        Encoder<MinType> enc(nullptr, 0, sp, nullptr, canon);\
+        if(cms.empty()) {\
+            auto &h = sketch;\
+            if(enct == BONSAI) for_each_substr([&](const char *s) {enc.for_each([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
+            else if(enct == NTHASH) for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
+            else for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
+        } else {\
+            sketch::cm::ccm_t &cm = cms.at(tid);\
+            const auto lfunc = [&](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);};\
+            if(enct == BONSAI)      for_each_substr([&](const char *s) {enc.for_each(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
+            else if(enct == NTHASH) for_each_substr([&](const char *s) {enc.for_each_hash(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
+            else                    for_each_substr([&](const char *s) {rolling_hasher.for_each_hash(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
+            cm.clear();\
+        }\
+        CONST_IF(!samesketch) new(final_sketches + i) final_type(std::move(sketch)); \
+    }
+
+
+
 namespace bns {
 
 using CBBMinHashType = mh::CountingBBitMinHasher<uint64_t, uint16_t>; // Is counting to 65536 enough for a transcriptome?
 using SuperMinHashType = mh::SuperMinHash<>;
+namespace detail {
+void sort_paths_by_fsize(std::vector<std::string> &paths);
+struct path_size {
+    friend void swap(path_size&, path_size&);
+    std::string path;
+    size_t size;
+    path_size(std::string &&p, size_t sz): path(std::move(p)), size(sz) {}
+    path_size(const std::string &p, size_t sz): path(p), size(sz) {}
+    path_size(path_size &&o): path(std::move(o.path)), size(o.size) {}
+    path_size(): size(0) {}
+    path_size &operator=(path_size &&o) {
+        std::swap(o.path, path);
+        std::swap(o.size, size);
+        return *this;
+    }
+};
+
+inline void swap(path_size &a, path_size &b) {
+    std::swap(a.path, b.path);
+    std::swap(a.size, b.size);
+}
+} // detail
+size_t posix_fsizes(const std::string &path, const char sep=FNAME_SEP);
 static int flatten_all(const std::vector<std::string> &fpaths, size_t nk, const std::string outpath) {
     std::vector<dm::DistanceMatrix<float>> dms;
     dms.reserve(nk);
@@ -80,7 +133,7 @@ enum Sketch: int {
     BB_SUPERMINHASH,
     COUNTING_BB_MINHASH, // TODO make this work.
 };
-static const char *sketch_names [] {
+static constexpr const char *const sketch_names [] {
     "HLL/HyperLogLog",
     "BF/BloomFilter",
     "RMH/Range Min-Hash/KMV",
@@ -202,6 +255,66 @@ template<> struct SketchEnum<wj::WeightedSketcher<CBBMinHashType>> {static const
 template<> struct SketchEnum<wj::WeightedSketcher<khset64_t>> {static constexpr Sketch value = FULL_KHASH_SET;};
 template<> struct SketchEnum<wj::WeightedSketcher<SuperMinHashType>> {static constexpr Sketch value = BB_SUPERMINHASH;};
 
+
+
+using option_struct = struct option;
+using sketch::common::WangHash;
+using CRMFinal = mh::FinalCRMinHash<uint64_t, std::greater<uint64_t>, uint32_t>;
+using RMFinal = mh::FinalRMinHash<uint64_t, std::greater<uint64_t>>;
+
+template<typename T> INLINE double similarity(const T &a, const T &b) {
+    return a.jaccard_index(b);
+}
+
+template<> INLINE double similarity<CRMFinal>(const CRMFinal &a, const CRMFinal &b) {
+    return a.histogram_intersection(b);
+}
+
+template<typename T> void sketch_finalize(T &x) {}
+template<> void sketch_finalize<khset64_t>(khset64_t &x);
+
+
+namespace us {
+template<typename T> INLINE double union_size(const T &a, const T &b) {
+    throw NotImplementedError(std::string("union_size not available for type ") + __PRETTY_FUNCTION__);
+}
+
+
+#define US_DEC(type) \
+template<> double union_size<type> (const type &a, const type &b);
+
+US_DEC(RMFinal)
+US_DEC(CRMFinal)
+US_DEC(khset64_t)
+US_DEC(hll::hllbase_t<>)
+US_DEC(mh::FinalBBitMinHash)
+#undef US_DEC
+
+} // namespace us
+template<typename T>
+double containment_index(const T &a, const T &b) {
+    return a.containment_index(b);
+}
+#define COFAIL(x) template<> double containment_index<x>(const x &a, const x &b);
+COFAIL(RMFinal)
+COFAIL(bf::bf_t)
+COFAIL(wj::WeightedSketcher<RMFinal>)
+COFAIL(wj::WeightedSketcher<bf::bf_t>)
+COFAIL(CRMFinal)
+#undef COFAIL
+template<typename T>
+inline std::array<double, 3> set_triple(const T &a, const T &b) {
+    return a.full_set_comparison(b);
+}
+template<typename T>
+inline std::array<double, 3> set_triple(const wj::WeightedSketcher<T> &a, const wj::WeightedSketcher<T> &b) {
+    RUNTIME_ERROR("This should only be called on the finalized sketches");
+}
+
+template<> std::array<double, 3> set_triple<RMFinal>(const RMFinal &a, const RMFinal &b);
+template<> std::array<double, 3> set_triple<CRMFinal>(const CRMFinal &a, const CRMFinal &b);
+template<> std::array<double, 3> set_triple<bf::bf_t>(const bf::bf_t &a, const bf::bf_t &b);
+template<> std::array<double, 3> set_triple<wj::WeightedSketcher<RMFinal>>(const wj::WeightedSketcher<RMFinal> &a, const wj::WeightedSketcher<RMFinal> &b);
 template<typename T>
 INLINE void set_estim_and_jestim(T &x, hll::EstimationMethod estim, hll::JointEstimationMethod jestim) {}
 
@@ -232,17 +345,53 @@ T construct(size_t ssarg) {
     return constructor.create(ssarg);
 }
 
-template<> mh::BBitMinHasher<uint64_t> construct<mh::BBitMinHasher<uint64_t>>(size_t p) {return mh::BBitMinHasher<uint64_t>(p, gargs.bbnbits);}
-
 
 template<typename T>
 double cardinality_estimate(T &x) {
     return x.cardinality_estimate();
 }
 
-template<> double cardinality_estimate(hll::hll_t &x) {return x.report();}
-template<> double cardinality_estimate(mh::FinalBBitMinHash &x) {return x.est_cardinality_;}
-template<> double cardinality_estimate(mh::FinalDivBBitMinHash &x) {return x.est_cardinality_;}
+template<> double cardinality_estimate(hll::hll_t &x);
+template<> double cardinality_estimate(mh::FinalBBitMinHash &x);
+template<> double cardinality_estimate(mh::FinalDivBBitMinHash &x);
+
+template<typename FType1, typename FType2,
+         typename=typename std::enable_if<
+            std::is_floating_point<FType1>::value && std::is_floating_point<FType2>::value
+          >::type
+         >
+typename std::common_type<FType1, FType2>::type dist_index(FType1 ji, FType2 ksinv) {
+    // Adapter from Mash https://github.com/Marbl/Mash
+    return ji ? -std::log(2. * ji / (1. + ji)) * ksinv: 1.;
+}
+
+template<typename FType1, typename FType2,
+         typename=typename std::enable_if<
+            std::is_floating_point<FType1>::value && std::is_floating_point<FType2>::value
+          >::type
+         >
+typename std::common_type<FType1, FType2>::type containment_dist(FType1 containment, FType2 ksinv) {
+    // Adapter from Mash https://github.com/Marbl/Mash
+    return containment ? -std::log(containment) * ksinv: 1.;
+}
+
+template<typename FType1, typename FType2,
+         typename=typename std::enable_if<
+            std::is_floating_point<FType1>::value && std::is_floating_point<FType2>::value
+          >::type
+         >
+typename std::common_type<FType1, FType2>::type full_dist_index(FType1 ji, FType2 ksinv) {
+    return 1. - std::pow(2.*ji/(1. + ji), ksinv);
+}
+
+template<typename FType1, typename FType2,
+         typename=typename std::enable_if<
+            std::is_floating_point<FType1>::value && std::is_floating_point<FType2>::value
+          >::type
+         >
+typename std::common_type<FType1, FType2>::type full_containment_dist(FType1 containment, FType2 ksinv) {
+    return 1. - std::pow(containment, ksinv);
+}
 
 
 static const char *executable = nullptr;

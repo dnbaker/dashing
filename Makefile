@@ -114,7 +114,7 @@ bonsai/zstd/zlibWrapper/%.c:
 dashing.a: src/dashing.o libz.a libzstd.a bonsai/klib/kthread.o bonsai/bonsai/clhash.o $(ALL_ZOBJS)
 	ar r dashing.a src/dashing.o libz.a libzstd.a $(ALL_ZOBJS) bonsai/klib/kthread.o bonsai/bonsai/clhash.o
 
-BACKUPOBJ=src/main.o src/union.o src/hllmain.o src/mkdistmain.o
+BACKUPOBJ=src/main.o src/union.o src/hllmain.o src/mkdistmain.o src/finalizers.o src/cardests.o src/distmain.o src/unionsz.o src/construct.o
 
 
 bonsai/zstd/zlibWrapper/%.o: bonsai/zstd/zlibWrapper/%.c
@@ -188,7 +188,7 @@ osx_release:
 		mv dashing_s128 dashing_s256 release/osx && \
 		cd release/osx && gzip -f9 dashing_s128 dashing_s256
 clean:
-	rm -f $(EX) $(D_EX) libzstd.a bonsai/bonsai/clhash.o clhash.o \
+	rm -f $(EX) $(D_EX) libzstd.a bonsai/bonsai/clhash.o clhash.o src/*.o \
 	bonsai/klib/kthread.o bonsai/klib/kstring.o libgomp.a \
 	&& cd bonsai/zstd && $(MAKE) clean && cd ../zlib && $(MAKE) clean && cd ../.. \
 	&& rm -f libz.* && rm -f dashing.a
