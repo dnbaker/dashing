@@ -162,7 +162,7 @@ using hll::EstimationMethod;
 using hll::JointEstimationMethod;
 
 template<typename SketchType>
-void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<cm::ccm_t> &cms, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct=BONSAI) {
+void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct=BONSAI) {
     std::vector<SketchType> sketches;
     uint32_t sketch_size = bytesl2_to_arg(ssarg, SketchEnum<SketchType>::value);
     while(sketches.size() < (u32)nthreads) sketches.push_back(construct<SketchType>(sketch_size)), set_estim_and_jestim(sketches.back(), estim, jestim);
@@ -182,7 +182,7 @@ void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, co
         Encoder<MinType> enc(nullptr, 0, sp, nullptr, canon);\
         auto &h = sketches[tid];\
         if(use_filter.size() && use_filter[i]) {\
-            auto &cm = cms[tid];\
+            auto &cm = counting_sketches[tid];\
             if(enct == NTHASH) {\
                 for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.add(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
             } else if(enct == BONSAI) {\
@@ -307,7 +307,8 @@ int sketch_main(int argc, char *argv[]) {
     omp_set_num_threads(nthreads);
     Spacer sp(k, wsz, parse_spacing(spacing.data(), k));
     std::vector<bool> use_filter;
-    std::vector<cm::ccm_t> cms;
+    std::vector<CountingSketch> counting_sketches;
+    counting_sketches.reserve(nthreads);
     std::vector<std::string> inpaths(paths_file.size() && isfile(paths_file) 
         ? get_paths(paths_file.data())
         : std::vector<std::string>(argv + optind, argv + argc));
@@ -327,15 +328,14 @@ int sketch_main(int argc, char *argv[]) {
             use_filter = std::vector<bool>(inpaths.size(), true);
         else // BY_FNAME
             for(const auto &path: inpaths) use_filter.emplace_back(fname_is_fq(path));
-        auto nbits = std::log2(mincount) + 1;
-        while(cms.size() < unsigned(nthreads))
-            cms.emplace_back(nbits, cmsketchsize, nhashes, (cms.size() ^ seedseedseed) * 1337uL);
+        while(counting_sketches.size() < unsigned(nthreads))
+            counting_sketches.emplace_back(cmsketchsize, nhashes, 1.08, (counting_sketches.size() ^ seedseedseed) * 1337uL);
     }
     KSeqBufferHolder kseqs(nthreads);
     if(wsz < (int)sp.c_) wsz = sp.c_;
 #define SKETCH_CORE(type) \
     sketch_core<type>(sketch_size, nthreads, wsz, k, sp, inpaths,\
-                            suffix, prefix, cms, estim, jestim,\
+                            suffix, prefix, counting_sketches, estim, jestim,\
                             kseqs, use_filter, spacing, skip_cached, canon, mincount, entropy_minimization, enct)
     switch(sketch_type) {
         case HLL: SKETCH_CORE(hll::hll_t); break;

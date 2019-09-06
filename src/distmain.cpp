@@ -160,7 +160,7 @@ int dist_main(int argc, char *argv[]) {
         decltype(querypaths) tmp;
         std::swap(tmp, querypaths);
     }
-    std::vector<sketch::cm::ccm_t> cms;
+    std::vector<CountingSketch> cms;
     KSeqBufferHolder kseqs(nthreads);
     switch(sm) {
         case CBF: case BY_FNAME: {
@@ -168,10 +168,9 @@ int dist_main(int argc, char *argv[]) {
                 cmsketchsize = 20;
                 LOG_WARNING("CM Sketch size not set. Defaulting to 20, 1048576 entries per table\n");
             }
-            unsigned nbits = std::log2(mincount) + 1;
             cms.reserve(nthreads);
             while(cms.size() < static_cast<unsigned>(nthreads))
-                cms.emplace_back(nbits, cmsketchsize, nhashes, (cms.size() ^ seedseedseed) * 1337uL);
+                cms.emplace_back(cmsketchsize, nhashes, 1.08, (cms.size() ^ seedseedseed) * 1337uL);
             break;
         }
         case EXACT: default: break;

@@ -10,6 +10,7 @@
 #include "hll/bbmh.h"
 #include "hll/mh.h"
 #include "hll/mult.h"
+#include "hll/hk.h"
 #include "khset/khset.h"
 #include "distmat/distmat.h"
 #include <sstream>
@@ -45,7 +46,7 @@
             else if(enct == NTHASH) for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
             else for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
         } else {\
-            sketch::cm::ccm_t &cm = cms.at(tid);\
+            auto &cm = cms[tid];\
             const auto lfunc = [&](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);};\
             if(enct == BONSAI)      for_each_substr([&](const char *s) {enc.for_each(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
             else if(enct == NTHASH) for_each_substr([&](const char *s) {enc.for_each_hash(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
@@ -58,6 +59,17 @@
 
 
 namespace bns {
+
+
+template<typename BaseHash>
+struct SeededHash {
+    BaseHash wh_;
+    const uint64_t seed_;
+    SeededHash(uint64_t seed): seed_(seed) {}
+    uint64_t operator()(uint64_t x) const {return wh_(x ^ seed_);}
+};
+
+using CountingSketch = sketch::hk::HeavyKeeper<6, 10, SeededHash<sketch::common::WangHash>>;
 
 using CBBMinHashType = mh::CountingBBitMinHasher<uint64_t, uint16_t>; // Is counting to 65536 enough for a transcriptome?
 using SuperMinHashType = mh::SuperMinHash<>;
