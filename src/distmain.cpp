@@ -3,23 +3,23 @@
 
 namespace bns {
 #define DISTEXT(sketchtype) \
-    extern template void dist_sketch_and_cmp<sketchtype>(const std::vector<std::string> &inpaths, std::vector<sketch::cm::ccm_t> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp, \
+    extern template void dist_sketch_and_cmp<sketchtype>(const std::vector<std::string> &inpaths, std::vector<CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp, \
                          Spacer sp,\
                          unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,\
                          bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,\
                          size_t nq, EncodingType enct);\
-    extern template void dist_sketch_and_cmp<sketch::wj::WeightedSketcher<sketchtype>>(const std::vector<std::string> &inpaths, std::vector<sketch::cm::ccm_t> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp, \
+    extern template void dist_sketch_and_cmp<sketch::wj::WeightedSketcher<sketchtype>>(const std::vector<std::string> &inpaths, std::vector<CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp, \
                          Spacer sp,\
                          unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,\
                          bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,\
                          size_t nq, EncodingType enct);
-DISTEXT(hll::hll_t)
-DISTEXT(bf::bf_t)
-DISTEXT(mh::RangeMinHash<uint64_t>)
-DISTEXT(mh::CountingRangeMinHash<uint64_t>)
-DISTEXT(khset64_t)
-DISTEXT(SuperMinHashType)
-DISTEXT(mh::BBitMinHasher<uint64_t>)
+//DISTEXT(hll::hll_t)
+//DISTEXT(bf::bf_t)
+//DISTEXT(mh::RangeMinHash<uint64_t>)
+//DISTEXT(mh::CountingRangeMinHash<uint64_t>)
+//DISTEXT(khset64_t)
+//DISTEXT(SuperMinHashType)
+//DISTEXT(mh::BBitMinHasher<uint64_t>)
 #undef DISTEXT
 #define DIST_LONG_OPTS \
 static option_struct dist_long_options[] = {\
@@ -179,7 +179,7 @@ int dist_main(int argc, char *argv[]) {
         decltype(querypaths) tmp;
         std::swap(tmp, querypaths);
     }
-    std::vector<sketch::cm::ccm_t> cms;
+    std::vector<CountingSketch> cms;
     KSeqBufferHolder kseqs(nthreads);
     switch(sm) {
         case CBF: case BY_FNAME: {

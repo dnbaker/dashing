@@ -1,10 +1,17 @@
-#include "dashing.h"
+#include "sketch_and_cmp.h"
 
 using namespace sketch;
 using hll::hll_t;
 
 
 namespace bns {
+//extern template void sketch_core<mh::RangeMinHash<uint64_t>>(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct);
+//extern template void sketch_core<mh::CountingRangeMinHash<uint64_t>>(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct);
+//extern template void sketch_core<SuperMinHashType>(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct);
+//extern template void sketch_core<hll::hll_t>(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct);
+//extern template void sketch_core< bf::bf_t>(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct);
+//extern template void sketch_core<khset64_t>(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct);
+//extern template void sketch_core<mh::BBitMinHasher<uint64_t>>(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct);
 
 
 void main_usage(char **argv) {
@@ -18,51 +25,6 @@ size_t posix_fsize(const char *path) {
     stat(path, &st);
     return st.st_size;
 }
-
-size_t posix_fsizes(const std::string &path, const char sep=FNAME_SEP) {
-    size_t ret = 0;
-    for_each_substr([&ret](const char *s) {struct stat st; ::stat(s, &st); ret += st.st_size;}, path, sep);
-    return ret;
-}
-
-namespace detail {
-struct path_size {
-    friend void swap(path_size&, path_size&);
-    std::string path;
-    size_t size;
-    path_size(std::string &&p, size_t sz): path(std::move(p)), size(sz) {}
-    path_size(const std::string &p, size_t sz): path(p), size(sz) {}
-    path_size(path_size &&o): path(std::move(o.path)), size(o.size) {}
-    path_size(): size(0) {}
-    path_size &operator=(path_size &&o) {
-        std::swap(o.path, path);
-        std::swap(o.size, size);
-        return *this;
-    }
-};
-
-inline void swap(path_size &a, path_size &b) {
-    std::swap(a.path, b.path);
-    std::swap(a.size, b.size);
-}
-
-void sort_paths_by_fsize(std::vector<std::string> &paths) {
-    if(paths.size() < 2) return;
-    uint32_t *fsizes = static_cast<uint32_t *>(std::malloc(paths.size() * sizeof(uint32_t)));
-    if(!fsizes) throw std::bad_alloc();
-    #pragma omp parallel for
-    for(size_t i = 0; i < paths.size(); ++i)
-        fsizes[i] = posix_fsizes(paths[i].data());
-    std::vector<path_size> ps(paths.size());
-    #pragma omp parallel for
-    for(size_t i = 0; i < paths.size(); ++i)
-        ps[i] = path_size(paths[i], fsizes[i]);
-    std::free(fsizes);
-    std::sort(ps.begin(), ps.end(), [](const auto &x, const auto &y) {return x.size > y.size;});
-    paths.clear();
-    for(const auto &p: ps) paths.emplace_back(std::move(p.path));
-}
-} // namespace detail
 
 void dist_usage(const char *arg) {
     std::fprintf(stderr, "Usage: %s <opts> [genome1 genome2 seq.fq [...] if not provided from a file with -F]\n"
@@ -291,7 +253,7 @@ int sketch_main(int argc, char *argv[]) {
     omp_set_num_threads(nthreads);
     Spacer sp(k, wsz, parse_spacing(spacing.data(), k));
     std::vector<bool> use_filter;
-    std::vector<cm::ccm_t> cms;
+    std::vector<CountingSketch> cms;
     std::vector<std::string> inpaths(paths_file.size() && isfile(paths_file) 
         ? get_paths(paths_file.data())
         : std::vector<std::string>(argv + optind, argv + argc));
