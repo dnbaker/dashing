@@ -1,59 +1,27 @@
 #pragma once
 #include "dashing.h"
 
-#define CORE_ITER(zomg) do {\
-        switch(result_type) {\
-            case MASH_DIST: {\
-                perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) {return dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
-                break;\
-            }\
-            case JI: {\
-            perform_core_op(dists, nsketches, hlls, similarity<const SketchType>, i);\
-                break;\
-            }\
-            case SIZES: {\
-            perform_core_op(dists, nsketches, hlls, us::union_size<SketchType>, i);\
-                break;\
-            }\
-            case FULL_MASH_DIST:\
-                perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) {return full_dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
-                break;\
-            case SYMMETRIC_CONTAINMENT_DIST:\
-                perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) { \
-                    const auto triple = set_triple(x, y);\
-                    auto ret = triple[2] / (std::min(triple[0], triple[1]) + triple[2]);\
-                    auto di = dist_index(ret, ksinv);\
-                    assert(di <= dist_index(triple[2] / (triple[0] + triple[2]), ksinv));\
-                    assert(di <= dist_index(triple[2] / (triple[1] + triple[2]), ksinv));\
-                    return di;\
-                }, i);\
-                break;\
-            case SYMMETRIC_CONTAINMENT_INDEX:\
-                perform_core_op(dists, nsketches, hlls, [&](const auto &x, const auto &y) {\
-                    const auto triple = set_triple(x, y);\
-                    auto ret = triple[2] / (std::min(triple[0], triple[1]) + triple[2]);\
-                    assert(ret >= triple[2] / (std::max(triple[0], triple[1]) + triple[2]) || triple[1] == 0. || triple[0] == 0.);\
-                    return ret;\
-                }, i);\
-                break;\
-            default: __builtin_unreachable();\
-        } } while(0)
-
+#define FILL_SKETCH_MIN(MinType)  \
+    {\
+        Encoder<MinType> enc(nullptr, 0, sp, nullptr, canon);\
+        if(cms.empty()) {\
+            auto &h = sketch;\
+            if(enct == BONSAI) for_each_substr([&](const char *s) {enc.for_each([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
+            else if(enct == NTHASH) for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
+            else for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
+        } else {\
+            sketch::cm::ccm_t &cm = cms.at(tid);\
+            const auto lfunc = [&](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);};\
+            if(enct == BONSAI)      for_each_substr([&](const char *s) {enc.for_each(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
+            else if(enct == NTHASH) for_each_substr([&](const char *s) {enc.for_each_hash(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
+            else                    for_each_substr([&](const char *s) {rolling_hasher.for_each_hash(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
+            cm.clear();\
+        }\
+        CONST_IF(!samesketch) new(final_sketches + i) final_type(std::move(sketch)); \
+    }
 
 
 namespace bns {
-using namespace sketch;
-using namespace hll;
-
-template<typename SketchType, typename T, typename Func>
-INLINE void perform_core_op(T &dists, size_t nhlls, SketchType *hlls, const Func &func, size_t i) {
-    auto &h1 = hlls[i];
-    #pragma omp parallel for schedule(dynamic)
-    for(size_t j = i + 1; j < nhlls; ++j)
-        dists[j - i - 1] = func(hlls[j], h1);
-    h1.free();
-}
-
 template<typename FType, typename=typename std::enable_if<std::is_floating_point<FType>::value>::type>
 size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks::string &str, const std::vector<std::string> &inpaths, EmissionFormat emit_fmt, bool use_scientific, const size_t buffer_flush_size=BUFFER_FLUSH_SIZE) {
     if(emit_fmt & BINARY) {
@@ -85,35 +53,9 @@ size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks:
     return index;
 }
 template<typename SketchType>
-std::string make_fname(const char *path, size_t sketch_p, int wsz, int k, int csz, const std::string &spacing,
-                       const std::string &suffix="", const std::string &prefix="",
-                       EncodingType enct=BONSAI) {
-    std::string ret(prefix);
-    if(ret.size()) ret += '/';
-    {
-        const char *p, *p2;
-		p = (p = std::strchr(path, FNAME_SEP)) ? p + 1: path;
-        if(ret.size() && (p2 = strrchr(p, '/'))) ret += std::string(p2 + 1);
-        else                                     ret += p;
-    }
-    ret += ".w";
-    ret + std::to_string(std::max(csz, wsz));
-    ret += ".";
-    ret += std::to_string(k);
-    ret += ".spacing";
-    ret += spacing;
-    ret += '.';
-    ret += enct == BONSAI ? "": enct == NTHASH ? "nt.": "cyclic.";
-    // default: no note. cyclic or nthash otherwise.
-    if(suffix.size()) {
-        ret += "suf";
-        ret += suffix;
-        ret += '.';
-    }
-    ret += std::to_string(sketch_p);
-    ret += SketchFileSuffix<SketchType>::suffix;
-    return ret;
-}
+void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size, size_t nq);
+using namespace sketch;
+using namespace hll;
 static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
     switch(sketch) {
         case HLL: return nblog2;
@@ -134,168 +76,8 @@ static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
     }
 
 }
-
 template<typename SketchType>
-void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific,
-                   const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size,
-                   size_t nq)
-{
-    const float ksinv = 1./ k;
-    if(nq >= inpaths.size()) {
-        RUNTIME_ERROR(ks::sprintf("Wrong number of query/references. (ip size: %zu, nq: %zu\n", inpaths.size(), nq).data());
-    }
-    size_t nr = inpaths.size() - nq;
-    float *arr = static_cast<float *>(std::malloc(nr * nq * sizeof(float)));
-    if(!arr) throw std::bad_alloc();
-#if TIMING
-    auto start = std::chrono::high_resolution_clock::now();
-#endif
-    std::future<void> write_future, fmt_future;
-    std::array<ks::string, 2> buffers;
-    for(auto &b: buffers) b.resize(4 * nr);
-    for(size_t qi = nr; qi < inpaths.size(); ++qi) {
-        size_t qind =  qi - nr;
-        switch(result_type) {
-#define dist_sim(x, y) dist_index(similarity(x, y), ksinv)
-#define fulldist_sim(x, y) full_dist_index(similarity(x, y), ksinv)
-#define fullcont_sim(x, y) full_containment_dist(containment_index(x, y), ksinv)
-#define cont_sim(x, y) containment_dist(containment_index(x, y), ksinv)
-#define DO_LOOP(func)\
-                for(size_t j = 0; j < nr; ++j) {\
-                    arr[qind * nr + j] = func(hlls[j], hlls[qi]);\
-                }
-            case MASH_DIST:
-                #pragma omp parallel for schedule(dynamic)
-                DO_LOOP(dist_sim);
-                break;
-            case FULL_MASH_DIST:
-                #pragma omp parallel for schedule(dynamic)
-                DO_LOOP(fulldist_sim);
-                break;
-            case JI:
-                #pragma omp parallel for schedule(dynamic)
-                DO_LOOP(similarity);
-                break;
-            case SIZES:
-                #pragma omp parallel for schedule(dynamic)
-                DO_LOOP(us::union_size);
-                break;
-            case CONTAINMENT_INDEX:
-                #pragma omp parallel for schedule(dynamic)
-                DO_LOOP(containment_index);
-                break;
-            case CONTAINMENT_DIST:
-                #pragma omp parallel for schedule(dynamic)
-                DO_LOOP(cont_sim);
-                break;
-            case FULL_CONTAINMENT_DIST:
-                #pragma omp parallel for schedule(dynamic)
-                DO_LOOP(fullcont_sim);
-                break;
-            case SYMMETRIC_CONTAINMENT_INDEX:
-                #pragma omp parallel for schedule(dynamic)
-                for(size_t j = 0; j < nr; ++j) {
-                    auto tmp = set_triple(hlls[j], hlls[qi]);
-                    arr[qind * nr + j] = tmp[2] / (std::min(tmp[0], tmp[1]) + tmp[2]);
-                }
-                break;
-            case SYMMETRIC_CONTAINMENT_DIST:
-                #pragma omp parallel for schedule(dynamic)
-                for(size_t j = 0; j < nr; ++j) {
-                    auto tmp = set_triple(hlls[j], hlls[qi]);
-                    arr[qind * nr + j] = dist_index(tmp[2] / (std::min(tmp[0], tmp[1]) + tmp[2]), ksinv);
-                }
-                break;
-            default: throw std::runtime_error("Value not found");
-#undef DO_LOOP
-#undef dist_sim
-#undef cont_sim
-#undef fulldist_sim
-#undef fullcont_sim
-        }
-        switch(emit_fmt) {
-            case BINARY:
-                if(write_future.valid()) write_future.get();
-                write_future = std::async(std::launch::async, [ptr=arr + (qi - nr) * nq, nb=sizeof(float) * nr](const int fn) {
-                    if(unlikely(::write(fn, ptr, nb) != ssize_t(nb))) RUNTIME_ERROR("Error writing to binary file");
-                }, ::fileno(ofp));
-                break;
-            case UT_TSV: case UPPER_TRIANGULAR: default:
-                // RUNTIME_ERROR(std::string("Illegal output format. numeric: ") + std::to_string(int(emit_fmt)));
-            case FULL_TSV:
-                if(fmt_future.valid()) fmt_future.get();
-                fmt_future = std::async(std::launch::async, [nr,qi,ofp,ind=qi-nr,&inpaths,use_scientific,arr,&buffers,&write_future]() {
-                    auto &buffer = buffers[qi & 1];
-                    buffer += inpaths[qi];
-                    const char *fmt = use_scientific ? "\t%e": "\t%f";
-                    float *aptr = arr + ind * nr;
-                    for(size_t i = 0; i < nr; ++i) {
-                        buffer.sprintf(fmt, aptr[i]);
-                    }
-                    buffer.putc_('\n');
-                    if(write_future.valid()) write_future.get();
-                    write_future = std::async(std::launch::async, [ofp,&buffer]() {buffer.flush(::fileno(ofp));});
-                });
-                break;
-        }
-    }
-    if(fmt_future.valid()) fmt_future.get();
-    if(write_future.valid()) write_future.get();
-#if TIMING
-    auto end = std::chrono::high_resolution_clock::now();
-#endif
-    std::free(arr);
-} // partdist_loop
-
-
-template<typename SketchType>
-void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size=BUFFER_FLUSH_SIZE, size_t nq=0) {
-    if(nq) {
-        partdist_loop<SketchType>(ofp, hlls, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size, nq);
-        return;
-    }
-    if(!is_symmetric(result_type)) {
-        char buf[1024];
-        std::sprintf(buf, "Can't perform symmetric distance comparisons with a symmetric method (%s/%d). To perform an asymmetric distance comparison between a given set and itself, provide the same list of filenames to both -Q and -F.\n", emt2str(result_type), int(result_type));
-        RUNTIME_ERROR(buf);
-    }
-    const float ksinv = 1./ k;
-    const int pairfi = fileno(ofp);
-    omp_set_num_threads(nthreads);
-    const size_t nsketches = inpaths.size();
-    if((emit_fmt & BINARY) == 0) {
-        std::future<size_t> submitter;
-        std::array<std::vector<float>, 2> dps;
-        dps[0].resize(nsketches - 1);
-        dps[1].resize(nsketches - 2);
-        ks::string str;
-        for(size_t i = 0; i < nsketches; ++i) {
-            std::vector<float> &dists = dps[i & 1];
-            CORE_ITER(_a);
-            //LOG_DEBUG("Finished chunk %zu of %zu\n", i + 1, nsketches);
-            if(i) submitter.get();
-            submitter = std::async(std::launch::async, submit_emit_dists<float>,
-                                   pairfi, dists.data(), nsketches, i,
-                                   std::ref(str), std::ref(inpaths), emit_fmt, use_scientific, buffer_flush_size);
-        }
-        submitter.get();
-    } else {
-        dm::DistanceMatrix<float> dm(nsketches);
-        for(size_t i = 0; i < nsketches; ++i) {
-            auto span = dm.row_span(i);
-            auto &dists = span.first;
-            CORE_ITER(_b);
-        }
-        if(emit_fmt == FULL_TSV) dm.printf(ofp, use_scientific, &inpaths);
-        else {
-            assert(emit_fmt == BINARY);
-            std::fprintf(stderr, "Writing to file\n");
-            dm.write(ofp);
-        }
-    }
-} // dist_loop
-template<typename SketchType>
-void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,
+void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<sketch::cm::ccm_t> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,
                          Spacer sp,
                          unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,
                          bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,
@@ -409,7 +191,109 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<Co
         std::free(final_sketches);
     }
 } // dist_sketch_and_cmp
+#define DECSKETCHCMP(DS) \
+template<> void dist_sketch_and_cmp<DS>(const std::vector<std::string> &inpaths, std::vector<sketch::cm::ccm_t> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,\
+                     Spacer sp,\
+                     unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,\
+                     bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,\
+                     size_t nq, EncodingType enct);\
+template<> void dist_sketch_and_cmp<sketch::wj::WeightedSketcher<DS>>(const std::vector<std::string> &inpaths, std::vector<sketch::cm::ccm_t> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,\
+                     Spacer sp,\
+                     unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,\
+                     bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,\
+                     size_t nq, EncodingType enct);
 
-#undef CORE_ITER
+template<typename SketchType>
+void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<cm::ccm_t> &cms, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct) {
+    std::vector<SketchType> sketches;
+    uint32_t sketch_size = bytesl2_to_arg(ssarg, SketchEnum<SketchType>::value);
+    while(sketches.size() < (u32)nthreads) sketches.push_back(construct<SketchType>(sketch_size)), set_estim_and_jestim(sketches.back(), estim, jestim);
+    std::vector<std::string> fnames(nthreads);
+    RollingHasher<uint64_t> rolling_hasher(k, canon);
+
+    if(entropy_minimization)
+        throw std::runtime_error("Removed.");
+    #pragma omp parallel for schedule(dynamic)
+    for(size_t i = 0; i < inpaths.size(); ++i) {
+        const int tid = omp_get_thread_num();
+        std::string &fname = fnames[tid];
+        fname = make_fname<SketchType>(inpaths[i].data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix, enct);
+        LOG_DEBUG("fname: %s from %s\n", fname.data(), inpaths[i].data());
+        if(skip_cached && isfile(fname)) continue;
+        Encoder<bns::score::Lex> enc(nullptr, 0, sp, nullptr, canon);
+        auto &h = sketches[tid];
+        if(use_filter.size() && use_filter[i]) {
+            auto &cm = cms[tid];
+            if(enct == NTHASH) {
+                for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.add(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
+            } else if(enct == BONSAI) {
+                for_each_substr([&](const char *s) {enc.for_each([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
+            } else {
+                for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
+            }
+            cm.clear();  
+        } else {
+            if(enct == NTHASH) {
+                for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){h.add(kmer);}, inpaths[i].data(), &kseqs[tid]);}, inpaths[i], FNAME_SEP);
+            } else if(enct == BONSAI) {
+                for_each_substr([&](const char *s) {enc.for_each([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
+            } else {
+                for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
+            }
+        }
+        sketch_finalize(h);
+        h.write(fname.data());
+        h.clear();
+    }
+}
+template<typename SketchType>
+void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size, size_t nq) {
+    if(nq) {
+        partdist_loop<SketchType>(ofp, hlls, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size, nq);
+        return;
+    }
+    if(!is_symmetric(result_type)) {
+        char buf[1024];
+        std::sprintf(buf, "Can't perform symmetric distance comparisons with a symmetric method (%s/%d). To perform an asymmetric distance comparison between a given set and itself, provide the same list of filenames to both -Q and -F.\n", emt2str(result_type), int(result_type));
+        RUNTIME_ERROR(buf);
+    }
+    const float ksinv = 1./ k;
+    const int pairfi = fileno(ofp);
+    omp_set_num_threads(nthreads);
+    const size_t nsketches = inpaths.size();
+    if((emit_fmt & BINARY) == 0) {
+        std::future<size_t> submitter;
+        std::array<std::vector<float>, 2> dps;
+        dps[0].resize(nsketches - 1);
+        dps[1].resize(nsketches - 2);
+        ks::string str;
+        for(size_t i = 0; i < nsketches; ++i) {
+            std::vector<float> &dists = dps[i & 1];
+            CORE_ITER(_a);
+            //LOG_DEBUG("Finished chunk %zu of %zu\n", i + 1, nsketches);
+            if(i) submitter.get();
+            submitter = std::async(std::launch::async, submit_emit_dists<float>,
+                                   pairfi, dists.data(), nsketches, i,
+                                   std::ref(str), std::ref(inpaths), emit_fmt, use_scientific, buffer_flush_size);
+        }
+        submitter.get();
+    } else {
+        dm::DistanceMatrix<float> dm(nsketches);
+        for(size_t i = 0; i < nsketches; ++i) {
+            auto span = dm.row_span(i);
+            auto &dists = span.first;
+            CORE_ITER(_b);
+        }
+        if(emit_fmt == FULL_TSV) dm.printf(ofp, use_scientific, &inpaths);
+        else {
+            assert(emit_fmt == BINARY);
+            std::fprintf(stderr, "Writing to file\n");
+            dm.write(ofp);
+        }
+    }
+}
+#define DECSKETCHCORE(DS) \
+template<> void sketch_core<DS>(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct);
+
 
 } // namespace bns

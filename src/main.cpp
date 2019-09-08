@@ -27,8 +27,8 @@ int main(int argc, char *argv[]) {
             if(v == "-h" || v == "--help") main_usage(argv);
             if(v == "-v" || v == "--version") version_info(argv);
         }
-        std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options. [Subcommands: sketch, dist, setdist, hll, union, printmat, view.]\n",
-                     *argv, *argv);
+        std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options.\n"
+                             "Subcommands:\nsketch\ndist\nhll\nunion\nprintmat\nview\nmkdist\nflatten\n\ncmp is also now a synonym for dist, which will be deprecated in the future.\n", *argv, *argv);
         RUNTIME_ERROR(std::string("Invalid subcommand ") + argv[1] + " provided.");
     }
 }
