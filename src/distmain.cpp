@@ -2,6 +2,25 @@
 #include "sketch_and_cmp.h"
 
 namespace bns {
+#define DISTEXT(sketchtype) \
+    extern template void dist_sketch_and_cmp<sketchtype>(const std::vector<std::string> &inpaths, std::vector<sketch::cm::ccm_t> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp, \
+                         Spacer sp,\
+                         unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,\
+                         bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,\
+                         size_t nq, EncodingType enct);\
+    extern template void dist_sketch_and_cmp<sketch::wj::WeightedSketcher<sketchtype>>(const std::vector<std::string> &inpaths, std::vector<sketch::cm::ccm_t> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp, \
+                         Spacer sp,\
+                         unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,\
+                         bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,\
+                         size_t nq, EncodingType enct);
+DISTEXT(hll::hll_t)
+DISTEXT(bf::bf_t)
+DISTEXT(mh::RangeMinHash<uint64_t>)
+DISTEXT(mh::CountingRangeMinHash<uint64_t>)
+DISTEXT(khset64_t)
+DISTEXT(SuperMinHashType)
+DISTEXT(mh::BBitMinHasher<uint64_t>)
+#undef DISTEXT
 #define DIST_LONG_OPTS \
 static option_struct dist_long_options[] = {\
     LO_FLAG("full-tsv", 'T', emit_fmt, FULL_TSV)\
@@ -160,7 +179,7 @@ int dist_main(int argc, char *argv[]) {
         decltype(querypaths) tmp;
         std::swap(tmp, querypaths);
     }
-    std::vector<CountingSketch> cms;
+    std::vector<sketch::cm::ccm_t> cms;
     KSeqBufferHolder kseqs(nthreads);
     switch(sm) {
         case CBF: case BY_FNAME: {

@@ -1,5 +1,4 @@
 #include "dashing.h"
-#include "sketch_and_cmp.h"
 
 using namespace sketch;
 using hll::hll_t;
@@ -20,9 +19,49 @@ size_t posix_fsize(const char *path) {
     return st.st_size;
 }
 
+size_t posix_fsizes(const std::string &path, const char sep=FNAME_SEP) {
+    size_t ret = 0;
+    for_each_substr([&ret](const char *s) {struct stat st; ::stat(s, &st); ret += st.st_size;}, path, sep);
+    return ret;
+}
 
 namespace detail {
+struct path_size {
+    friend void swap(path_size&, path_size&);
+    std::string path;
+    size_t size;
+    path_size(std::string &&p, size_t sz): path(std::move(p)), size(sz) {}
+    path_size(const std::string &p, size_t sz): path(p), size(sz) {}
+    path_size(path_size &&o): path(std::move(o.path)), size(o.size) {}
+    path_size(): size(0) {}
+    path_size &operator=(path_size &&o) {
+        std::swap(o.path, path);
+        std::swap(o.size, size);
+        return *this;
+    }
+};
 
+inline void swap(path_size &a, path_size &b) {
+    std::swap(a.path, b.path);
+    std::swap(a.size, b.size);
+}
+
+void sort_paths_by_fsize(std::vector<std::string> &paths) {
+    if(paths.size() < 2) return;
+    uint32_t *fsizes = static_cast<uint32_t *>(std::malloc(paths.size() * sizeof(uint32_t)));
+    if(!fsizes) throw std::bad_alloc();
+    #pragma omp parallel for
+    for(size_t i = 0; i < paths.size(); ++i)
+        fsizes[i] = posix_fsizes(paths[i].data());
+    std::vector<path_size> ps(paths.size());
+    #pragma omp parallel for
+    for(size_t i = 0; i < paths.size(); ++i)
+        ps[i] = path_size(paths[i], fsizes[i]);
+    std::free(fsizes);
+    std::sort(ps.begin(), ps.end(), [](const auto &x, const auto &y) {return x.size > y.size;});
+    paths.clear();
+    for(const auto &p: ps) paths.emplace_back(std::move(p.path));
+}
 } // namespace detail
 
 void dist_usage(const char *arg) {
@@ -158,61 +197,6 @@ bool fname_is_fq(const std::string &path) {
 }
 
 
-using hll::EstimationMethod;
-using hll::JointEstimationMethod;
-
-template<typename SketchType>
-void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct=BONSAI) {
-    std::vector<SketchType> sketches;
-    uint32_t sketch_size = bytesl2_to_arg(ssarg, SketchEnum<SketchType>::value);
-    while(sketches.size() < (u32)nthreads) sketches.push_back(construct<SketchType>(sketch_size)), set_estim_and_jestim(sketches.back(), estim, jestim);
-    std::vector<std::string> fnames(nthreads);
-    RollingHasher<uint64_t> rolling_hasher(k, canon);
-#if !NDEBUG
-    for(size_t i = 0; i < inpaths.size(); std::fprintf(stderr, "Path: %s at %i\n", inpaths[i].data(), int(i)), ++i);
-#endif
-
-#define MAIN_SKETCH_LOOP(MinType)\
-    for(size_t i = 0; i < inpaths.size(); ++i) {\
-        const int tid = omp_get_thread_num();\
-        std::string &fname = fnames[tid];\
-        fname = make_fname<SketchType>(inpaths[i].data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix, enct);\
-        LOG_DEBUG("fname: %s from %s\n", fname.data(), inpaths[i].data());\
-        if(skip_cached && isfile(fname)) continue;\
-        Encoder<MinType> enc(nullptr, 0, sp, nullptr, canon);\
-        auto &h = sketches[tid];\
-        if(use_filter.size() && use_filter[i]) {\
-            auto &cm = counting_sketches[tid];\
-            if(enct == NTHASH) {\
-                for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.add(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
-            } else if(enct == BONSAI) {\
-                for_each_substr([&](const char *s) {enc.for_each([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
-            } else {\
-                for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
-            }\
-            cm.clear();  \
-        } else {\
-            if(enct == NTHASH) {\
-                for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){h.add(kmer);}, inpaths[i].data(), &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
-            } else if(enct == BONSAI) {\
-                for_each_substr([&](const char *s) {enc.for_each([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
-            } else {\
-                for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
-            }\
-        }\
-        sketch_finalize(h);\
-        h.write(fname.data());\
-        h.clear();\
-    }
-    if(entropy_minimization) {
-        #pragma omp parallel for schedule(dynamic)
-        MAIN_SKETCH_LOOP(bns::score::Entropy)
-    } else {
-        #pragma omp parallel for schedule(dynamic)
-        MAIN_SKETCH_LOOP(bns::score::Lex)
-    }
-#undef MAIN_SKETCH_LOOP
-}
 
 
 #define SKETCH_LONG_OPTS \
@@ -307,8 +291,7 @@ int sketch_main(int argc, char *argv[]) {
     omp_set_num_threads(nthreads);
     Spacer sp(k, wsz, parse_spacing(spacing.data(), k));
     std::vector<bool> use_filter;
-    std::vector<CountingSketch> counting_sketches;
-    counting_sketches.reserve(nthreads);
+    std::vector<cm::ccm_t> cms;
     std::vector<std::string> inpaths(paths_file.size() && isfile(paths_file) 
         ? get_paths(paths_file.data())
         : std::vector<std::string>(argv + optind, argv + argc));
@@ -328,14 +311,14 @@ int sketch_main(int argc, char *argv[]) {
             use_filter = std::vector<bool>(inpaths.size(), true);
         else // BY_FNAME
             for(const auto &path: inpaths) use_filter.emplace_back(fname_is_fq(path));
-        while(counting_sketches.size() < unsigned(nthreads))
-            counting_sketches.emplace_back(cmsketchsize, nhashes, 1.08, (counting_sketches.size() ^ seedseedseed) * 1337uL);
+        while(cms.size() < unsigned(nthreads))
+            cms.emplace_back(cmsketchsize, nhashes, 1.08, (cms.size() ^ seedseedseed) * 1337uL);
     }
     KSeqBufferHolder kseqs(nthreads);
     if(wsz < (int)sp.c_) wsz = sp.c_;
 #define SKETCH_CORE(type) \
     sketch_core<type>(sketch_size, nthreads, wsz, k, sp, inpaths,\
-                            suffix, prefix, counting_sketches, estim, jestim,\
+                            suffix, prefix, cms, estim, jestim,\
                             kseqs, use_filter, spacing, skip_cached, canon, mincount, entropy_minimization, enct)
     switch(sketch_type) {
         case HLL: SKETCH_CORE(hll::hll_t); break;
@@ -355,6 +338,8 @@ int sketch_main(int argc, char *argv[]) {
     LOG_INFO("Successfully finished sketching from %zu files\n", inpaths.size());
     return EXIT_SUCCESS;
 }
+
+
 
 
 namespace {
