@@ -130,7 +130,7 @@ dashing-ar: src/main.o dashing.a
 %: src/%.o dashing.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) dashing.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
 
-dashing: src/dashing.o $(ALL_ZOBJS) $(DEPS) libz.so libzstd.a $(BACKUPOBJ)
+dashing: src/dashing.o $(ALL_ZOBJS) $(DEPS) libz.a libzstd.a $(BACKUPOBJ)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) $(BACKUPOBJ) libz.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
 %0: src/%.o $(ALL_ZOBJS) $(DEPS) libz.so libzstd.a src/main.o
