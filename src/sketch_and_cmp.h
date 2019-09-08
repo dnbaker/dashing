@@ -192,16 +192,16 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<Co
     }
 } // dist_sketch_and_cmp
 #define DECSKETCHCMP(DS) \
-template<> void dist_sketch_and_cmp<DS>(const std::vector<std::string> &inpaths, std::vector<CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,\
-                     Spacer sp,\
-                     unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,\
-                     bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,\
-                     size_t nq, EncodingType enct);\
-template<> void dist_sketch_and_cmp<sketch::wj::WeightedSketcher<DS>>(const std::vector<std::string> &inpaths, std::vector<CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,\
-                     Spacer sp,\
-                     unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,\
-                     bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,\
-                     size_t nq, EncodingType enct);
+template void ::bns::dist_sketch_and_cmp<DS>(const std::vector<std::string> &inpaths, std::vector<::bns::CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,\
+                   Spacer sp,\
+                   unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,\
+                   bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,\
+                   size_t nq, EncodingType enct);\
+template void ::bns::dist_sketch_and_cmp<sketch::wj::WeightedSketcher<DS>>(const std::vector<std::string> &inpaths, std::vector<::bns::CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,\
+                   Spacer sp,\
+                   unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,\
+                   bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,\
+                   size_t nq, EncodingType enct);
 
 
 template<typename SketchType>
@@ -299,7 +299,7 @@ for t in "mh::RangeMinHash<uint64_t>,mh::CountingRangeMinHash<uint64_t>,SuperMin
     print(s % t)
 #endif
 #define DECSKETCHCORE(DS) \
-    template<> void sketch_core<DS>(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct);
+    template void sketch_core<DS>(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct);
 
 
 } // namespace bns
