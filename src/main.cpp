@@ -1,5 +1,7 @@
 #include "dashing.h"
+#include "sketch_and_cmp.h"
 using namespace bns;
+
 
 void version_info(char *argv[]) {
     std::fprintf(stderr, "Dashing version: %s\n", DASHING_VERSION);

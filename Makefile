@@ -95,8 +95,8 @@ test/%.zo: test/%.cpp
 %.do: %.cpp
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c $< -o $@ $(LIB)
 
-bonsai/zlib/libz.a:
-	+cd bonsai/zlib && ./configure && $(MAKE)
+libz.a:
+	+cd bonsai/zlib && ./configure && $(MAKE) && cd ../.. && cp bonsai/zlib/libz.a libz.a
 
 bonsai/zlib/libz.so:
 	+cd bonsai/zlib && ./configure && $(MAKE)
@@ -118,11 +118,8 @@ BACKUPOBJ=src/main.o src/union.o src/hllmain.o src/mkdistmain.o src/finalizers.o
         $(patsubst %.cpp,%.o,$(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp))
 
 
-
 bonsai/zstd/zlibWrapper/%.o: bonsai/zstd/zlibWrapper/%.c
 	cd bonsai/bonsai && $(MAKE) libzstd.a && cd ../zstd && $(MAKE) lib  && cd zlibWrapper && $(MAKE) $(notdir $@)
-libz.a: bonsai/zlib/libz.a
-	cp $< $@
 
 %: src/%.o $(ALL_ZOBJS) $(DEPS) libz.so libzstd.a $(DASHING_OBJ)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) libz.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG

@@ -75,6 +75,7 @@
 
 namespace bns {
 namespace detail {void sort_paths_by_fsize(std::vector<std::string> &paths);}
+size_t posix_fsizes(const std::string &path, const char sep=FNAME_SEP);
 using namespace sketch;
 using namespace hll;
 using option_struct = struct option;
@@ -151,6 +152,7 @@ template<typename T>
 inline std::array<double, 3> set_triple(const wj::WeightedSketcher<T> &a, const wj::WeightedSketcher<T> &b) {
     RUNTIME_ERROR("This should only be called on the finalized sketches");
 }
+
 #define CONTAIN_OVERLOAD_FAIL(x)\
 template<>\
 inline double containment_index<x>(const x &b, const x &a) {\
@@ -227,7 +229,7 @@ enum Sketch: int {
     BB_SUPERMINHASH,
     COUNTING_BB_MINHASH, // TODO make this work.
 };
-static const char *sketch_names [] {
+static constexpr const char *const sketch_names [] {
     "HLL/HyperLogLog",
     "BF/BloomFilter",
     "RMH/Range Min-Hash/KMV",
@@ -310,6 +312,30 @@ SSS(hll::hll_t, ".hll");
 #undef SSS
 #undef FINAL_OVERLOAD
 
+
+namespace detail {
+struct path_size {
+    friend void swap(path_size&, path_size&);
+    std::string path;
+    size_t size;
+    path_size(std::string &&p, size_t sz): path(std::move(p)), size(sz) {}
+    path_size(const std::string &p, size_t sz): path(p), size(sz) {}
+    path_size(path_size &&o): path(std::move(o.path)), size(o.size) {}
+    path_size(): size(0) {}
+    path_size &operator=(path_size &&o) {
+        std::swap(o.path, path);
+        std::swap(o.size, size);
+        return *this;
+    }
+};
+
+inline void swap(path_size &a, path_size &b) {
+    std::swap(a.path, b.path);
+    std::swap(a.size, b.size);
+}
+
+} // namespace detail
+
 static constexpr bool is_symmetric(EmissionType result_type) {
     switch(result_type) {
         case MASH_DIST: case JI: case SIZES:
@@ -328,8 +354,8 @@ enum EncodingType {
     RK,
     CYCLIC
 };
-template<typename SketchType>
-void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<cm::ccm_t> &cms, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct);
+//template<typename SketchType>
+//void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &cms, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct);
 
 
 
@@ -359,7 +385,7 @@ INLINE void set_estim_and_jestim(hll::hllbase_t<Hashstruct> &h, hll::EstimationM
     h.set_estim(estim);
     h.set_jestim(jestim);
 }
-template<typename T> T construct(size_t ssarg);
+template<typename T> inline T construct(size_t ssarg);
 template<typename T, bool is_weighted>
 struct Constructor;
 template<typename T> struct Constructor<T, false> {
@@ -376,22 +402,22 @@ template<typename T> struct Constructor<T, true> {
 };
 
 template<typename T>
-T construct(size_t ssarg) {
+inline T construct(size_t ssarg) {
     Constructor<T, wj::is_weighted_sketch<T>::value> constructor;
     return constructor.create(ssarg);
 }
 
-template<> mh::BBitMinHasher<uint64_t> construct<mh::BBitMinHasher<uint64_t>>(size_t p) {return mh::BBitMinHasher<uint64_t>(p, gargs.bbnbits);}
-
 
 template<typename T>
-double cardinality_estimate(T &x) {
+inline double cardinality_estimate(T &x) {
     return x.cardinality_estimate();
 }
-
-template<> double cardinality_estimate(hll::hll_t &x) {return x.report();}
-template<> double cardinality_estimate(mh::FinalBBitMinHash &x) {return x.est_cardinality_;}
-template<> double cardinality_estimate(mh::FinalDivBBitMinHash &x) {return x.est_cardinality_;}
+template<> inline double cardinality_estimate(hll::hll_t &x) {return x.report();}
+template<> inline double cardinality_estimate(mh::FinalBBitMinHash &x) {return x.est_cardinality_;}
+template<> inline double cardinality_estimate(mh::FinalDivBBitMinHash &x) {return x.est_cardinality_;}
+//extern template double cardinality_estimate(hll::hll_t &x);
+//extern template double cardinality_estimate(mh::FinalBBitMinHash &x);
+//extern template double cardinality_estimate(mh::FinalDivBBitMinHash &x);
 
 template<typename SketchType>
 static inline std::string make_fname(const char *path, size_t sketch_p, int wsz, int k, int csz, const std::string &spacing,
@@ -442,6 +468,9 @@ US_DEC(hll::hllbase_t<>)
 template<> INLINE double union_size<mh::FinalBBitMinHash> (const mh::FinalBBitMinHash &a, const mh::FinalBBitMinHash &b) {
     return (a.est_cardinality_ + b.est_cardinality_ ) / (1. + a.jaccard_index(b));
 }
+//template<> INLINE double union_size<mh::FinalBBitMinHash> (const mh::FinalBBitMinHash &a, const mh::FinalBBitMinHash &b) {
+//    return (a.est_cardinality_ + b.est_cardinality_ ) / (1. + a.jaccard_index(b));
+//}
 } // namespace us
 template<typename SketchType>
 void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size,
