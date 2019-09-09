@@ -20,6 +20,13 @@
         CONST_IF(!samesketch) new(final_sketches + i) final_type(std::move(sketch)); \
     }
 
+using ::sketch::hll::EstimationMethod;
+using ::sketch::hll::JointEstimationMethod;
+using bns::EmissionFormat;
+using bns::EmissionType;
+using bns::Spacer;
+using bns::KSeqBufferHolder;
+using namespace sketch;
 
 namespace bns {
 template<typename FType, typename=typename std::enable_if<std::is_floating_point<FType>::value>::type>
@@ -293,13 +300,14 @@ void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> 
         }
     }
 }
-#if 0
-s = "extern template void sketch_core<%s>(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct);"
-for t in "mh::RangeMinHash<uint64_t>,mh::CountingRangeMinHash<uint64_t>,SuperMinHashType,hll::hll_t, bf::bf_t,khset64_t,mh::BBitMinHasher<uint64_t>".split(","):
-    print(s % t)
-#endif
-#define DECSKETCHCORE(DS) \
-    template void sketch_core<DS>(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct);
+#define DECSKETCHCORE(DS) template void sketch_core<DS>(uint32_t ssarg, uint32_t nthreads,\
+                                uint32_t wsz, uint32_t k, const Spacer &sp,\
+                                const std::vector<std::string> &inpaths,\
+                                const std::string &suffix,\
+                                const std::string &prefix, std::vector<CountingSketch> &counting_sketches,\
+                                EstimationMethod estim, JointEstimationMethod jestim,\
+                                KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing,\
+                                bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct);
 
 
 } // namespace bns

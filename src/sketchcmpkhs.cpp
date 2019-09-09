@@ -1,2 +1,2 @@
 #include "sketch_and_cmp.h"
-namespace bns {DECSKETCHCMP(khset64_t)}
+DECSKETCHCMP(bns::khset64_t)
