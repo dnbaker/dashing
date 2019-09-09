@@ -116,6 +116,8 @@ dashing.a: src/dashing.o libz.a libzstd.a bonsai/klib/kthread.o bonsai/bonsai/cl
 
 BACKUPOBJ=src/main.o src/union.o src/hllmain.o src/mkdistmain.o src/finalizers.o src/cardests.o src/distmain.o src/unionsz.o src/construct.o \
         $(patsubst %.cpp,%.o,$(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp))
+DASHINGSRC=src/main.cpp src/union.cpp src/hllmain.cpp src/mkdistmain.cpp src/finalizers.cpp src/cardests.cpp src/distmain.cpp src/unionsz.cpp src/construct.cpp \
+        $(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp)
 
 
 bonsai/zstd/zlibWrapper/%.o: bonsai/zstd/zlibWrapper/%.c
@@ -146,34 +148,37 @@ sparse%: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.so
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g src/main.o \
     $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -O1 -fno-inline # -fsanitize=undefined -fsanitize=address
 
-%_256: src/%.o $(ALL_ZOBJS) $(DEPS) src/main.o
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) src/main.o $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mavx2 -msse4.1 -msse2 -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+dashing_256: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(DASHINGSRC) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mavx2 -msse4.1 -msse2 -DNDEBUG src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
-%_512: src/%.o $(ALL_ZOBJS) $(DEPS) src/main.o
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) src/main.o $(ALL_ZOBJS) -mavx512dq -mavx512vl -mavx2 -msse4.1 -msse2 -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+dashing_512: $(DASHINSRC) $(ALL_ZOBJS) $(DEPS)
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(DASHINGSRC) $(ALL_ZOBJS) -mavx512dq -mavx512vl -mavx2 -msse4.1 -msse2 -DNDEBUG src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
-%_512bw: src/%.o $(ALL_ZOBJS) $(DEPS) src/main.o
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) src/main.o $(ALL_ZOBJS) -mavx512dq -mavx512vl -mavx512bw -mavx2 -msse4.1 -msse2 -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+dashing_512bw: $(ALL_ZOBJS) $(DEPS) $(DASHINGSRC)
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(DASHINGSRC) $(ALL_ZOBJS) -mavx512dq -mavx512vl -mavx512bw -mavx2 -msse4.1 -msse2 -DNDEBUG src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
-%_128: src/%.o $(ALL_ZOBJS) $(DEPS) src/main.o
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) src/main.o $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mno-avx2 -msse2 -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+dashing_128: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(DASHINGSRC) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mno-avx2 -msse2 -DNDEBUG src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
 libgomp.a:
 	ln -sf $(STATIC_GOMP)
 
-%_s: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a libgomp.a
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -static-libstdc++ -static-libgcc bonsai/zlib/libz.a  -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
-%_s128: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a libgomp.a
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mno-avx2 -msse2 -static-libstdc++ -static-libgcc bonsai/zlib/libz.a  -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
-%_s256: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a libgomp.a
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mavx2 -msse2 -static-libstdc++ -static-libgcc bonsai/zlib/libz.a  -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
-%_s512: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a libgomp.a
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mavx512dq -mavx512vl -mavx512bw -static-libstdc++ -static-libgcc bonsai/zlib/libz.a  -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
-%_di: src/%.cpp $(ALL_ZOBJS) $(DEPS)
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -fno-inline -O1 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
-%_pg: src/%.cpp $(ALL_ZOBJS) $(DEPS)
+dashing_s: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a libgomp.a
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -static-libstdc++ -static-libgcc bonsai/zlib/libz.a  -DNDEBUG $(DASHINGSRC) src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+dashing_s128: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a libgomp.a
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mno-avx2 -msse2 -static-libstdc++ -static-libgcc bonsai/zlib/libz.a \
+		-DNDEBUG $(DASHINGSRC) src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+dashing_s256: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a libgomp.a
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mavx2 -msse2 -static-libstdc++ -static-libgcc bonsai/zlib/libz.a \
+	-DNDEBUG $(DASHINGSRC) src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+dashing_s512: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a libgomp.a
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mavx512dq -mavx512vl -mavx512bw -static-libstdc++ -static-libgcc bonsai/zlib/libz.a\
+		-DNDEBUG $(DASHINGSRC) src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+dashing_di: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -fno-inline -O1 $(DASHINGSRC) src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+dashing_pg: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -pg -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
-%_pgi: src/%.cpp $(ALL_ZOBJS) $(DEPS)
+dashing_pgi: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -pg -fno-inline -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
 linux_release:
