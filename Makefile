@@ -78,7 +78,7 @@ bonsai/bonsai/clhash.o:
 
 OBJ=bonsai/klib/kstring.o bonsai/klib/kthread.o bonsai/bonsai/clhash.o
 
-DEPS=bonsai/hll/cbf.h bonsai/hll/bf.h bonsai/hll/hll.h
+DEPS=bonsai/hll/include/cbf.h bonsai/hll/include/bf.h bonsai/hll/include/hll.h bonsai/hll/include/hk.h bonsai/hll/include/ccm.h bonsai/hll/include/bbmh.h
 
 test/%.o: test/%.cpp
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c $< -o $@ $(LIB)
@@ -138,8 +138,8 @@ dashing: src/dashing.o $(ALL_ZOBJS) $(DEPS) libz.a libzstd.a $(BACKUPOBJ)
 %0: src/%.o $(ALL_ZOBJS) $(DEPS) libz.so libzstd.a src/main.o
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) src/main.o libz.a -O0 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
-src/%.o: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.so
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -c -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
+src/%.o: src/%.cpp $(DEPS) bonsai/zlib/libz.so
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
 
 sparse%: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.so
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -DUSE_SPARSE -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG

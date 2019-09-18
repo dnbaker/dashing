@@ -36,9 +36,8 @@ void dist_usage(const char *arg) {
                          "..., where the first integer corresponds to the space "
                          "-w, --window-size\tSet window size [max(size of spaced kmer, [parameter])]\n"
                          "-S, --sketch-size\tSet sketch size [10, for 2**10 bytes each]\n"
-                         "--use-nthash\tUse nthash for encoding. (not reversible, but fast, rolling, and specialized for DNA).\n"
-                         "            \tAs a warning, this does not currently ignore Ns in reads, but it does allow us to use kmers with k > 32\n"
-                         "--use-cyclic-hash\tUses a cyclic hash for encoding. Not reversible, but fast. Ns are correctly ignored.\n"
+                         "--use-nthash\tUse nthash for encoding. (not reversible, but fast, rolling, and specialized for DNA). Allows k to be unbounded\n"
+                         "--use-cyclic-hash\tUses a cyclic hash for encoding. Not reversible, but efficient. Allows k to be unbounded\n"
                          "-C, --no-canon\tDo not canonicalize. [Default: canonicalize]\n\n\n"
                          "===Output Files===\n\n"
                          "-o, --out-sizes\tOutput for genome size estimates [stdout]\n"
@@ -358,7 +357,7 @@ int flatten_main(int argc, char *argv[]) {
 }
 
 int setdist_main(int argc, char *argv[]) {
-    LOG_WARNING("setdist_main is deprecated and will be removed. Instead, call `dashing dist` with --use-full-khash-sets to use hash sets instead of sketches.\n");
+    throw std::runtime_error("setdist_main was deprecated and has ben removed. Instead, call `dashing dist` with --use-full-khash-sets to use hash sets instead of sketches.\n");
     return 1;
 }
 
