@@ -86,7 +86,7 @@ test/%.o: test/%.cpp
 test/%.zo: test/%.cpp
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c $< -o $@ $(ZCOMPILE_FLAGS)
 
-%.o: %.cpp
+%.o: %.cpp libzstd.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -DNDEBUG -c $< -o $@ $(LIB)
 
 %.o: %.c
@@ -95,7 +95,7 @@ test/%.zo: test/%.cpp
 %.do: %.cpp
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c $< -o $@ $(LIB)
 
-libz.a:
+libz.a: libzstd.a
 	+cd bonsai/zlib && ./configure && $(MAKE) && cd ../.. && cp bonsai/zlib/libz.a libz.a
 
 bonsai/zlib/libz.so:
