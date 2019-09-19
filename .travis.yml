@@ -10,10 +10,7 @@ addons:
     - g++-6
 install:
   - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-6 60 --slave /usr/bin/g++ g++ /usr/bin/g++-6
-before_install:
-  - make update
 script:
-  - make update
   - gcc --version
   - g++ --version
   - make dashing
