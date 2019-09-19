@@ -138,7 +138,7 @@ dashing: src/dashing.o $(ALL_ZOBJS) $(DEPS) libz.a libzstd.a $(BACKUPOBJ)
 %0: src/%.o $(ALL_ZOBJS) $(DEPS) libz.so libzstd.a src/main.o
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) src/main.o libz.a -O0 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
-src/%.o: src/%.cpp $(DEPS) bonsai/zlib/libz.so
+src/%.o: src/%.cpp $(DEPS) bonsai/zlib/libz.so libzstd.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
 
 sparse%: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.so
