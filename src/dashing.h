@@ -80,7 +80,7 @@ using namespace hll;
 using option_struct = struct option;
 using sketch::common::WangHash;
 using CRMFinal = mh::FinalCRMinHash<uint64_t, uint32_t>;
-using RMFinal = mh::FinalRMinHash<uint64_t>;
+using RMFinal = mh::FinalRMinHash<uint64_t, sketch::common::Allocator<uint64_t>>;
 template<typename BaseHash>
 struct SeededHash {
     BaseHash wh_;
