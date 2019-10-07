@@ -13,14 +13,16 @@ work, respectively, on systems supporting SSE2, AVX2, and AVX512BW. If these don
 Clone this repository recursively, and use make.
 
 ```bash
-git clone https://github.com/dnbaker/dashing
+git clone --recursive https://github.com/dnbaker/dashing
 cd dashing && make dashing
 ```
+
+If you clone without submodules, this can be corrected by `git submodule update --init --recursive`.
 
 Dashing is written in C++14, which means that it requires a relatively new compiler.
 Dashing is tested under gcc`{5.4-9}`, but fails for gcc4, which is installed by default on many machines.
 For OSX, we recommend using Homebrew to install gcc-8.
-On Linux, we recommend package managers. (For instance, our Travis-CI Ubuntu example upgrades to a sufficiently new GCC using `sudo update-alternatives`.
+On Linux, we recommend package managers. (For instance, our Travis-CI Ubuntu example upgrades to a sufficiently new GCC using `sudo update-alternatives`.)
 
 # Usage
 
