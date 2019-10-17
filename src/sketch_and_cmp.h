@@ -222,7 +222,8 @@ INLINE void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_
                         const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix,
                         std::vector<CountingSketch> &cms, EstimationMethod estim, JointEstimationMethod jestim,
                         KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing,
-                        int sketchflags, uint32_t mincount, EncodingType enct) {
+                        int sketchflags, uint32_t mincount, EncodingType enct)
+{
     const auto canon = sketchflags & CANONICALIZE, skip_cached = sketchflags & SKIP_CACHED, entropy_minimization = sketchflags & ENTROPY_MIN;
     std::vector<SketchType> sketches;
     uint32_t sketch_size = bytesl2_to_arg(ssarg, SketchEnum<SketchType>::value);
@@ -264,6 +265,51 @@ INLINE void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_
         h.write(fname.data());
         h.clear();
     }
+}
+template<typename SketchType>
+INLINE void sketch_by_seq_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp,
+                        const std::string &inpath, const std::string &suffix, const std::string &outpath,
+                        CountingSketch &cms, EstimationMethod estim, JointEstimationMethod jestim,
+                        KSeqBufferHolder &kseqs, bool &use_filter, const std::string &spacing,
+                        int sketchflags, uint32_t mincount, EncodingType enct)
+{
+    const auto canon = sketchflags & CANONICALIZE, skip_cached = sketchflags & SKIP_CACHED, entropy_minimization = sketchflags & ENTROPY_MIN;
+    const uint32_t sketch_size = bytesl2_to_arg(ssarg, SketchEnum<SketchType>::value);
+    SketchType working_sketch(construct<SketchType>(sketch_size);
+    set_estim_and_jestim(working_sketch, estim, jestim);
+    RollingHasher<uint64_t> rolling_hasher(k, canon);
+    Encoder<bns::score::Lex> enc(nullptr, 0, sp, nullptr, canon);
+    gzFile fp = gzopen(inpath.data(), "rb");
+    if(!fp) throw ZlibError(std::string("Failed to open file for reading at ") + inpath);
+    gzFile ofp = gzopen(outpath.data(), "wb");
+    if(!ofp) throw ZlibError(std::string("Failed to open file for writing at ") + outpath);
+    kseq_t *ks = kseq_init(fp);
+    auto &h = working_sketch; // just alias for less typing
+    auto add = [&](u64 kmer) {h.addh(kmer);};
+    auto cadd = [&](u64 kmer){if(cm.addh(kmer) >= mincount) h.add(kmer);};
+    while((kseq_read(ks) >= 0)) {
+        if(use_filter) {
+            if(enct == NTHASH) {
+                enc.for_each_hash(cadd, ks->seq.s, ks->seq.l);
+            else if(enct == BONSAI)
+                enc.for_each(cadd, ks->seq.s, ks->seq.l);
+            else
+                rolling_hasher.for_each_hash(cadd, ks->seq.s, ks->seq.l);
+            cm.clear();  
+        } else {
+            if(enct == NTHASH) {
+                enc.for_each_hash(add, ks->seq.s, ks->seq.l);
+            else if(enct == BONSAI)
+                enc.for_each(add, ks->seq.s, ks->seq.l);
+            else
+                rolling_hasher.for_each_hash(add, ks->seq.s, ks->seq.l);
+        }
+        sketch_finalize(h);
+        h.write(ofp);
+        h.clear();
+    }
+    gzclose(fp);
+    kseq_destroy(ks);
 }
 template<typename SketchType>
 void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size, size_t nq) {
