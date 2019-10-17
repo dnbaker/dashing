@@ -211,8 +211,19 @@ template void ::bns::dist_sketch_and_cmp<sketch::wj::WeightedSketcher<DS>>(const
                    size_t nq, EncodingType enct);
 
 
+enum SketchFlags {
+    SKIP_CACHED  = 1,
+    CANONICALIZE = 2,
+    ENTROPY_MIN  = 4
+};
+
 template<typename SketchType>
-INLINE void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &cms, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct) {
+INLINE void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp,
+                        const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix,
+                        std::vector<CountingSketch> &cms, EstimationMethod estim, JointEstimationMethod jestim,
+                        KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing,
+                        int sketchflags, uint32_t mincount, EncodingType enct) {
+    const auto canon = sketchflags & CANONICALIZE, skip_cached = sketchflags & SKIP_CACHED, entropy_minimization = sketchflags & ENTROPY_MIN;
     std::vector<SketchType> sketches;
     uint32_t sketch_size = bytesl2_to_arg(ssarg, SketchEnum<SketchType>::value);
     while(sketches.size() < (u32)nthreads) sketches.push_back(construct<SketchType>(sketch_size)), set_estim_and_jestim(sketches.back(), estim, jestim);
@@ -307,7 +318,7 @@ void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> 
                                 const std::string &prefix, std::vector<CountingSketch> &counting_sketches,\
                                 EstimationMethod estim, JointEstimationMethod jestim,\
                                 KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing,\
-                                bool skip_cached, bool canon, uint32_t mincount, bool entropy_minimization, EncodingType enct);
+                                int sketchflags, uint32_t mincount, EncodingType enct);
 
 
 } // namespace bns
