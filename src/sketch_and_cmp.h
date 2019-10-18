@@ -275,7 +275,7 @@ INLINE void sketch_by_seq_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, 
 {
     const auto canon = sketchflags & CANONICALIZE, skip_cached = sketchflags & SKIP_CACHED, entropy_minimization = sketchflags & ENTROPY_MIN;
     const uint32_t sketch_size = bytesl2_to_arg(ssarg, SketchEnum<SketchType>::value);
-    SketchType working_sketch(construct<SketchType>(sketch_size);
+    SketchType working_sketch(construct<SketchType>(sketch_size));
     set_estim_and_jestim(working_sketch, estim, jestim);
     RollingHasher<uint64_t> rolling_hasher(k, canon);
     Encoder<bns::score::Lex> enc(nullptr, 0, sp, nullptr, canon);
