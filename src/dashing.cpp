@@ -463,7 +463,6 @@ int sketch_by_seq_main(int argc, char *argv[]) {
             RUNTIME_ERROR(buf);
         }
     }
-    }
     std::vector<std::string> names;
 }
 

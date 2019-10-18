@@ -91,7 +91,7 @@ struct khset64_t: public kh::khset64_t {
                               other.keys, other.keys + other.n_occupied,
                               std::back_inserter(c));
         double is = c.count;
-        return std::array<double, 3>{this->n_occupied - is, other.n_occupied - is, is};
+        return std::array<double, 3>{{this->n_occupied - is, other.n_occupied - is, is}};
     }
     double jaccard_index(const khset64_t &other) const {
         auto cmps = full_set_comparison(other);
