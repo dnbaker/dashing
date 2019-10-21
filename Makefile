@@ -77,7 +77,7 @@ bonsai/klib/kstring.o:
 bonsai/clhash.o:
 	+cd bonsai && $(MAKE) clhash.o && cd ..
 
-OBJ=bonsai/klib/kstring.o bonsai/klib/kthread.o bonsai/bonsai/clhash.o
+OBJ=bonsai/klib/kstring.o bonsai/klib/kthread.o bonsai/clhash.o
 
 DEPS=bonsai/hll/include/sketch/cbf.h bonsai/hll/include/sketch/bf.h bonsai/hll/include/sketch/hll.h bonsai/hll/include/sketch/hk.h bonsai/hll/include/sketch/ccm.h bonsai/hll/include/sketch/bbmh.h
 
@@ -110,10 +110,10 @@ libz.so: bonsai/zlib/libz.so
 	cp bonsai/zlib/libz* .
 
 bonsai/zstd/zlibWrapper/%.c:
-	cd bonsai/bonsai && $(MAKE) libzstd.a
+	cd bonsai && $(MAKE) libzstd.a
 
-dashing.a: src/dashing.o libz.a libzstd.a bonsai/klib/kthread.o bonsai/bonsai/clhash.o $(ALL_ZOBJS)
-	ar r dashing.a src/dashing.o libz.a libzstd.a $(ALL_ZOBJS) bonsai/klib/kthread.o bonsai/bonsai/clhash.o
+dashing.a: src/dashing.o libz.a libzstd.a bonsai/klib/kthread.o bonsai/clhash.o $(ALL_ZOBJS)
+	ar r dashing.a src/dashing.o libz.a libzstd.a $(ALL_ZOBJS) bonsai/klib/kthread.o bonsai/clhash.o
 
 BACKUPOBJ=src/main.o src/union.o src/hllmain.o src/mkdistmain.o src/finalizers.o src/cardests.o src/distmain.o src/unionsz.o src/construct.o \
         $(patsubst %.cpp,%.o,$(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp))
@@ -122,7 +122,7 @@ DASHINGSRC=src/main.cpp src/union.cpp src/hllmain.cpp src/mkdistmain.cpp src/fin
 
 
 bonsai/zstd/zlibWrapper/%.o: bonsai/zstd/zlibWrapper/%.c
-	cd bonsai/bonsai && $(MAKE) libzstd.a && cd ../zstd && $(MAKE) lib  && cd zlibWrapper && $(MAKE) $(notdir $@)
+	cd bonsai && $(MAKE) libzstd.a && cd ../zstd && $(MAKE) lib  && cd zlibWrapper && $(MAKE) $(notdir $@)
 
 %: src/%.o $(ALL_ZOBJS) $(DEPS) libz.so libzstd.a $(DASHING_OBJ)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) libz.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
@@ -197,7 +197,7 @@ osx_release:
 		mv dashing_s128 dashing_s256 release/osx && \
 		cd release/osx && gzip -f9 dashing_s128 dashing_s256
 clean:
-	rm -f $(EX) $(D_EX) libzstd.a bonsai/bonsai/clhash.o clhash.o \
+	rm -f $(EX) $(D_EX) libzstd.a bonsai/clhash.o clhash.o \
 	bonsai/klib/kthread.o bonsai/klib/kstring.o libgomp.a \
 	&& cd bonsai/zstd && $(MAKE) clean && cd ../zlib && $(MAKE) clean && cd ../.. \
 	&& rm -f libz.* && rm -f dashing.a
