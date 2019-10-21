@@ -14,9 +14,9 @@ script:
   - gcc --version
   - g++ --version
   - make dashing
-  - ./dashing dist bonsai/bonsai/test/GCF_00*z
-  - ./dashing dist -8 bonsai/bonsai/test/GCF_00*z
-  - ls bonsai/bonsai/test/*.gz > fns.txt
+  - ./dashing dist bonsai/test/GCF_00*z
+  - ./dashing dist -8 bonsai/test/GCF_00*z
+  - ls bonsai/test/*.gz > fns.txt
   - cp fns.txt qns.txt
   - ./dashing dist --containment-index -Q qns.txt -F fns.txt
   - ./dashing dist -p4 --containment-index -Q qns.txt -F fns.txt
