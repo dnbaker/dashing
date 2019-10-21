@@ -122,7 +122,7 @@ DASHINGSRC=src/main.cpp src/union.cpp src/hllmain.cpp src/mkdistmain.cpp src/fin
 
 
 bonsai/zstd/zlibWrapper/%.o: bonsai/zstd/zlibWrapper/%.c
-	cd bonsai && $(MAKE) libzstd.a && cd ../zstd && $(MAKE) lib  && cd zlibWrapper && $(MAKE) $(notdir $@)
+	cd bonsai && $(MAKE) libzstd.a && cd zstd && $(MAKE) lib  && cd zlibWrapper && $(MAKE) $(notdir $@)
 
 %: src/%.o $(ALL_ZOBJS) $(DEPS) libz.so libzstd.a $(DASHING_OBJ)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) libz.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
