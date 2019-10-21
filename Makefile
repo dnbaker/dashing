@@ -52,8 +52,8 @@ ZSTD_INCLUDE=$(patsubst %,-I%,$(ZSTD_INCLUDE_DIRS))
 ZFLAGS=-DZWRAP_USE_ZSTD=1
 ZCOMPILE_FLAGS= $(ZFLAGS) -lzstd
 ZW_OBJS=$(patsubst %.c,%.o,bonsai/zstd/zlibWrapper/gzclose.c  bonsai/zstd/zlibWrapper/gzlib.c  bonsai/zstd/zlibWrapper/gzread.c  bonsai/zstd/zlibWrapper/gzwrite.c  bonsai/zstd/zlibWrapper/zstd_zlibwrapper.c) libzstd.a
-ALL_ZOBJS=$(ZOBJS) $(ZW_OBJS) bonsai/bonsai/clhash.o bonsai/klib/kthread.o
-INCLUDE=-Ibonsai/clhash/include -I.  -Ibonsai/zlib -Ibonsai/libpopcnt -Iinclude -Ibonsai/circularqueue $(ZSTD_INCLUDE) $(INCPLUS) -Ibonsai/hll -Ibonsai/hll/vec -Ibonsai -Ibonsai/bonsai/include/
+ALL_ZOBJS=$(ZOBJS) $(ZW_OBJS) bonsai/clhash.o bonsai/klib/kthread.o
+INCLUDE=-Ibonsai/clhash/include -I.  -Ibonsai/zlib -Ibonsai/libpopcnt -Iinclude -Ibonsai/circularqueue $(ZSTD_INCLUDE) $(INCPLUS) -Ibonsai/hll/include -Ibonsai/hll/vec -Ibonsai -Ibonsai/include/ -Ibonsai/hll
 
 EX=$(patsubst src/%.cpp,%,$(wildcard src/*.cpp))
 D_EX=$(patsubst src/%.cpp,%_d,$(wildcard src/*.cpp))
@@ -68,18 +68,18 @@ update:
     cd linear && git checkout master && git pull && cd .. && cd .. && cd distmat && git checkout master && git pull && cd ..
 
 libzstd.a:
-	+cd bonsai/bonsai && $(MAKE) libzstd.a && cp libzstd.a ../../
+	+cd bonsai && $(MAKE) libzstd.a && cp libzstd.a ../
 
 bonsai/klib/kstring.o:
-	+cd bonsai/bonsai && $(MAKE) ../klib/kstring.o && cd ../.. && \
-	cd bonsai/bonsai && $(MAKE) ../klib/kthread.o && cd ../..
+	+cd bonsai && $(MAKE) klib/kstring.o && cd .. && \
+	cd bonsai && $(MAKE) klib/kthread.o && cd ..
 
-bonsai/bonsai/clhash.o:
-	+cd bonsai/bonsai && $(MAKE) clhash.o && cd ../..
+bonsai/clhash.o:
+	+cd bonsai && $(MAKE) clhash.o && cd ..
 
 OBJ=bonsai/klib/kstring.o bonsai/klib/kthread.o bonsai/bonsai/clhash.o
 
-DEPS=bonsai/hll/include/cbf.h bonsai/hll/include/bf.h bonsai/hll/include/hll.h bonsai/hll/include/hk.h bonsai/hll/include/ccm.h bonsai/hll/include/bbmh.h
+DEPS=bonsai/hll/include/sketch/cbf.h bonsai/hll/include/sketch/bf.h bonsai/hll/include/sketch/hll.h bonsai/hll/include/sketch/hk.h bonsai/hll/include/sketch/ccm.h bonsai/hll/include/sketch/bbmh.h
 
 test/%.o: test/%.cpp
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c $< -o $@ $(LIB)
