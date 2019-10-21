@@ -1,8 +1,8 @@
 #include <omp.h>
-#include "bonsai/bonsai/include/util.h"
-#include "bonsai/bonsai/include/database.h"
-#include "bonsai/bonsai/include/bitmap.h"
-#include "bonsai/hll/include/sparse.h"
+#include "bonsai/util.h"
+#include "bonsai/database.h"
+#include "bonsai/bitmap.h"
+#include "bonsai/hll/include/sketch/sparse.h"
 #include <map>
 #include "getopt.h"
 
