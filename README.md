@@ -1,4 +1,4 @@
-# Dashing [![Build Status](https://travis-ci.com/dnbaker/dashing.svg?branch=master)](https://travis-ci.com/dnbaker/dashing)
+# Dashing 🕺 [![Build Status](https://travis-ci.com/dnbaker/dashing.svg?branch=master)](https://travis-ci.com/dnbaker/dashing)
 
 dashing sketches and computes distances between fasta and fastq data.
 
