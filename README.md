@@ -2,7 +2,7 @@
 
 dashing sketches and computes distances between fasta and fastq data.
 
-Our preprint (while under review) is available [here](https://www.biorxiv.org/content/10.1101/501726v2).
+Our preprint, which has recently been accepted at Genome Biology, is available [here](https://www.biorxiv.org/content/10.1101/501726v2).
 
 # Use
 
