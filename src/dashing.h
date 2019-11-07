@@ -599,6 +599,7 @@ int hll_main(int argc, char *argv[]);
 int union_main(int argc, char *argv[]);
 int view_main(int argc, char *argv[]);
 int sketch_by_seq_main(int argc, char *argv[]);
+int dist_by_seq_main(int argc, char *argv[]);
 }
 
 #endif /* DASHING_H__ */

@@ -83,6 +83,36 @@ static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
     }
 
 }
+
+template<typename SketchType>
+void dist_by_seq(const std::vector<std::string> &labels, std::string datapath,
+                 std::FILE *pairofp, int k,
+                 EstimationMethod estim, JointEstimationMethod jestim, EmissionType result_type, EmissionFormat emit_fmt,
+                 unsigned nthreads, size_t nq=0) {
+    gzFile sfp = gzopen(datapath.data(), "rb");
+    if(!sfp) throw "up";
+    std::vector<SketchType> sketches;
+    sketches.reserve(labels.size());
+    while(sketches.size() < labels.size()) {
+        sketches.emplace_back(sfp);
+        set_estim_and_jestim(sketches.back(), estim, jestim);
+    }
+    gzclose(sfp);
+    ks::string str;
+    if(emit_fmt == UT_TSV) {
+        str.sprintf("##Names\t");
+        for(size_t i = 0; i < labels.size() - nq; ++i)
+            str.sprintf("%s\t", labels[i].data());
+        str.back() = '\n';
+        str.flush(fileno(pairofp));
+    } else if(emit_fmt == UPPER_TRIANGULAR) { // emit_fmt == UPPER_TRIANGULAR
+        std::fprintf(pairofp, "%zu\n", labels.size());
+        std::fflush(pairofp);
+    }
+    dist_loop<SketchType>(pairofp, sketches.data(), labels, /* use_scientific=*/ true, k, result_type, emit_fmt, nthreads, BUFFER_FLUSH_SIZE, nq);
+}
+
+
 template<typename SketchType>
 void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,
                          Spacer sp,
@@ -266,12 +296,6 @@ INLINE void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_
         h.clear();
     }
 }
-#if 0
-#define SKETCH_BY_SEQ_CORE(type) \
-    sketch_by_seq_core<type>(sketch_size, nthreads, sp, inpath, outpath,\
-                             cs, estim, jestim,\
-                             use_filter, sketch_flags, mincount, enct)
-#endif
 template<typename SketchType>
 INLINE void sketch_by_seq_core(uint32_t ssarg, uint32_t nthreads, const Spacer &sp,
                         const std::string &inpath, const std::string &outpath,
@@ -296,6 +320,7 @@ INLINE void sketch_by_seq_core(uint32_t ssarg, uint32_t nthreads, const Spacer &
         : outpath + ".names";
     gzFile nameofp = gzopen(namepath.data(), "wb");
     if(!nameofp) throw ZlibError(std::string("Failed to open file for writing at ") + namepath);
+    gzprintf(nameofp, "#k=%d:Names for sequences sketched\n", k);
     kseq_t *ks = kseq_init(fp);
     auto &h = working_sketch; // just alias for less typing
     auto add = [&](u64 kmer) {h.addh(kmer);};
