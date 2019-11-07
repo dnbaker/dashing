@@ -26,7 +26,7 @@ extern template void sketch_by_seq_core<mh::BBitMinHasher<uint64_t>>(uint32_t ss
 
 
 void main_usage(char **argv) {
-    std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options. [Subcommands: sketch, dist, setdist, hll, printmat.]\n",
+    std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options. [Subcommands: sketch, cmp, hll, mkdist, union, view, flatten, printmat.]\[cmp was formerly dist]\n",
                  *argv, *argv);
     std::exit(EXIT_FAILURE);
 }
@@ -58,7 +58,7 @@ void dist_usage(const char *arg) {
                          "--sketch-by-fname\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
                          " When filtering with count-min sketches by either -y or -N, set minimum count:"
                          "-c, --min-count\tSet minimum count for kmers to pass count-min filtering.\n"
-                         "-q, --nhashes\tSet count-min number of hashes. Default: [4]\n"
+                         "-q, --nhashes\tSet count-min number of hashes. Default: [1]\n"
                          "-t, --cm-sketch-size\tSet count-min sketch size (log2). Default: 20\n"
                          "-R, --seed\tSet seed for seeds for count-min sketches\n\n\n"
                          "===Runtime Options\n\n"
@@ -143,13 +143,65 @@ void sketch_usage(const char *arg) {
                          "--sketch-by-fname\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
                          "--countmin/-b\tFilter all input data by count-min sketch.\n\n\n"
                          "Options for count-min filtering --\n\n"
-                         "--nhashes/-H\tSet count-min number of hashes. Default: [4]\n"
+                         "--nhashes/-H\tSet count-min number of hashes. Default: [1]\n"
                          "--cm-sketch-size/-q\tSet count-min sketch size (log2). Default: 20\n"
                          "--min-count/-n\tProvide minimum expected count for fastq data. If unspecified, all kmers are passed.\n"
                          "--seed/-R\tSet seed for seeds for count-min sketches\n\n\n"
                          "Sketch Type Options --\n\n"
                          "--use-bb-minhash/-8\tCreate b-bit minhash sketches\n"
                          "--use-bloom-filter\tCreate bloom filter sketches\n"
+                         "--use-range-minhash\tCreate range minhash sketches\n"
+                         "--use-super-minhash\tCreate b-bit super minhash sketches\n"
+                         "--use-counting-range-minhash\tCreate range minhash sketches\n"
+                         "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n"
+                         "\n\n"
+                         "===Count-min-based Streaming Weighted Jaccard===\n"
+                         "--wj               \tEnable weighted jaccard adapter\n"
+                         "--wj-cm-sketch-size\tSet count-min sketch size for count-min streaming weighted jaccard [16]\n"
+                         "--wj-cm-nhashes    \tSet count-min sketch number of hashes for count-min streaming weighted jaccard [8]\n"
+                , arg);
+    std::exit(EXIT_FAILURE);
+}
+
+
+void sketch_by_seq_usage(const char *arg) {
+    std::fprintf(stderr, "Usage: %s <opts> [genomes if not provided from a file with -F]\n"
+                         "Creates a set of sketches, one per sequence, for a given file.\n"
+                         "\n"
+                         "Flags:\n"
+                         "-h/-?:\tEmit usage\n"
+                         "\n\n"
+                         "Output options --\n\n"
+                         "-o\tWrite sketches to [file] and names to [file].names rather than /dev/stdout and stdout.name\n"
+                         "Sketch options --\n\n"
+                         "--kmer-length/-k\tSet kmer size [31], max 32\n"
+                         "--spacing/-s\tadd a spacer of the format <int>x<int>,<int>x<int>,"
+                         "..., where the first integer corresponds to the space "
+                         "between bases repeated the second integer number of times\n"
+                         "--window-size/-w\tSet window size [max(size of spaced kmer, [parameter])]\n"
+                         "--sketch-size/-S\tSet log2 sketch size in bytes [10, for 2**10 bytes each]\n"
+                         "--no-canon/-C\tDo not canonicalize. [Default: canonicalize]\n"
+                         "--bbits/-B\tSet `b` for b-bit minwise hashing to <int>. Default: 16\n\n\n"
+                         "Run options --\n\n"
+                         "--nthreads/-p\tSet number of threads [1]\n"
+                         "\n\n"
+                         "Estimation methods --\n\n"
+                         "--original/-E\tUse Flajolet with inclusion/exclusion quantitation method for hll. [Default: Ertl MLE]\n"
+                         "--improved/-I\tUse Ertl Improved estimator [Default: Ertl MLE]\n"
+                         "--ertl-jmle/-J\tUse Ertl JMLE\n\n\n"
+                         "Filtering Options --\n\n"
+                         "Default: consume all kmers. Alternate options: \n"
+                         "--sketch-by-fname\tAutodetect fastq or fasta data by filename (.fq or .fastq within filename).\n"
+                         "--countmin/-b\tFilter all input data by count-min sketch.\n\n\n"
+                         "Options for count-min filtering --\n\n"
+                         "--nhashes/-H\tSet count-min number of hashes. Default: [1]\n"
+                         "--cm-sketch-size/-q\tSet count-min sketch size (log2). Default: 20\n"
+                         "--min-count/-n\tProvide minimum expected count for fastq data. If unspecified, all kmers are passed.\n"
+                         "--seed/-R\tSet seed for seeds for count-min sketches\n\n\n"
+                         "Sketch Type Options --\n\n"
+                         "--use-bb-minhash/-8\tCreate b-bit minhash sketches\n"
+                         "--use-bloom-filter\tCreate bloom filter sketches\n"
+
                          "--use-range-minhash\tCreate range minhash sketches\n"
                          "--use-super-minhash\tCreate b-bit super minhash sketches\n"
                          "--use-counting-range-minhash\tCreate range minhash sketches\n"
@@ -213,7 +265,7 @@ static option_struct sketch_long_options[] = {\
 
 // Main functions
 int sketch_main(int argc, char *argv[]) {
-    int wsz(0), k(31), sketch_size(10), skip_cached(false), co, nthreads(1), mincount(1), nhashes(4), cmsketchsize(-1);
+    int wsz(0), k(31), sketch_size(10), skip_cached(false), co, nthreads(1), mincount(1), nhashes(1), cmsketchsize(-1);
     int canon(true);
     int entropy_minimization = false, avoid_fsorting = false, weighted_jaccard = false;
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
@@ -388,7 +440,7 @@ void union_usage [[noreturn]] (char *ex) {
 }
 
 int sketch_by_seq_main(int argc, char *argv[]) {
-    int wsz(0), k(31), sketch_size(10), skip_cached(false), co, nthreads(1), mincount(1), nhashes(4), cmsketchsize(-1);
+    int wsz(0), k(31), sketch_size(10), skip_cached(false), co, nthreads(1), mincount(1), nhashes(1), cmsketchsize(-1);
     int canon(true);
     int entropy_minimization = false, avoid_fsorting = false, weighted_jaccard = false;
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
@@ -399,8 +451,9 @@ int sketch_by_seq_main(int argc, char *argv[]) {
     EncodingType enct = BONSAI;
     uint64_t seedseedseed = 1337u;
     int option_index = 0;
+    std::string outpath = "/dev/stdout";
     SKETCH_LONG_OPTS
-    while((co = getopt_long(argc, argv, "n:P:p:x:R:s:S:k:w:H:q:B:8JbfjEIcCeh?", sketch_long_options, &option_index)) >= 0) {
+    while((co = getopt_long(argc, argv, "o:n:P:p:x:R:s:S:k:w:H:q:B:8JbfjEIcCeh?", sketch_long_options, &option_index)) >= 0) {
         switch(co) {
             case 'B': gargs.bbnbits = std::atoi(optarg); break;
             case 'H': nhashes = std::atoi(optarg); break;
@@ -413,6 +466,7 @@ int sketch_by_seq_main(int argc, char *argv[]) {
             case 'k': k = std::atoi(optarg); break;
             case '8': sketch_type = BB_MINHASH; break;
             case 'b': sm = CBF; break;
+            case 'o': outpath = optarg; break;
             case 136:
                 gargs.weighted_jaccard_cmsize  = std::atoi(optarg); weighted_jaccard = true; break;
             case 137:
@@ -433,11 +487,11 @@ int sketch_by_seq_main(int argc, char *argv[]) {
         RUNTIME_ERROR("k must be <= 32 for non-rolling hashes.");
     if(k > 32 && spacing.size())
         RUNTIME_ERROR("kmers must be unspaced for k > 32");
-    if(argc != optind + 1) sketch_by_seq_usage();
+    if(argc != optind + 1) sketch_by_seq_usage(*argv);
+    if(nthreads > 1)
+        std::fprintf(stderr, "note: sketch_by_seq isn't parallelized.");
     nthreads = std::max(nthreads, 1);
-    omp_set_num_threads(nthreads);
-    std::vector<bool> use_filter;
-    std::vector<CountingSketch> cms;
+    //omp_set_num_threads(nthreads);
     auto leftover = argc - optind;
     std::string inpath;
     switch(leftover) {
@@ -445,25 +499,35 @@ int sketch_by_seq_main(int argc, char *argv[]) {
         case 1: inpath = argv[optind]; break;
         default: throw std::runtime_error("sketch_by_seq_main only takes one path");
     }
+    const bool use_filter = sm == CBF ? true: sm == BY_FNAME ? fname_is_fq(inpath): false;
+    std::fprintf(stderr, "use filter? %d sm == CBF ? %d. sm == BY_FNAME ? %d\n", use_filter, sm == CBF, sm == BY_FNAME);
+    std::unique_ptr<CountingSketch> cs(use_filter ? new CountingSketch(cmsketchsize, nhashes, 1.08, seedseedseed): nullptr);
+    //if(use_filter)
+    //    cs = new CountingSketch(cmsketchsize, nhashes, 1.08, seedseedseed);
+    const int sketch_flags = skip_cached | (int(canon) << 1) | (int(entropy_minimization) << 2);
+    const Spacer sp(k, wsz, parse_spacing(spacing.data(), k));
 #define SKETCH_BY_SEQ_CORE(type) \
-    sketch_by_seq_core<type>(sketch_size, nthreads, wsz, k, sp, inpaths,\
-                            suffix, prefix, cms, estim, jestim,\
-                            kseqs, use_filter, spacing, sketch_flags, mincount, enct)
+    sketch_by_seq_core<type>(sketch_size, nthreads, sp, inpath, outpath,\
+                             cs.get(), estim, jestim,\
+                             use_filter, sketch_flags, mincount, enct)
     switch(sketch_type) {
         case HLL: SKETCH_BY_SEQ_CORE(hll::hll_t); break;
+#ifdef NDEBUG
+        // Release only
         case BLOOM_FILTER: SKETCH_BY_SEQ_CORE(bf::bf_t); break;
         case RANGE_MINHASH: SKETCH_BY_SEQ_CORE(mh::RangeMinHash<uint64_t>); break;
         case COUNTING_RANGE_MINHASH: SKETCH_BY_SEQ_CORE(mh::CountingRangeMinHash<uint64_t>); break;
         case BB_MINHASH: SKETCH_BY_SEQ_CORE(mh::BBitMinHasher<uint64_t>); break;
         case BB_SUPERMINHASH: SKETCH_BY_SEQ_CORE(SuperMinHashType); break;
         case FULL_KHASH_SET: SKETCH_BY_SEQ_CORE(khset64_t); break;
+#endif
         default: {
             char buf[128];
             std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));
             RUNTIME_ERROR(buf);
         }
     }
-    std::vector<std::string> names;
+    return EXIT_SUCCESS;
 }
 
 int view_main(int argc, char *argv[]) {

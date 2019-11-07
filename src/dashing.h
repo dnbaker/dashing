@@ -586,6 +586,7 @@ static std::string get_executable() {
 void main_usage(char **argv);
 void dist_usage(const char *arg);
 void sketch_usage(const char *arg);
+void sketch_by_seq_usage(const char *arg);
 void flatten_usage();
 void union_usage [[noreturn]] (char *ex);
 int sketch_main(int argc, char *argv[]);
@@ -597,6 +598,7 @@ int setdist_main(int argc, char *argv[]);
 int hll_main(int argc, char *argv[]);
 int union_main(int argc, char *argv[]);
 int view_main(int argc, char *argv[]);
+int sketch_by_seq_main(int argc, char *argv[]);
 }
 
 #endif /* DASHING_H__ */
