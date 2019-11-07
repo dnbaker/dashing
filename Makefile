@@ -52,8 +52,8 @@ ZSTD_INCLUDE=$(patsubst %,-I%,$(ZSTD_INCLUDE_DIRS))
 ZFLAGS=-DZWRAP_USE_ZSTD=1
 ZCOMPILE_FLAGS= $(ZFLAGS) -lzstd
 ZW_OBJS=$(patsubst %.c,%.o,bonsai/zstd/zlibWrapper/gzclose.c  bonsai/zstd/zlibWrapper/gzlib.c  bonsai/zstd/zlibWrapper/gzread.c  bonsai/zstd/zlibWrapper/gzwrite.c  bonsai/zstd/zlibWrapper/zstd_zlibwrapper.c) libzstd.a
-ALL_ZOBJS=$(ZOBJS) $(ZW_OBJS) bonsai/bonsai/clhash.o bonsai/klib/kthread.o
-INCLUDE=-Ibonsai/clhash/include -I.  -Ibonsai/zlib -Ibonsai/libpopcnt -Iinclude -Ibonsai/circularqueue $(ZSTD_INCLUDE) $(INCPLUS) -Ibonsai/hll -Ibonsai/hll/vec -Ibonsai -Ibonsai/bonsai/include/
+ALL_ZOBJS=$(ZOBJS) $(ZW_OBJS) bonsai/clhash.o bonsai/klib/kthread.o
+INCLUDE=-Ibonsai/clhash/include -I.  -Ibonsai/zlib -Ibonsai/libpopcnt -Iinclude -Ibonsai/circularqueue $(ZSTD_INCLUDE) $(INCPLUS) -Ibonsai/hll/include -Ibonsai/hll/vec -Ibonsai -Ibonsai/include/ -Ibonsai/hll
 
 EX=$(patsubst src/%.cpp,%,$(wildcard src/*.cpp))
 D_EX=$(patsubst src/%.cpp,%_d,$(wildcard src/*.cpp))
@@ -68,18 +68,18 @@ update:
     cd linear && git checkout master && git pull && cd .. && cd .. && cd distmat && git checkout master && git pull && cd ..
 
 libzstd.a:
-	+cd bonsai/bonsai && $(MAKE) libzstd.a && cp libzstd.a ../../
+	+cd bonsai && $(MAKE) libzstd.a && cp libzstd.a ../
 
 bonsai/klib/kstring.o:
-	+cd bonsai/bonsai && $(MAKE) ../klib/kstring.o && cd ../.. && \
-	cd bonsai/bonsai && $(MAKE) ../klib/kthread.o && cd ../..
+	+cd bonsai && $(MAKE) klib/kstring.o && cd .. && \
+	cd bonsai && $(MAKE) klib/kthread.o && cd ..
 
-bonsai/bonsai/clhash.o:
-	+cd bonsai/bonsai && $(MAKE) clhash.o && cd ../..
+bonsai/clhash.o:
+	+cd bonsai && $(MAKE) clhash.o && cd ..
 
-OBJ=bonsai/klib/kstring.o bonsai/klib/kthread.o bonsai/bonsai/clhash.o
+OBJ=bonsai/klib/kstring.o bonsai/klib/kthread.o bonsai/clhash.o
 
-DEPS=bonsai/hll/include/cbf.h bonsai/hll/include/bf.h bonsai/hll/include/hll.h bonsai/hll/include/hk.h bonsai/hll/include/ccm.h bonsai/hll/include/bbmh.h
+DEPS=bonsai/hll/include/sketch/cbf.h bonsai/hll/include/sketch/bf.h bonsai/hll/include/sketch/hll.h bonsai/hll/include/sketch/hk.h bonsai/hll/include/sketch/ccm.h bonsai/hll/include/sketch/bbmh.h
 
 test/%.o: test/%.cpp
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c $< -o $@ $(LIB)
@@ -110,10 +110,10 @@ libz.so: bonsai/zlib/libz.so
 	cp bonsai/zlib/libz* .
 
 bonsai/zstd/zlibWrapper/%.c:
-	cd bonsai/bonsai && $(MAKE) libzstd.a
+	cd bonsai && $(MAKE) libzstd.a
 
-dashing.a: src/dashing.o libz.a libzstd.a bonsai/klib/kthread.o bonsai/bonsai/clhash.o $(ALL_ZOBJS)
-	ar r dashing.a src/dashing.o libz.a libzstd.a $(ALL_ZOBJS) bonsai/klib/kthread.o bonsai/bonsai/clhash.o
+dashing.a: src/dashing.o libz.a libzstd.a bonsai/klib/kthread.o bonsai/clhash.o $(ALL_ZOBJS)
+	ar r dashing.a src/dashing.o libz.a libzstd.a $(ALL_ZOBJS) bonsai/klib/kthread.o bonsai/clhash.o
 
 BACKUPOBJ=src/main.o src/union.o src/hllmain.o src/mkdistmain.o src/finalizers.o src/cardests.o src/distmain.o src/unionsz.o src/construct.o \
         $(patsubst %.cpp,%.o,$(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp))
@@ -122,9 +122,9 @@ DASHINGSRC=src/main.cpp src/union.cpp src/hllmain.cpp src/mkdistmain.cpp src/fin
 
 
 bonsai/zstd/zlibWrapper/%.o: bonsai/zstd/zlibWrapper/%.c
-	cd bonsai/bonsai && $(MAKE) libzstd.a && cd ../zstd && $(MAKE) lib  && cd zlibWrapper && $(MAKE) $(notdir $@)
+	cd bonsai && $(MAKE) libzstd.a && cd zstd && $(MAKE) lib  && cd zlibWrapper && $(MAKE) $(notdir $@)
 
-%: src/%.o $(ALL_ZOBJS) $(DEPS) libz.so libzstd.a $(DASHING_OBJ)
+%: src/%.cpp $(ALL_ZOBJS) $(DEPS) libz.so libzstd.a $(DASHING_OBJ)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) libz.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
 
 dashing-ar: src/main.o dashing.a
@@ -197,7 +197,7 @@ osx_release:
 		mv dashing_s128 dashing_s256 release/osx && \
 		cd release/osx && gzip -f9 dashing_s128 dashing_s256
 clean:
-	rm -f $(EX) $(D_EX) libzstd.a bonsai/bonsai/clhash.o clhash.o \
+	rm -f $(EX) $(D_EX) libzstd.a bonsai/clhash.o clhash.o \
 	bonsai/klib/kthread.o bonsai/klib/kstring.o libgomp.a \
 	&& cd bonsai/zstd && $(MAKE) clean && cd ../zlib && $(MAKE) clean && cd ../.. \
 	&& rm -f libz.* && rm -f dashing.a
