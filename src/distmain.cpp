@@ -94,7 +94,7 @@ int dist_main(int argc, char *argv[]) {
     sketching_method sm = EXACT;
     std::vector<std::string> querypaths;
     uint64_t seedseedseed = 1337u;
-    if(argc == 1) dist_usage(*argv);
+    if(argc == 1) dist_usage(bns::executable);
     int option_index;
     DIST_LONG_OPTS
     while((co = getopt_long(argc, argv, "n:Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:8TgDazlICbMEeHJhZBNyUmqW?", dist_long_options, &option_index)) >= 0) {
@@ -137,7 +137,7 @@ int dist_main(int argc, char *argv[]) {
                 gargs.weighted_jaccard_cmsize  = std::atoi(optarg); weighted_jaccard = true; break;
             case 141:
                 gargs.weighted_jaccard_nhashes = std::atoi(optarg); weighted_jaccard = true; break;
-            case 'h': case '?': dist_usage(*argv);
+            case 'h': case '?': dist_usage(bns::executable);
         }
     }
     if(k > 32 && enct == BONSAI)
@@ -148,7 +148,7 @@ int dist_main(int argc, char *argv[]) {
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
                                                        : std::vector<std::string>(argv + optind, argv + argc));
     if(inpaths.empty())
-        std::fprintf(stderr, "No paths. See usage.\n"), dist_usage(*argv);
+        std::fprintf(stderr, "No paths. See usage.\n"), dist_usage(bns::executable);
     omp_set_num_threads(nthreads);
     Spacer sp(k, wsz, parse_spacing(spacing.data(), k));
     size_t nq = querypaths.size();
@@ -227,6 +227,62 @@ int dist_main(int argc, char *argv[]) {
     if(label_future.valid()) label_future.get();
     return EXIT_SUCCESS;
 } // dist_main
+
+void dist_by_seq_usage(const char *s) {
+    std::fprintf(stderr, "not written\n");
+    std::exit(EXIT_FAILURE);
+}
+
+int dist_by_seq_main(int argc, char *argv[]) {
+    int c;
+    std::string outpath;
+    hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
+    hll::JointEstimationMethod jestim = static_cast<hll::JointEstimationMethod>(hll::EstimationMethod::ERTL_MLE);
+    std::string namefile;
+    EmissionFormat emit_fmt = UT_TSV;
+    EmissionType result_type(JI);
+    int k = -1;
+    int nthreads = 1;
+    while((c = getopt(argc, argv, "o:k:n:p:EIJMh?")) >= 0) {
+        switch(c) {
+            case 'p': nthreads = std::atoi(optarg); break;
+            case 'o': outpath = optarg; break;
+            case 'E': jestim   = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
+            case 'I': jestim   = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
+            case 'J': jestim   = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
+            case 'm': jestim   = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); LOG_WARNING("Note: ERTL_MLE is default. This flag is redundant.\n"); break;
+            case 'k': k = std::atoi(optarg); break;
+            case 'n': namefile = optarg; break;
+            case 'b': emit_fmt = BINARY; break;
+            case 'h': dist_by_seq_usage(bns::executable);
+        }
+    }
+    if(optind + 1 != argc || namefile.empty())
+        dist_by_seq_usage(bns::executable);
+    auto labels = get_paths(namefile.data());
+    if(k <= 0) {
+        std::ifstream reader(namefile);
+        std::string line;
+        std::getline(reader, line);
+        auto tmp = std::atoi(line.data() + 3);
+        if(tmp <= 0) tmp = 31; // Just guess
+        k = tmp;
+    }
+    std::FILE *ofp = std::fopen(outpath.size() ? (const char *)outpath.data(): "/dev/stdout", "wb");
+    dist_by_seq<hll_t>(labels, argv[optind], ofp,
+                       k, estim, jestim, result_type, emit_fmt, nthreads);
+    std::fclose(ofp);
+    return EXIT_SUCCESS;
+}
+
+#if 0
+template<typename SketchType>
+void dist_by_seq(const std::vector<std::string> &labels, const std::vector<SketchType> &sketches,
+                 std::FILE *pairofp, int k,
+                 EstimationMethod estim, EmissionType result_type, EmissionFormat emit_fmt,
+                 unsigned nthreads, bool use_scientific, size_t nq=0) {
+    PREC_REQ(labels.size() == sketches.size(), "Need the same number of sequence names as sketches\n");
+#endif
 
 #undef DIST_LONG_OPTS
 

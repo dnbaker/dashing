@@ -23,6 +23,7 @@ int main(int argc, char *argv[]) {
     else if(std::strcmp(argv[1], "flatten") == 0) return flatten_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "printmat") == 0) return print_binary_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "sketch_by_seq") == 0) return sketch_by_seq_main(argc - 1, argv + 1);
+    else if(std::strcmp(argv[1], "dist_by_seq") == 0) return dist_by_seq_main(argc - 1, argv + 1);
     else {
         for(const char *const *p(argv + 1); *p; ++p) {
             std::string v(*p);
@@ -32,7 +33,7 @@ int main(int argc, char *argv[]) {
         }
         std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options.\n"
                              "Subcommands:\nsketch\ndist\nhll\nunion\nprintmat\nview\nmkdist\nflatten\n\ncmp is also now a synonym for dist, which will be deprecated in the future.\n"
-                              "sketch_by_seq\n"
+                              "sketch_by_seq\ndist_by_seq\n"
                      , *argv, *argv);
         RUNTIME_ERROR(std::string("Invalid subcommand ") + argv[1] + " provided.");
     }
