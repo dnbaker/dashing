@@ -12,6 +12,7 @@ struct khset64_t: public kh::khset64_t {
     }
     khset64_t(): kh::khset64_t() {}
     khset64_t(size_t reservesz): kh::khset64_t(reservesz) {}
+    khset64_t(gzFile fp): kh::khset64_t(fp) {}
     khset64_t(std::string s) {
         this->n_occupied = this->n_buckets = 0;
         this->keys = 0;

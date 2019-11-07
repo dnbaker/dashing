@@ -68,7 +68,7 @@ update:
     cd linear && git checkout master && git pull && cd .. && cd .. && cd distmat && git checkout master && git pull && cd ..
 
 libzstd.a:
-	+cd bonsai && $(MAKE) libzstd.a && cp libzstd.a ../
+	+ls libzstd.a || (cd bonsai && $(MAKE) libzstd.a && cp libzstd.a ../)
 
 bonsai/klib/kstring.o:
 	+cd bonsai && $(MAKE) klib/kstring.o && cd .. && \
