@@ -23,51 +23,41 @@ DISTEXT(mh::BBitMinHasher<uint64_t>)
 #undef DISTEXT
 #define DIST_LONG_OPTS \
 static option_struct dist_long_options[] = {\
-    LO_FLAG("full-tsv", 'T', emit_fmt, FULL_TSV)\
-    LO_FLAG("emit-binary", 'b', emit_fmt, BINARY)\
-    LO_FLAG("phylip", 'U', emit_fmt, UPPER_TRIANGULAR)\
-    LO_FLAG("no-canon", 'C', canon, false)\
-    LO_FLAG("by-entropy", 'g', entropy_minimization, true) \
-    LO_FLAG("use-bb-minhash", '8', sketch_type, BB_MINHASH)\
-    LO_FLAG("full-mash-dist", 'l', result_type, FULL_MASH_DIST)\
-    LO_FLAG("mash-dist", 'M', result_type, MASH_DIST)\
-    LO_FLAG("countmin", 'y', sm, CBF)\
-    LO_FLAG("sketch-by-fname", 'N', sm, BY_FNAME)\
-    LO_FLAG("sizes", 'Z', result_type, SIZES)\
-    LO_FLAG("use-scientific", 'e', use_scientific, true)\
-    LO_FLAG("cache-sketches", 'W', cache_sketch, true)\
-    LO_FLAG("presketched", 'H', presketched_only, true)\
     LO_FLAG("avoid-sorting", 'n', avoid_fsorting, true)\
-    LO_ARG("out-sizes", 'o') \
-    LO_ARG("query-paths", 'Q') \
-    LO_ARG("out-dists", 'O') \
+    LO_FLAG("by-entropy", 'g', entropy_minimization, true) \
+    LO_FLAG("cache-sketches", 'W', cache_sketch, true)\
+    LO_FLAG("countmin", 'y', sm, CBF)\
+    LO_FLAG("emit-binary", 'b', emit_fmt, BINARY)\
+    LO_FLAG("full-mash-dist", 'l', result_type, FULL_MASH_DIST)\
+    LO_FLAG("full-tsv", 'T', emit_fmt, FULL_TSV)\
+    LO_FLAG("mash-dist", 'M', result_type, MASH_DIST)\
+    LO_FLAG("no-canon", 'C', canon, false)\
+    LO_FLAG("phylip", 'U', emit_fmt, UPPER_TRIANGULAR)\
+    LO_FLAG("presketched", 'H', presketched_only, true)\
+    LO_FLAG("sizes", 'Z', result_type, SIZES)\
+    LO_FLAG("sketch-by-fname", 'N', sm, BY_FNAME)\
+    LO_FLAG("use-bb-minhash", '8', sketch_type, BB_MINHASH)\
+    LO_FLAG("use-scientific", 'e', use_scientific, true)\
     LO_ARG("bbits", 'B')\
-    LO_ARG("original", 'E')\
-    LO_ARG("improved", 'I')\
+    LO_ARG("cm-sketch-size", 't')\
     LO_ARG("ertl-joint-mle", 'J')\
     LO_ARG("ertl-mle", 'm')\
-    LO_ARG("paths", 'F')\
-    LO_ARG("prefix", 'P')\
-    LO_ARG("nhashes", 'q')\
-    LO_ARG("seed", 'R')\
-    LO_ARG("sketch-size", 'S')\
-    LO_ARG("bbits", 'B')\
-    LO_ARG("original", 'E')\
     LO_ARG("improved", 'I')\
-    LO_ARG("ertl-joint-mle", 'J')\
-    LO_ARG("ertl-mle", 'm')\
-    LO_ARG("paths", 'F')\
-    LO_ARG("prefix", 'P')\
-    LO_ARG("nhashes", 'q')\
-    LO_ARG("seed", 'R')\
-    LO_ARG("sketch-size", 'S')\
     LO_ARG("kmer-length", 'k')\
     LO_ARG("min-count", 'c')\
+    LO_ARG("nhashes", 'q')\
     LO_ARG("nthreads", 'p')\
-    LO_ARG("cm-sketch-size", 't')\
+    LO_ARG("original", 'E')\
+    LO_ARG("out-dists", 'O') \
+    LO_ARG("out-sizes", 'o') \
+    LO_ARG("paths", 'F')\
+    LO_ARG("prefix", 'P')\
+    LO_ARG("query-paths", 'Q') \
+    LO_ARG("seed", 'R')\
+    LO_ARG("sketch-size", 'S')\
     LO_ARG("spacing", 's')\
-    LO_ARG("window-size", 'w')\
     LO_ARG("suffix", 'x')\
+    LO_ARG("window-size", 'w')\
     LO_ARG("help", 'h')\
     LO_FLAG("use-range-minhash", 128, sketch_type, RANGE_MINHASH)\
     LO_FLAG("use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)\
@@ -89,7 +79,7 @@ static option_struct dist_long_options[] = {\
 
 int dist_main(int argc, char *argv[]) {
     int wsz(0), k(31), sketch_size(10), use_scientific(false), co, cache_sketch(false),
-        nthreads(1), mincount(5), nhashes(4), cmsketchsize(-1);
+        nthreads(1), mincount(5), nhashes(1), cmsketchsize(-1);
     int canon(true), presketched_only(false), entropy_minimization(false),
          avoid_fsorting(false), weighted_jaccard(false);
     Sketch sketch_type = HLL;
