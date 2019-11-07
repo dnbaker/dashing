@@ -36,7 +36,7 @@ size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks:
         LOG_DEBUG("Writing %zd bytes for %zu items\n", nbytes, (hs - index - 1));
         ssize_t i = ::write(pairfi, ptr, nbytes);
         if(i != nbytes) {
-            std::fprintf(stderr, "written %zd bytes instead of expected %zd\n", i, nbytes);
+            std::fprintf(stderr, "WARNING: written %zd bytes instead of expected %zd. Something is likely wrong.\n", i, nbytes);
         }
     } else {
         auto &strref = inpaths[index];
@@ -88,7 +88,7 @@ template<typename SketchType>
 void dist_by_seq(const std::vector<std::string> &labels, std::string datapath,
                  std::FILE *pairofp, int k,
                  EstimationMethod estim, JointEstimationMethod jestim, EmissionType result_type, EmissionFormat emit_fmt,
-                 unsigned nthreads, size_t nq=0) {
+                 unsigned nthreads) {
     gzFile sfp = gzopen(datapath.data(), "rb");
     if(!sfp) throw "up";
     std::vector<SketchType> sketches;
@@ -100,16 +100,18 @@ void dist_by_seq(const std::vector<std::string> &labels, std::string datapath,
     gzclose(sfp);
     ks::string str;
     if(emit_fmt == UT_TSV) {
+        size_t nq = 0;
         str.sprintf("##Names\t");
-        for(size_t i = 0; i < labels.size() - nq; ++i)
+        for(size_t i = 0; i < labels.size() - nq; ++i) {
             str.sprintf("%s\t", labels[i].data());
+        }
         str.back() = '\n';
         str.flush(fileno(pairofp));
     } else if(emit_fmt == UPPER_TRIANGULAR) { // emit_fmt == UPPER_TRIANGULAR
         std::fprintf(pairofp, "%zu\n", labels.size());
         std::fflush(pairofp);
     }
-    dist_loop<SketchType>(pairofp, sketches.data(), labels, /* use_scientific=*/ true, k, result_type, emit_fmt, nthreads, BUFFER_FLUSH_SIZE, nq);
+    dist_loop<SketchType>(pairofp, sketches.data(), labels, /* use_scientific=*/ true, k, result_type, emit_fmt, nthreads, BUFFER_FLUSH_SIZE, 0);
 }
 
 
@@ -318,13 +320,14 @@ INLINE void sketch_by_seq_core(uint32_t ssarg, uint32_t nthreads, const Spacer &
     std::string namepath = outpath == "/dev/stdout"
         ? std::string("stdout.names")
         : outpath + ".names";
-    gzFile nameofp = gzopen(namepath.data(), "wb");
-    if(!nameofp) throw ZlibError(std::string("Failed to open file for writing at ") + namepath);
-    gzprintf(nameofp, "#k=%d:Names for sequences sketched\n", k);
+    std::FILE *nameofp = fopen(namepath.data(), "w");
+    if(!nameofp) throw std::runtime_error(std::string("Failed to open file for writing at ") + namepath);
+    fprintf(nameofp, "#k=%d:Names for sequences sketched\n", k);
     kseq_t *ks = kseq_init(fp);
     auto &h = working_sketch; // just alias for less typing
     auto add = [&](u64 kmer) {h.addh(kmer);};
     auto cadd = [&](u64 kmer){if(cm->addh(kmer) >= mincount) h.addh(kmer);};
+    std::vector<std::string> seqnames;
     while(kseq_read(ks) >= 0) {
         if(use_filter) {
             if(enct == NTHASH)
@@ -343,15 +346,15 @@ INLINE void sketch_by_seq_core(uint32_t ssarg, uint32_t nthreads, const Spacer &
                 rolling_hasher.for_each_hash(add, ks->seq.s, ks->seq.l);
         }
         sketch_finalize(h);
+        if(std::fwrite(ks->name.s, 1, ks->name.l, nameofp) != ks->name.l) std::fprintf(stderr, "Warning: error in writing sequence name\n");
+        std::fputc('\n', nameofp);
         h.write(ofp);
         h.clear();
-        gzwrite(nameofp, ks->name.s, ks->name.l);
-        gzputc(nameofp, '\n');
     }
     kseq_destroy(ks);
     gzclose(fp);
     gzclose(ofp);
-    gzclose(nameofp);
+    std::fclose(nameofp);
 }
 
 template<typename SketchType>
@@ -373,7 +376,7 @@ void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> 
         std::future<size_t> submitter;
         std::array<std::vector<float>, 2> dps;
         dps[0].resize(nsketches - 1);
-        dps[1].resize(nsketches - 2);
+        dps[1].resize(std::max(ssize_t(nsketches) - 2, ssize_t(1)));
         ks::string str;
         for(size_t i = 0; i < nsketches; ++i) {
             std::vector<float> &dists = dps[i & 1];
@@ -395,7 +398,6 @@ void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> 
         if(emit_fmt == FULL_TSV) dm.printf(ofp, use_scientific, &inpaths);
         else {
             assert(emit_fmt == BINARY);
-            std::fprintf(stderr, "Writing to file\n");
             dm.write(ofp);
         }
     }

@@ -500,7 +500,6 @@ int sketch_by_seq_main(int argc, char *argv[]) {
         default: throw std::runtime_error("sketch_by_seq_main only takes one path");
     }
     const bool use_filter = sm == CBF ? true: sm == BY_FNAME ? fname_is_fq(inpath): false;
-    std::fprintf(stderr, "use filter? %d sm == CBF ? %d. sm == BY_FNAME ? %d\n", use_filter, sm == CBF, sm == BY_FNAME);
     std::unique_ptr<CountingSketch> cs(use_filter ? new CountingSketch(cmsketchsize, nhashes, 1.08, seedseedseed): nullptr);
     //if(use_filter)
     //    cs = new CountingSketch(cmsketchsize, nhashes, 1.08, seedseedseed);
@@ -512,7 +511,7 @@ int sketch_by_seq_main(int argc, char *argv[]) {
                              use_filter, sketch_flags, mincount, enct)
     switch(sketch_type) {
         case HLL: SKETCH_BY_SEQ_CORE(hll::hll_t); break;
-#ifdef NDEBUG
+#if 0
         // Release only
         case BLOOM_FILTER: SKETCH_BY_SEQ_CORE(bf::bf_t); break;
         case RANGE_MINHASH: SKETCH_BY_SEQ_CORE(mh::RangeMinHash<uint64_t>); break;

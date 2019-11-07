@@ -228,23 +228,42 @@ int dist_main(int argc, char *argv[]) {
     return EXIT_SUCCESS;
 } // dist_main
 
-void dist_by_seq_usage(const char *s) {
-    std::fprintf(stderr, "not written\n");
+void dist_by_seq_usage(const char *s=bns::executable) {
+    std::fprintf(stderr, "Usage: %s <flags> -n [namefile] input_file\n"
+                         "-p\t threads [1]\n"
+                         "-o\t output path [/dev/stdout]\n"
+                         "-b\t emit binary output\n"
+                         "-U\t emit PHYLIP Upper Triangular output\n"
+                         "-T\t emit full TSV format\n"
+                         "data structures\n"
+                         "-8\tb-bit minhash\n-B\tBloom Filter\n-C\tCounting Range MinHash\n-r\tRange MinHash\n\n"
+                         "HLL options\n"
+                         "Estimation methods - default MLE\n"
+                         "-J\tJoint MLE\n-E\tOriginal Flajolet\n-I\tErtl Improved\n"
+                      , s);
     std::exit(EXIT_FAILURE);
 }
 
+
 int dist_by_seq_main(int argc, char *argv[]) {
     int c;
-    std::string outpath;
+    std::string outpath = "/dev/stdout";
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = static_cast<hll::JointEstimationMethod>(hll::EstimationMethod::ERTL_MLE);
     std::string namefile;
     EmissionFormat emit_fmt = UT_TSV;
     EmissionType result_type(JI);
+    Sketch sketch_type = HLL;
     int k = -1;
     int nthreads = 1;
-    while((c = getopt(argc, argv, "o:k:n:p:EIJMh?")) >= 0) {
+    while((c = getopt(argc, argv, "o:k:n:p:EIJMBbS8KCTrh?")) >= 0) {
         switch(c) {
+            case 'B': sketch_type = BLOOM_FILTER; break;
+            case 'S': VEC_FALLTHROUGH
+            case '8': sketch_type = BB_MINHASH; break;
+            case 'K': sketch_type = FULL_KHASH_SET; break;
+            case 'C': sketch_type = COUNTING_RANGE_MINHASH; break;
+            case 'r': sketch_type = RANGE_MINHASH; break;
             case 'p': nthreads = std::atoi(optarg); break;
             case 'o': outpath = optarg; break;
             case 'E': jestim   = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
@@ -254,6 +273,8 @@ int dist_by_seq_main(int argc, char *argv[]) {
             case 'k': k = std::atoi(optarg); break;
             case 'n': namefile = optarg; break;
             case 'b': emit_fmt = BINARY; break;
+            case 'T': emit_fmt = FULL_TSV; break;
+            case 'U': emit_fmt = UPPER_TRIANGULAR; break;
             case 'h': dist_by_seq_usage(bns::executable);
         }
     }
@@ -268,9 +289,31 @@ int dist_by_seq_main(int argc, char *argv[]) {
         if(tmp <= 0) tmp = 31; // Just guess
         k = tmp;
     }
-    std::FILE *ofp = std::fopen(outpath.size() ? (const char *)outpath.data(): "/dev/stdout", "wb");
-    dist_by_seq<hll_t>(labels, argv[optind], ofp,
-                       k, estim, jestim, result_type, emit_fmt, nthreads);
+    std::fprintf(stderr, "Writing to %s\n", outpath.data());
+    std::FILE *ofp = std::fopen(outpath.data(), "wb");
+    std::fprintf(stderr, "Prepared everything. Now calling dist_by_seq\n");
+#define DBS(sketch)  \
+    dist_by_seq<sketch>(labels, argv[optind], ofp, \
+                        k, estim, jestim, result_type, emit_fmt, nthreads); \
+    break
+
+    switch(sketch_type) {
+        case HLL: DBS(hll_t);
+#if 0
+        case FULL_KHASH_SET:
+             DBS(khset64_t);
+        case BLOOM_FILTER: DBS(bf_t);
+        case BB_MINHASH: case BB_SUPERMINHASH:
+            DBS(FinalBBitMinHash);
+        case COUNTING_RANGE_MINHASH:
+            DBS(CRMFinal);
+        case RANGE_MINHASH:
+            DBS(RMFinal);
+#endif
+        default:
+            throw std::runtime_error("Unexpected value " + std::to_string(int(sketch_type)));
+    }
+#undef DBS
     std::fclose(ofp);
     return EXIT_SUCCESS;
 }
