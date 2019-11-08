@@ -85,18 +85,32 @@ static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
 }
 
 template<typename SketchType>
-void dist_by_seq(const std::vector<std::string> &labels, std::string datapath,
+void dist_by_seq(std::vector<std::string> &labels, std::string datapath,
                  std::FILE *pairofp, int k,
                  EstimationMethod estim, JointEstimationMethod jestim, EmissionType result_type, EmissionFormat emit_fmt,
-                 unsigned nthreads) {
+                 unsigned nthreads, std::string otherpath) {
     gzFile sfp = gzopen(datapath.data(), "rb");
     if(!sfp) throw "up";
     std::vector<SketchType> sketches;
+    std::vector<std::string> qnames;
     sketches.reserve(labels.size());
     while(sketches.size() < labels.size()) {
         sketches.emplace_back(sfp);
         set_estim_and_jestim(sketches.back(), estim, jestim);
     }
+    if(otherpath.size()) {
+        qnames = get_paths((otherpath + ".names").data());
+        if(qnames.empty()) RUNTIME_ERROR("Can't compare with empty qnames");
+        sketches.reserve(qnames.size() + sketches.size());
+        for(size_t i = 0; i < qnames.size(); ++i) {
+            sketches.emplace_back(sfp);
+            set_estim_and_jestim(sketches.back(), estim, jestim);
+        }
+        labels.insert(labels.end(), qnames.begin(), qnames.end());
+    } else if(!is_symmetric(result_type)) {
+        RUNTIME_ERROR("Can't perform asymmetric comparison without query paths");
+    }
+    const size_t nq = qnames.size();
     gzclose(sfp);
     ks::string str;
     if(emit_fmt == UT_TSV) {
@@ -111,7 +125,7 @@ void dist_by_seq(const std::vector<std::string> &labels, std::string datapath,
         std::fprintf(pairofp, "%zu\n", labels.size());
         std::fflush(pairofp);
     }
-    dist_loop<SketchType>(pairofp, sketches.data(), labels, /* use_scientific=*/ true, k, result_type, emit_fmt, nthreads, BUFFER_FLUSH_SIZE, 0);
+    dist_loop<SketchType>(pairofp, sketches.data(), labels, /* use_scientific=*/ true, k, result_type, emit_fmt, nthreads, BUFFER_FLUSH_SIZE, nq);
 }
 
 
