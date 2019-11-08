@@ -30,7 +30,6 @@ static option_struct dist_long_options[] = {\
     LO_FLAG("emit-binary", 'b', emit_fmt, BINARY)\
     LO_FLAG("full-mash-dist", 'l', result_type, FULL_MASH_DIST)\
     LO_FLAG("full-tsv", 'T', emit_fmt, FULL_TSV)\
-    LO_FLAG("mash-dist", 'M', result_type, MASH_DIST)\
     LO_FLAG("no-canon", 'C', canon, false)\
     LO_FLAG("phylip", 'U', emit_fmt, UPPER_TRIANGULAR)\
     LO_FLAG("presketched", 'H', presketched_only, true)\
@@ -62,12 +61,13 @@ static option_struct dist_long_options[] = {\
     LO_FLAG("use-range-minhash", 128, sketch_type, RANGE_MINHASH)\
     LO_FLAG("use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)\
     LO_FLAG("use-full-khash-sets", 130, sketch_type, FULL_KHASH_SET)\
-    LO_FLAG("containment-index", 131, result_type, CONTAINMENT_INDEX) \
-    LO_FLAG("containment-dist", 132, result_type, CONTAINMENT_DIST) \
     LO_FLAG("full-containment-dist", 133, result_type, FULL_CONTAINMENT_DIST) \
     LO_FLAG("use-bloom-filter", 134, sketch_type, BLOOM_FILTER)\
     LO_FLAG("use-super-minhash", 135, sketch_type, BB_SUPERMINHASH)\
     LO_FLAG("use-nthash", 136, enct, NTHASH)\
+    LO_FLAG("containment-index", 131, result_type, CONTAINMENT_INDEX) \
+    LO_FLAG("containment-dist", 132, result_type, CONTAINMENT_DIST) \
+    LO_FLAG("mash-dist", 'M', result_type, MASH_DIST)\
     LO_FLAG("symmetric-containment-index", 137, result_type, SYMMETRIC_CONTAINMENT_INDEX) \
     LO_FLAG("symmetric-containment-dist", 138, result_type, SYMMETRIC_CONTAINMENT_DIST) \
     LO_FLAG("use-cyclic-hash", 139, enct, NTHASH)\
@@ -83,7 +83,6 @@ int dist_main(int argc, char *argv[]) {
     int canon(true), presketched_only(false), entropy_minimization(false),
          avoid_fsorting(false), weighted_jaccard(false);
     Sketch sketch_type = HLL;
-         // bool sketch_query_by_seq(true);
     EmissionFormat emit_fmt = UT_TSV;
     EncodingType enct = BONSAI;
     EmissionType result_type(JI);
@@ -111,7 +110,7 @@ int dist_main(int argc, char *argv[]) {
             case 'E': jestim   = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
             case 'I': jestim   = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
             case 'J': jestim   = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
-            case 'm': jestim   = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); LOG_WARNING("Note: ERTL_MLE is default. This flag is redundant.\n"); break;
+            case 'm': jestim   = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); LOG_WARNING("Note: ERTL_MLE is default. This flag is superfluous.\n"); break;
             case 'S': sketch_size = std::atoi(optarg);  break;
             case 'e': use_scientific = true; break;
             case 'C': canon = false; break;
@@ -240,6 +239,14 @@ void dist_by_seq_usage(const char *s=bns::executable) {
                          "HLL options\n"
                          "Estimation methods - default MLE\n"
                          "-J\tJoint MLE\n-E\tOriginal Flajolet\n-I\tErtl Improved\n"
+                         "Result options\n\n"
+                         "Default: Jaccard Index\n"
+                         "--containment-index\t Emit containment index\n"
+                         "--containment-dist\t Emit containment distnace\n"
+                         "--mash-dist, -M\t Emit mash distance"
+                         "--symmetric-containment-index\tEmit symmetric containment index\n"
+                         "--symmetric-containment-dist\tEmit symmetric containment distance\n"
+                         "--sizes\tEmit union sizes\n"
                       , s);
     std::exit(EXIT_FAILURE);
 }
@@ -250,13 +257,23 @@ int dist_by_seq_main(int argc, char *argv[]) {
     std::string outpath = "/dev/stdout";
     hll::EstimationMethod estim = hll::EstimationMethod::ERTL_MLE;
     hll::JointEstimationMethod jestim = static_cast<hll::JointEstimationMethod>(hll::EstimationMethod::ERTL_MLE);
-    std::string namefile;
+    std::string namefile, otherpath;
     EmissionFormat emit_fmt = UT_TSV;
     EmissionType result_type(JI);
     Sketch sketch_type = HLL;
     int k = -1;
     int nthreads = 1;
-    while((c = getopt(argc, argv, "o:k:n:p:EIJMBbS8KCTrh?")) >= 0) {
+    static option_struct dbs_options [] {
+        LO_FLAG("containment-index", 131, result_type, CONTAINMENT_INDEX) \
+        LO_FLAG("containment-dist", 132, result_type, CONTAINMENT_DIST) \
+        LO_FLAG("mash-dist", 'M', result_type, MASH_DIST)\
+        LO_FLAG("symmetric-containment-index", 137, result_type, SYMMETRIC_CONTAINMENT_INDEX) \
+        LO_FLAG("symmetric-containment-dist", 138, result_type, SYMMETRIC_CONTAINMENT_DIST) \
+        LO_FLAG("sizes", 'Z', result_type, SIZES)\
+        {0,0,0,0}
+    };
+    int option_index;
+    while((c = getopt_long(argc, argv, "q:o:k:n:p:EIJMBbS8KCTrh?", dbs_options, &option_index)) >= 0) {
         switch(c) {
             case 'B': sketch_type = BLOOM_FILTER; break;
             case 'S': VEC_FALLTHROUGH
@@ -269,9 +286,10 @@ int dist_by_seq_main(int argc, char *argv[]) {
             case 'E': jestim   = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ORIGINAL); break;
             case 'I': jestim   = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_IMPROVED); break;
             case 'J': jestim   = hll::JointEstimationMethod::ERTL_JOINT_MLE; break;
-            case 'm': jestim   = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); LOG_WARNING("Note: ERTL_MLE is default. This flag is redundant.\n"); break;
+            case 'm': jestim   = (hll::JointEstimationMethod)(estim = hll::EstimationMethod::ERTL_MLE); LOG_WARNING("Note: ERTL_MLE is default. This flag is superfluous.\n"); break;
             case 'k': k = std::atoi(optarg); break;
             case 'n': namefile = optarg; break;
+            case 'q': otherpath = optarg; break;
             case 'b': emit_fmt = BINARY; break;
             case 'T': emit_fmt = FULL_TSV; break;
             case 'U': emit_fmt = UPPER_TRIANGULAR; break;
@@ -294,12 +312,11 @@ int dist_by_seq_main(int argc, char *argv[]) {
     std::fprintf(stderr, "Prepared everything. Now calling dist_by_seq\n");
 #define DBS(sketch)  \
     dist_by_seq<sketch>(labels, argv[optind], ofp, \
-                        k, estim, jestim, result_type, emit_fmt, nthreads); \
+                        k, estim, jestim, result_type, emit_fmt, nthreads, otherpath); \
     break
 
     switch(sketch_type) {
         case HLL: DBS(hll_t);
-#if 0
         case FULL_KHASH_SET:
              DBS(khset64_t);
         case BLOOM_FILTER: DBS(bf_t);
@@ -309,7 +326,6 @@ int dist_by_seq_main(int argc, char *argv[]) {
             DBS(CRMFinal);
         case RANGE_MINHASH:
             DBS(RMFinal);
-#endif
         default:
             throw std::runtime_error("Unexpected value " + std::to_string(int(sketch_type)));
     }
