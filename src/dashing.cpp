@@ -316,7 +316,7 @@ int sketch_main(int argc, char *argv[]) {
     Spacer sp(k, wsz, parse_spacing(spacing.data(), k));
     std::vector<bool> use_filter;
     std::vector<CountingSketch> cms;
-    std::vector<std::string> inpaths(paths_file.size() && isfile(paths_file) 
+    std::vector<std::string> inpaths(paths_file.size() && isfile(paths_file)
         ? get_paths(paths_file.data())
         : std::vector<std::string>(argv + optind, argv + argc));
     LOG_INFO("Sketching genomes with sketch: %d/%s\n", sketch_type, sketch_names[sketch_type]);
