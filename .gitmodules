@@ -9,3 +9,6 @@
 [submodule "khset"]
 	path = khset
 	url = https://github.com/dnbaker/khset
+[submodule "sketch"]
+	path = sketch
+	url = https://github.com/dnbaker/sketch

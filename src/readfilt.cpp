@@ -2,7 +2,7 @@
 #include "bonsai/util.h"
 #include "bonsai/database.h"
 #include "bonsai/bitmap.h"
-#include "bonsai/hll/include/sketch/sparse.h"
+#include "sketch/sparse.h"
 #include <map>
 #include "getopt.h"
 
