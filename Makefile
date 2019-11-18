@@ -20,7 +20,7 @@ GIT_VERSION := $(shell git describe --abbrev=4 --always)
 
 OPT_MINUS_OPENMP= -O3 -funroll-loops\
 	  -pipe -fno-strict-aliasing -march=native -mpclmul -DUSE_PDQSORT \
-	-DNOT_THREADSAFE -DENABLE_COMPUTED_GOTO \
+	-DNOT_THREADSAFE \
 	$(FLAGS) $(EXTRA)
 OPT=$(OPT_MINUS_OPENMP) -fopenmp # -lgomp /* sometimes needed */-lomp /* for clang */
 XXFLAGS=-fno-rtti
@@ -96,18 +96,18 @@ test/%.zo: test/%.cpp
 %.do: %.cpp
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c $< -o $@ $(LIB)
 
-libz.a: libzstd.a
-	+cd bonsai/zlib && ./configure && $(MAKE) && cd ../.. && cp bonsai/zlib/libz.a libz.a
+libz.a: # bonsai/zlib/libz.a
+	+cp bonsai/zlib/libz.a $@ || (cd bonsai/zlib && ./configure && $(MAKE) && cd ../.. && cp bonsai/zlib/libz.a libz.a)
 
-bonsai/zlib/libz.so:
-	+cd bonsai/zlib && ./configure && $(MAKE)
+#libz.so: # bonsai/zlib/libz.so
+#	+cp bonsai/zlib/libz.so $@ || (cd bonsai/zlib && ./configure && $(MAKE) && cd ../.. && cp bonsai/zlib/libz.so libz.so)
+#
+#bonsai/zlib/libz.so:
+#	+cd bonsai/zlib && ./configure && $(MAKE))
 
 zobj: $(ALL_ZOBJS)
 
 STATIC_GOMP?=$(shell $(CXX) --print-file-name=libgomp.a)
-
-libz.so: bonsai/zlib/libz.so
-	cp bonsai/zlib/libz* .
 
 bonsai/zstd/zlibWrapper/%.c:
 	cd bonsai && $(MAKE) libzstd.a
@@ -124,7 +124,7 @@ DASHINGSRC=src/main.cpp src/union.cpp src/hllmain.cpp src/mkdistmain.cpp src/fin
 bonsai/zstd/zlibWrapper/%.o: bonsai/zstd/zlibWrapper/%.c
 	cd bonsai && $(MAKE) libzstd.a && cd zstd && $(MAKE) lib  && cd zlibWrapper && $(MAKE) $(notdir $@)
 
-%: src/%.cpp $(ALL_ZOBJS) $(DEPS) libz.so libzstd.a $(DASHING_OBJ)
+%: src/%.cpp $(ALL_ZOBJS) $(DEPS) libz.a libzstd.a $(DASHING_OBJ)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) libz.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
 
 dashing-ar: src/main.o dashing.a
@@ -136,11 +136,11 @@ dashing-ar: src/main.o dashing.a
 dashing: src/dashing.o $(ALL_ZOBJS) $(DEPS) libz.a libzstd.a $(BACKUPOBJ)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) $(BACKUPOBJ) libz.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
-%0: src/%.o $(ALL_ZOBJS) $(DEPS) libz.so libzstd.a src/main.o
+%0: src/%.o $(ALL_ZOBJS) $(DEPS) libz.a libzstd.a src/main.o
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) src/main.o libz.a -O0 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
-src/%.o: src/%.cpp $(DEPS) bonsai/zlib/libz.so libzstd.a
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
+src/%.o: src/%.cpp $(DEPS) libz.a libzstd.a
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c -O3 $< libz.a -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
 
 sparse%: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.so
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -DUSE_SPARSE -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG

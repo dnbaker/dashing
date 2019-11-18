@@ -276,7 +276,7 @@ int dist_by_seq_main(int argc, char *argv[]) {
     while((c = getopt_long(argc, argv, "q:o:k:n:p:EIJMBbS8KCTrh?", dbs_options, &option_index)) >= 0) {
         switch(c) {
             case 'B': sketch_type = BLOOM_FILTER; break;
-            case 'S': VEC_FALLTHROUGH
+            case 'S':
             case '8': sketch_type = BB_MINHASH; break;
             case 'K': sketch_type = FULL_KHASH_SET; break;
             case 'C': sketch_type = COUNTING_RANGE_MINHASH; break;
