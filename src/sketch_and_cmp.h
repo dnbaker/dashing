@@ -297,7 +297,7 @@ INLINE void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_
             } else {
                 for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
             }
-            cm.clear();  
+            cm.clear();
         } else {
             if(enct == NTHASH) {
                 for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){h.add(kmer);}, inpaths[i].data(), &kseqs[tid]);}, inpaths[i], FNAME_SEP);
@@ -350,7 +350,7 @@ INLINE void sketch_by_seq_core(uint32_t ssarg, uint32_t nthreads, const Spacer &
                 enc.for_each(cadd, ks->seq.s, ks->seq.l);
             else
                 rolling_hasher.for_each_hash(cadd, ks->seq.s, ks->seq.l);
-            cm->clear();  
+            cm->clear();
         } else {
             if(enct == NTHASH)
                 enc.for_each_hash(add, ks->seq.s, ks->seq.l);
