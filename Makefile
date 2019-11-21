@@ -183,6 +183,12 @@ dashing_pg: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
 dashing_pgi: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -pg -fno-inline -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
+PREFIX?=/usr/local
+
+install: dashing
+	install -d $(DESTDIR)$(PREFIX)/bin/ && \
+	install dashing $(DESTDIR)$(PREFIX)/bin/
+
 release_bundle.tgz: dashing_s256 dashing_s512 dashing_s128
 	rm -fr release_bundle release_bundle.tgz && mkdir release_bundle && cp dashing_s256 dashing_s512 dashing_s128 release_bundle \
 	&& tar -xvzf release_bundle.tgz release_bundle
