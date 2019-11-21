@@ -80,7 +80,7 @@ bonsai/clhash.o:
 
 OBJ=bonsai/klib/kstring.o bonsai/klib/kthread.o bonsai/clhash.o
 
-DEPS=bonsai/hll/include/sketch/cbf.h bonsai/hll/include/sketch/bf.h bonsai/hll/include/sketch/hll.h bonsai/hll/include/sketch/hk.h bonsai/hll/include/sketch/ccm.h bonsai/hll/include/sketch/bbmh.h
+DEPS=sketch/include/sketch/cbf.h sketch/include/sketch/bf.h sketch/include/sketch/hll.h sketch/include/sketch/hk.h sketch/include/sketch/ccm.h sketch/include/sketch/bbmh.h
 
 test/%.o: test/%.cpp
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c $< -o $@ $(LIB)
