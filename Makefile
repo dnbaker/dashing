@@ -197,12 +197,13 @@ linux_release:
 	+rm -f dashing_s128 dashing_s256 dashing_s512 && \
 		$(MAKE) dashing_s128 dashing_s256 dashing_s512 && \
 		mv dashing_s128 dashing_s256 dashing_s512 release/linux && \
-		cd release/linux && gzip -f9 dashing_s128 dashing_s256 dashing_s512
+		cd release/linux && rm dashing_s* && (zstd -22 --ultra dashing_s128 dashing_s256 dashing_s512 || echo "zstd failed") && gzip -f9 dashing_s128 dashing_s256 dashing_s512
 osx_release:
 	+rm -f dashing_s128 dashing_s256 && \
 		$(MAKE) dashing_s128 dashing_s256 && \
 		mv dashing_s128 dashing_s256 release/osx && \
-		cd release/osx && gzip -f9 dashing_s128 dashing_s256
+		cd release/osx && rm dashing_s* &&\
+		(zstd -22 --ultra dashing_s128 dashing_s256 || echo "zstd failed") && gzip -f9 dashing_s128 dashing_s256
 clean:
 	rm -f $(EX) $(D_EX) libzstd.a bonsai/clhash.o clhash.o \
 	bonsai/klib/kthread.o bonsai/klib/kstring.o libgomp.a \
