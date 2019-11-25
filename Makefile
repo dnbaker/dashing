@@ -22,7 +22,12 @@ OPT_MINUS_OPENMP= -O3 -funroll-loops\
 	  -pipe -fno-strict-aliasing -march=native -mpclmul -DUSE_PDQSORT \
 	-DNOT_THREADSAFE \
 	$(FLAGS) $(EXTRA)
-OPT=$(OPT_MINUS_OPENMP) -fopenmp # -lgomp /* sometimes needed */-lomp /* for clang */
+OPT=$(OPT_MINUS_OPENMP) # -lgomp /* sometimes needed */-lomp /* for clang */
+ifneq (,$(findstring clang++,$(CXX)))
+	OPT+=-lomp
+else
+	OPT+=-fopenmp
+endif
 XXFLAGS=-fno-rtti
 CXXFLAGS=$(OPT) $(XXFLAGS) -std=c++14 $(WARNINGS) \
 	 -DDASHING_VERSION=\"$(GIT_VERSION)\"
@@ -31,6 +36,7 @@ CXXFLAGS_MINUS_OPENMP=$(OPT_MINUS_OPENMP) $(XXFLAGS) -std=c++1z $(WARNINGS) -Wno
 CCFLAGS=$(OPT) $(CFLAGS) -std=c11 $(WARNINGS)
 LIB=-lz
 LD=-L. $(EXTRA_LD) -Lbonsai/zlib
+
 
 ifneq (,$(findstring g++,$(CXX)))
 	ifeq ($(shell uname),Darwin)
