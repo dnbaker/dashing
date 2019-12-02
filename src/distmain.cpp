@@ -78,6 +78,11 @@ static option_struct dist_long_options[] = {\
 };
 
 int dist_main(int argc, char *argv[]) {
+    std::fprintf(stderr, "dist_main args: '");
+    for(char **i = argv; i < argv + argc; ++i) {
+        std::fprintf(stderr, " %s", *i);
+    }
+    std::fputs("'\n", stderr);
     int wsz(0), k(31), sketch_size(10), use_scientific(false), co, cache_sketch(false),
         nthreads(1), mincount(5), nhashes(1), cmsketchsize(-1);
     int canon(true), presketched_only(false), entropy_minimization(false),
@@ -144,6 +149,7 @@ int dist_main(int argc, char *argv[]) {
     if(k > 32 && spacing.size())
         RUNTIME_ERROR("kmers must be unspaced for k > 32");
     if(nthreads < 0) nthreads = 1;
+    std::fprintf(stderr, "paths file: %s/%zu\n", paths_file.data(), paths_file.size());
     std::vector<std::string> inpaths(paths_file.size() ? get_paths(paths_file.data())
                                                        : std::vector<std::string>(argv + optind, argv + argc));
     if(inpaths.empty())

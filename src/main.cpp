@@ -32,8 +32,9 @@ int main(int argc, char *argv[]) {
             if(v == "-v" || v == "--version") version_info(argv);
         }
         std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options.\n"
-                             "Subcommands:\nsketch\ndist\nhll\nunion\nprintmat\nview\nmkdist\nflatten\n\ncmp is also now a synonym for dist, which will be deprecated in the future.\n"
-                              "sketch_by_seq\ndist_by_seq\n"
+                             "Subcommands:\nsketch\ndist\nhll\nunion\nprintmat\nview\nflatten\n"
+                             "sketch_by_seq\ndist_by_seq\n"
+                             "\ncmp is also now a synonym for dist, which will be deprecated in the future.\n"
                      , *argv, *argv);
         RUNTIME_ERROR(std::string("Invalid subcommand ") + argv[1] + " provided.");
     }
