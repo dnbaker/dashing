@@ -35,6 +35,7 @@ int main(int argc, char *argv[]) {
                              "Subcommands:\nsketch\ndist\nhll\nunion\nprintmat\nview\nflatten\n"
                              "sketch_by_seq\ndist_by_seq\n"
                              "\ncmp is also now a synonym for dist, which will be deprecated in the future.\n"
+                             "mkdist, which is simply a wrapper around dist which runs the computation for multiple 'k' and organizes them into one result.\n"
                      , *argv, *argv);
         RUNTIME_ERROR(std::string("Invalid subcommand ") + argv[1] + " provided.");
     }
