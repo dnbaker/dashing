@@ -78,7 +78,6 @@ static option_struct dist_long_options[] = {\
 };
 
 int dist_main(int argc, char *argv[]) {
-    std::fprintf(stderr, "dist_main args: '");
     for(char **i = argv; i < argv + argc; ++i) {
         std::fprintf(stderr, " %s", *i);
     }
@@ -101,8 +100,9 @@ int dist_main(int argc, char *argv[]) {
     if(argc == 1) dist_usage(bns::executable);
     int option_index;
     DIST_LONG_OPTS
-    while((co = getopt_long(argc, argv, "n:Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:8TgDazlICbMEeHJhZBNyUmqW?", dist_long_options, &option_index)) >= 0) {
+    while((co = getopt_long(argc, argv, "n:Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:D:8TgazlICbMEeHJhZBNyUmqW?", dist_long_options, &option_index)) >= 0) {
         switch(co) {
+            case 'D': /* does nothing */ break;
             case '8': sketch_type = BB_MINHASH; break;
             case 'B': gargs.bbnbits = std::atoi(optarg);   break;
             case 'F': paths_file = optarg;              break;
@@ -223,7 +223,7 @@ int dist_main(int argc, char *argv[]) {
         if(pairofp_labels.empty()) pairofp_labels = "unspecified";
         label_future = std::async(std::launch::async, [&inpaths](const std::string &labels) {
             std::FILE *fp = std::fopen(labels.data(), "wb");
-            if(fp == nullptr) RUNTIME_ERROR(std::string("Could not open file at ") + labels);
+            if(fp == nullptr) RUNTIME_ERROR(std::string("Could not open file at '") + labels + "' for writing");
             for(const auto &path: inpaths) std::fwrite(path.data(), path.size(), 1, fp), std::fputc('\n', fp);
             std::fclose(fp);
         }, pairofp_labels);

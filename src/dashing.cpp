@@ -401,7 +401,7 @@ int print_binary_main(int argc, char *argv[]) {
     std::FILE *fp;
     if(outpath.empty()) outpath = "/dev/stdout";
     dm::DistanceMatrix<float> mat(argv[optind]);
-    if((fp = std::fopen(outpath.data(), "wb")) == nullptr) RUNTIME_ERROR(ks::sprintf("Could not open file at %s", outpath.data()).data());
+    if((fp = std::fopen(outpath.data(), "wb")) == nullptr) RUNTIME_ERROR(ks::sprintf("[print_binary_main] Could not open file at %s", outpath.data()).data());
     mat.printf(fp, use_scientific);
     std::fclose(fp);
     return EXIT_SUCCESS;
