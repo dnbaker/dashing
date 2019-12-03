@@ -13,8 +13,8 @@ int main(int argc, char *argv[]) {
     std::fprintf(stderr, "Dashing version: %s\n", DASHING_VERSION);
     if(argc == 1) main_usage(argv);
     if(std::strcmp(argv[1], "sketch") == 0) return sketch_main(argc - 1, argv + 1);
-    else if(std::strcmp(argv[1], "dist") == 0) return dist_main(argc - 1, argv + 1);
-    else if(std::strcmp(argv[1], "cmp") == 0) return dist_main(argc - 1, argv + 1);
+    else if(std::strcmp(argv[1], "dist") == 0 || std::strcmp(argv[1], "cmp") == 0)
+        return dist_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "union") == 0) return union_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "setdist") == 0) return setdist_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "hll") == 0) return hll_main(argc - 1, argv + 1);

@@ -1,46 +1,40 @@
 #include "dashing.h"
+#include "kspp/ks.h"
 
 namespace bns {
 
-template<typename T>
-void print_vec(const T &x) {
-    std::fprintf(stderr, "About to call: '");
-    for(const auto v: x)
-         std::fprintf(stderr, "%s ", v);
-    std::fputs("'\n", stderr);
-}
-template<typename IT>
-void print_vec(IT i, IT i2) {
-    for(ssize_t in = 0; in < i2 - i; ++in) {
-        std::fprintf(stderr, "%s/%d\n", *(i + in), int(in));
-    }
-    std::fprintf(stderr, "About to call: '");
-    while(i != i2) 
-         std::fprintf(stderr, "%s ", *i++);
-    std::fputs("'\n", stderr);
+void mkdist_usage() {
+    std::fprintf(stderr, "mkdist: --multik <outpref>,<start>,<end> [optional: ,<step>], plus all dist usage options\n");
+    dist_usage(bns::executable);
 }
 
 int mkdist_main(int argc, char *argv[]) {
+    std::string path_to_dashing="dashing";
+    for(const auto s: {"-h", "--help"}) {
+        if(std::find_if(argv, argv + argc, [s](auto x) {return std::strcmp(x, s) == 0;}) != argv + argc)
+            mkdist_usage();
+    }
     auto it = std::find_if(argv, argv + argc, [](auto x) {
-        return std::strcmp("--multik", x) == 0;}
-    );
+        return std::strcmp("--multik", x) == 0;
+    });
     std::string _outpref;
     if(it == argv + argc || argv + argc == ++it) {
-        RUNTIME_ERROR("required: --multik <outpref>,<start>,<end> [optional: ,<step>]");
+        std::fprintf(stderr, "required: --multik <outpref>,<start>,<end> [optional: ,<step>]");
+        mkdist_usage();
     }
     int e, step, s;
     auto pos = std::strchr(*it, ',');
-    if(!pos) RUNTIME_ERROR("Ill-formatted");
+    if(!pos) {
+        std::fprintf(stderr, "Ill-formatted");
+        mkdist_usage();
+    }
     _outpref = std::string(*it, pos - *it);
     s = std::atoi(++pos);
     const char *outpref = _outpref.data();
-    std::fprintf(stderr, "outpref: %s\n", _outpref.data());
-    std::fprintf(stderr, "pos: %s. start: %d. end: %d\n", pos, s, std::atoi(pos + 1));
     pos = std::strchr(pos, ',');
     e = std::atoi(++pos);
     if((pos = std::strchr(pos, ','))) {
         step = std::atoi(++pos);
-        std::fprintf(stderr, "step: %d\n", step);
         assert(step > 0 ? e > s: e < s);
     } else step = e > s ? 1: -1;
     std::fprintf(stderr, "step: %d\n", step);
@@ -54,19 +48,35 @@ int mkdist_main(int argc, char *argv[]) {
     argv[itind + 1] = &ea.second[0];
     assert(!std::strcmp("--multik", argv[itind]));
     for(int ind = s; (e > s ? ind < e: ind > e); ind += step) {
-        //args[0] = const_cast<char *>("dist");
+        std::string sizes_name = std::string("-o_") + outpref + "_" + std::to_string(ind);
         std::sprintf(argv[itind], "-bO_%s_%d", outpref, ind);
         std::sprintf(argv[itind + 1], "-k%d", ind);
-        fpaths.push_back(std::string(" ") + std::string(outpref) + ' ' + std::to_string(ind));
+        fpaths.push_back(std::string("_") + std::string(outpref) + '_' + std::to_string(ind));
         assert(itind != size_t(argc));
-        print_vec(argv, argv + argc);
         std::vector<char *> largs(argv, argv + argc);
-        /*POST_REQ(*/dist_main(largs.size(), largs.data())/*, "non-zero exit status")*/;
-        std::fprintf(stderr, "successfully called\n");
+        largs.push_back(&sizes_name[0]);
+        for(int c;(c = getopt(largs.size(), largs.data(), "n:Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:8TgazlICbMEeHJhZBNyUmqW?D:")) >= 0;) {
+            // Ignore all other options, pass along to dist_main, which ignores the -D option
+            if(c == 'D')
+                path_to_dashing = const_cast<const char *>(optarg);
+        }
+        ks::string cmd = path_to_dashing;
+        for(const auto arg: largs)
+            cmd.sprintf(" %s", arg);
+#ifndef NDEBUG
+        std::fprintf(stderr, "About to call: '%s'\n", cmd.data());
+#endif
+        int rc = std::system(cmd.data());
+        POST_REQ(rc >= 0, std::strerror(rc));
+        POST_REQ(WIFEXITED(rc), "non-zero exit status");
         ++nk;
     }
+    std::fprintf(stderr, "Finished distance matrix calculations. Now flattening\n");
     std::string outpath = outpref;
     outpath += ".bin";
-    return flatten_all(fpaths, nk, outpath);
+    auto ret = flatten_all(fpaths, nk, outpath);
+    for(const auto &f: fpaths)
+        std::system(ks::sprintf("rm %s %s.labels", f.data(), f.data()).data());
+    return ret;
 }
 } // namespace bns
