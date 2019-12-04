@@ -511,15 +511,12 @@ int sketch_by_seq_main(int argc, char *argv[]) {
                              use_filter, sketch_flags, mincount, enct)
     switch(sketch_type) {
         case HLL: SKETCH_BY_SEQ_CORE(hll::hll_t); break;
-#if 0
-        // Release only
         case BLOOM_FILTER: SKETCH_BY_SEQ_CORE(bf::bf_t); break;
         case RANGE_MINHASH: SKETCH_BY_SEQ_CORE(mh::RangeMinHash<uint64_t>); break;
         case COUNTING_RANGE_MINHASH: SKETCH_BY_SEQ_CORE(mh::CountingRangeMinHash<uint64_t>); break;
         case BB_MINHASH: SKETCH_BY_SEQ_CORE(mh::BBitMinHasher<uint64_t>); break;
         case BB_SUPERMINHASH: SKETCH_BY_SEQ_CORE(SuperMinHashType); break;
         case FULL_KHASH_SET: SKETCH_BY_SEQ_CORE(khset64_t); break;
-#endif
         default: {
             char buf[128];
             std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));
