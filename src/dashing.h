@@ -180,6 +180,8 @@ INLINE void perform_core_op(T &dists, size_t nhlls, SketchType *hlls, const Func
 }
 
 static int flatten_all(const std::vector<std::string> &fpaths, size_t nk, const std::string outpath) {
+    if(fpaths.empty()) RUNTIME_ERROR("no fpaths, see usage.");
+    // TODO: adapt this to pack an asymmetric comparison result into a flattened blaze distance matrix.
     std::vector<dm::DistanceMatrix<float>> dms;
     dms.reserve(nk);
     for(const auto &fp: fpaths)

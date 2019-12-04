@@ -55,7 +55,7 @@ int mkdist_main(int argc, char *argv[]) {
         assert(itind != size_t(argc));
         std::vector<char *> largs(argv, argv + argc);
         largs.push_back(&sizes_name[0]);
-        for(int c;(c = getopt(largs.size(), largs.data(), "n:Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:8TgazlICbMEeHJhZBNyUmqW?D:")) >= 0;) {
+        for(int c;(c = getopt(largs.size(), largs.data(), "n:Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:8TgazlICbMEeHJhZBNyUmqW?D:-")) >= 0;) {
             // Ignore all other options, pass along to dist_main, which ignores the -D option
             if(c == 'D')
                 path_to_dashing = const_cast<const char *>(optarg);
