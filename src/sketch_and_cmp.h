@@ -42,14 +42,14 @@ size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks:
         auto &strref = inpaths[index];
         str += strref;
         if(emit_fmt == UT_TSV) {
-            const char *fmt = use_scientific ? "\t%e": "\t%f";
+            constexpr const char *fmt = "\t%.7g";
             {
                 u64 k;
                 for(k = 0; k < index + 1;  ++k, kputsn_("\t-", 2, reinterpret_cast<kstring_t *>(&str)));
                 for(k = 0; k < hs - index - 1; str.sprintf(fmt, ptr[k++]));
             }
         } else { // emit_fmt == UPPER_TRIANGULAR
-            const char *fmt = use_scientific ? " %e": " %f";
+            constexpr const char *fmt = " t%.7g";
             if(strref.size() < 9)
                 str.append(9 - strref.size(), ' ');
             for(u64 k = 0; k < hs - index - 1; str.sprintf(fmt, ptr[k++]));
@@ -231,7 +231,7 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<Co
     CONST_IF(!samesketch) {
 #if __cplusplus >= 201703L
         std::destroy_n(
-#  if __cpp_lib_execution
+#  if defined(__cpp_lib_execution) && __cpp_lib_execution >= 201703L
             std::execution::par_unseq,
 #  endif
             final_sketches, inpaths.size());
