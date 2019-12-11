@@ -24,4 +24,4 @@ script:
 notifications:
     slack: jhu-genomics:BbHYSks7DhOolq80IYf6m9oe
     rooms:
-      - jhu-genomics:BbHYSks7DhOolq80IYf6m9oe#meta_trees
+      - jhu-genomics:BbHYSks7DhOolq80IYf6m9oe#libsketch
