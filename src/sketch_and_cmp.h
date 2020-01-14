@@ -42,14 +42,14 @@ size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks:
         auto &strref = inpaths[index];
         str += strref;
         if(emit_fmt == UT_TSV) {
-            constexpr const char *fmt = "\t%.7g";
+            constexpr const char *fmt = "\t%.6g";
             {
                 u64 k;
                 for(k = 0; k < index + 1;  ++k, kputsn_("\t-", 2, reinterpret_cast<kstring_t *>(&str)));
                 for(k = 0; k < hs - index - 1; str.sprintf(fmt, ptr[k++]));
             }
         } else { // emit_fmt == UPPER_TRIANGULAR
-            constexpr const char *fmt = " t%.7g";
+            constexpr const char *fmt = "\t%.6g";
             if(strref.size() < 9)
                 str.append(9 - strref.size(), ' ');
             for(u64 k = 0; k < hs - index - 1; str.sprintf(fmt, ptr[k++]));
