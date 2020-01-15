@@ -200,15 +200,17 @@ release_bundle.tgz: dashing_s256 dashing_s512 dashing_s128
 	&& tar -xvzf release_bundle.tgz release_bundle
 
 linux_release:
-	+rm -f dashing_s128 dashing_s256 dashing_s512 && \
+	+rm -f dashing_s128 dashing_s256 dashing_s512 release/linux/dashing_s* && \
 		$(MAKE) dashing_s128 dashing_s256 dashing_s512 && \
 		mv dashing_s128 dashing_s256 dashing_s512 release/linux && \
-		cd release/linux && rm dashing_s* && (zstd -22 --ultra dashing_s128 dashing_s256 dashing_s512 || echo "zstd failed") && gzip -f9 dashing_s128 dashing_s256 dashing_s512
+		(zstd -22 --ultra dashing_s128 dashing_s256 dashing_s512 || echo "zstd failed") && gzip -f9 dashing_s128 dashing_s256 dashing_s512
+
 osx_release:
 	+rm -f dashing_s128 dashing_s256 && \
 		$(MAKE) dashing_s128 dashing_s256 && \
+        rm -f release/osx/dashing_s* && \
 		mv dashing_s128 dashing_s256 release/osx && \
-		cd release/osx && rm dashing_s* &&\
+		cd release/osx && \
 		(zstd -22 --ultra dashing_s128 dashing_s256 || echo "zstd failed") && gzip -f9 dashing_s128 dashing_s256
 clean:
 	rm -f $(EX) $(D_EX) libzstd.a bonsai/clhash.o clhash.o \
