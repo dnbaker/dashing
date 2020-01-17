@@ -90,11 +90,11 @@ struct SeededHash {
 };
 
 using CountingSketch = sketch::hk::HeavyKeeper<6, 10, SeededHash<sketch::common::WangHash>>;
-template<typename T> INLINE double similarity(const T &a, const T &b) {
+template<typename T> inline double similarity(const T &a, const T &b) {
     return a.jaccard_index(b);
 }
 
-template<> INLINE double similarity<CRMFinal>(const CRMFinal &a, const CRMFinal &b) {
+template<> inline double similarity<CRMFinal>(const CRMFinal &a, const CRMFinal &b) {
     return a.histogram_intersection(b);
 }
 
@@ -171,7 +171,7 @@ CONTAIN_OVERLOAD_FAIL(CRMFinal)
 using CBBMinHashType = mh::CountingBBitMinHasher<uint64_t, uint16_t>; // Is counting to 65536 enough for a transcriptome?
 using SuperMinHashType = mh::SuperMinHash<>;
 template<typename SketchType, typename T, typename Func>
-INLINE void perform_core_op(T &dists, size_t nhlls, SketchType *hlls, const Func &func, size_t i) {
+inline void perform_core_op(T &dists, size_t nhlls, SketchType *hlls, const Func &func, size_t i) {
     auto &h1 = hlls[i];
     #pragma omp parallel for schedule(dynamic)
     for(size_t j = i + 1; j < nhlls; ++j)
@@ -376,10 +376,10 @@ template<> struct SketchEnum<wj::WeightedSketcher<khset64_t>> {static constexpr 
 template<> struct SketchEnum<wj::WeightedSketcher<SuperMinHashType>> {static constexpr Sketch value = BB_SUPERMINHASH;};
 
 template<typename T>
-INLINE void set_estim_and_jestim(T &x, hll::EstimationMethod estim, hll::JointEstimationMethod jestim) {}
+inline void set_estim_and_jestim(T &x, hll::EstimationMethod estim, hll::JointEstimationMethod jestim) {}
 
 template<typename Hashstruct>
-INLINE void set_estim_and_jestim(hll::hllbase_t<Hashstruct> &h, hll::EstimationMethod estim, hll::JointEstimationMethod jestim) {
+inline void set_estim_and_jestim(hll::hllbase_t<Hashstruct> &h, hll::EstimationMethod estim, hll::JointEstimationMethod jestim) {
     h.set_estim(estim);
     h.set_jestim(jestim);
 }
@@ -449,13 +449,13 @@ static inline std::string make_fname(const char *path, size_t sketch_p, int wsz,
 }
 
 namespace us {
-template<typename T> INLINE double union_size(const T &a, const T &b) {
+template<typename T> inline double union_size(const T &a, const T &b) {
     throw NotImplementedError(std::string("union_size not available for type ") + __PRETTY_FUNCTION__);
 }
 
 
 #define US_DEC(type) \
-template<> INLINE double union_size<type> (const type &a, const type &b) { \
+template<> inline double union_size<type> (const type &a, const type &b) { \
     return a.union_size(b); \
 }
 
@@ -463,10 +463,10 @@ US_DEC(RMFinal)
 US_DEC(CRMFinal)
 US_DEC(khset64_t)
 US_DEC(hll::hllbase_t<>)
-template<> INLINE double union_size<mh::FinalBBitMinHash> (const mh::FinalBBitMinHash &a, const mh::FinalBBitMinHash &b) {
+template<> inline double union_size<mh::FinalBBitMinHash> (const mh::FinalBBitMinHash &a, const mh::FinalBBitMinHash &b) {
     return (a.est_cardinality_ + b.est_cardinality_ ) / (1. + a.jaccard_index(b));
 }
-//template<> INLINE double union_size<mh::FinalBBitMinHash> (const mh::FinalBBitMinHash &a, const mh::FinalBBitMinHash &b) {
+//template<> inline double union_size<mh::FinalBBitMinHash> (const mh::FinalBBitMinHash &a, const mh::FinalBBitMinHash &b) {
 //    return (a.est_cardinality_ + b.est_cardinality_ ) / (1. + a.jaccard_index(b));
 //}
 } // namespace us
