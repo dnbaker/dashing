@@ -491,7 +491,7 @@ int sketch_by_seq_main(int argc, char *argv[]) {
     if(nthreads > 1)
         std::fprintf(stderr, "note: sketch_by_seq isn't parallelized.");
     nthreads = std::max(nthreads, 1);
-    //omp_set_num_threads(nthreads);
+    omp_set_num_threads(nthreads);
     auto leftover = argc - optind;
     std::string inpath;
     switch(leftover) {

@@ -50,18 +50,13 @@
                 perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) { \
                     const auto triple = set_triple(x, y);\
                     auto ret = triple[2] / (std::min(triple[0], triple[1]) + triple[2]);\
-                    auto di = dist_index(ret, ksinv);\
-                    assert(di <= dist_index(triple[2] / (triple[0] + triple[2]), ksinv));\
-                    assert(di <= dist_index(triple[2] / (triple[1] + triple[2]), ksinv));\
-                    return di;\
+                    return dist_index(ret, ksinv);\
                 }, i);\
                 break;\
             case SYMMETRIC_CONTAINMENT_INDEX:\
                 perform_core_op(dists, nsketches, hlls, [&](const auto &x, const auto &y) {\
                     const auto triple = set_triple(x, y);\
-                    auto ret = triple[2] / (std::min(triple[0], triple[1]) + triple[2]);\
-                    assert(ret >= triple[2] / (std::max(triple[0], triple[1]) + triple[2]) || triple[1] == 0. || triple[0] == 0.);\
-                    return ret;\
+                    return triple[2] / (std::min(triple[0], triple[1]) + triple[2]);\
                 }, i);\
                 break;\
             default: __builtin_unreachable();\
@@ -265,6 +260,28 @@ enum EmissionType {
     SYMMETRIC_CONTAINMENT_INDEX = 7,
     SYMMETRIC_CONTAINMENT_DIST = 8,
 };
+
+enum NNType {
+    // Nearest Neighbor Type
+    DECREASING = 0,
+    INCREASING = 1,
+    DIST_MEASURE = DECREASING,
+    SIMILARITY_MEASURE = INCREASING
+};
+
+INLINE static constexpr
+NNType emt2nntype(EmissionType result_type) {
+    switch(result_type) {
+        case MASH_DIST: case FULL_MASH_DIST: case CONTAINMENT_DIST:
+        case FULL_CONTAINMENT_DIST: case SYMMETRIC_CONTAINMENT_DIST:
+            return DIST_MEASURE;
+        case JI: case SIZES: case CONTAINMENT_INDEX: case SYMMETRIC_CONTAINMENT_INDEX:
+        default:
+            return SIMILARITY_MEASURE;
+    }
+    __builtin_unreachable();
+    return SIMILARITY_MEASURE;
+}
 
 static const char *emt2str(EmissionType result_type) {
     switch(result_type) {
@@ -471,7 +488,7 @@ template<> inline double union_size<mh::FinalBBitMinHash> (const mh::FinalBBitMi
 //}
 } // namespace us
 template<typename SketchType>
-void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size,
+void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, const size_t buffer_flush_size,
                    size_t nq)
 {
     const float ksinv = 1./ k;

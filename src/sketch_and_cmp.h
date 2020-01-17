@@ -1,5 +1,6 @@
 #pragma once
 #include "dashing.h"
+#include "blaze/Math.h"
 
 #define FILL_SKETCH_MIN(MinType)  \
     {\
@@ -60,7 +61,7 @@ size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks:
     return index;
 }
 template<typename SketchType>
-void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size, size_t nq);
+void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int, const size_t buffer_flush_size, size_t nq);
 using namespace sketch;
 using namespace hll;
 static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
@@ -371,10 +372,51 @@ INLINE void sketch_by_seq_core(uint32_t ssarg, uint32_t nthreads, const Spacer &
     std::fclose(nameofp);
 }
 
+template<typename SketchType, typename Cmp>
+void perform_nns(std::unique_ptr<std::pair<float, uint32_t>> &neighbors,
+                 SketchType *hlls, const std::vector<std::string> &inpaths,
+                 const unsigned k, const EmissionType result_type,
+                 size_t nq,
+                 unsigned nneighbors,
+                 const Cmp &cmp) {
+    const float default_value = std::is_same<Cmp, std::greater<>>::value
+                                ? std::numeric_limits<float>::min()
+                                : std::numeric_limits<float>::max();
+    const size_t n = inpaths.size();
+    #pragma omp parallel for
+    for(size_t i = 0; i < n; ++i) {
+        std::fill(neighbors.get() + i * nneighbors, neighbors.get() + (i + 1) * nneighbors,
+                  std::pair<float, uint32_t>(default_value, uint32_t(-1)));
+    }
+    // TODO:
+    // Perform comparisons
+    //
+}
+
 template<typename SketchType>
-void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size, size_t nq) {
+void nndist_loop(std::FILE *ofp, SketchType *hlls,
+               const std::vector<std::string> &inpaths, const bool use_scientific,
+               const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt,
+               const size_t buffer_flush_size, size_t nq, unsigned nneighbors) {
+    if(nneighbors >= inpaths.size()) {
+        dist_loop(ofp, hlls, inpaths, use_scientific, k, result_type, emit_fmt, 1 /*unused */, buffer_flush_size, nq);
+        return;
+    }
+    if(nq) throw NotImplementedError("Not implemented: containment.");
+    auto neigbors = std::make_unique<std::pair<float, uint32_t>[]>(nneighbors * inpaths.size());
+    if(emt2nntype(result_type) == SIMILARITY_MEASURE) {
+        auto cmp = [](auto x, auto y) {return x.first > y.first;};
+        perform_nns(neigbors, hlls, inpaths, k, result_type, nq, nneighbors, std::greater<>());
+    } else {
+        auto cmp = [](auto x, auto y) {return x.first < y.first;};
+        perform_nns(neigbors, hlls, inpaths, k, result_type, nq, nneighbors, std::less<>());
+    }
+}
+
+template<typename SketchType>
+void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int, const size_t buffer_flush_size, size_t nq) {
     if(nq) {
-        partdist_loop<SketchType>(ofp, hlls, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size, nq);
+        partdist_loop<SketchType>(ofp, hlls, inpaths, use_scientific, k, result_type, emit_fmt, buffer_flush_size, nq);
         return;
     }
     if(!is_symmetric(result_type)) {
@@ -384,7 +426,6 @@ void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> 
     }
     const float ksinv = 1./ k;
     const int pairfi = fileno(ofp);
-    omp_set_num_threads(nthreads);
     const size_t nsketches = inpaths.size();
     if((emit_fmt & BINARY) == 0) {
         std::future<size_t> submitter;
