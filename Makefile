@@ -8,7 +8,7 @@ WARNINGS=-Wall -Wextra -Wno-char-subscripts \
 		 -Wpointer-arith -Wwrite-strings -Wdisabled-optimization \
 		 -Wformat -Wcast-align -Wno-unused-function -Wno-unused-parameter \
 		 -pedantic -Wunused-variable -Wno-attributes -Wno-pedantic  -Wno-ignored-attributes \
-        -Wno-missing-braces
+        -Wno-missing-braces -Wno-unknown-pragmas
 		# -Wduplicated-branches -Wdangling-else  # -Wsuggest-attribute=malloc   # -Wconversion
 EXTRA?=
 INCPLUS?=
@@ -60,7 +60,7 @@ ZCOMPILE_FLAGS= $(ZFLAGS) -lzstd
 ZW_OBJS=$(patsubst %.c,%.o,bonsai/zstd/zlibWrapper/gzclose.c  bonsai/zstd/zlibWrapper/gzlib.c  bonsai/zstd/zlibWrapper/gzread.c  bonsai/zstd/zlibWrapper/gzwrite.c  bonsai/zstd/zlibWrapper/zstd_zlibwrapper.c) libzstd.a
 ALL_ZOBJS=$(ZOBJS) $(ZW_OBJS) bonsai/clhash.o bonsai/klib/kthread.o
 INCLUDE=-Ibonsai/clhash/include -I.  -Ibonsai/zlib -Ibonsai/libpopcnt -Iinclude -Ibonsai/circularqueue $(ZSTD_INCLUDE) $(INCPLUS) -Isketch/vec -Ibonsai -Ibonsai/include/ \
-    -Isketch/include -Isketch
+    -Isketch/include -Isketch -Isketch/include/sketch
 
 EX=$(patsubst src/%.cpp,%,$(wildcard src/*.cpp))
 D_EX=$(patsubst src/%.cpp,%_d,$(wildcard src/*.cpp))
@@ -199,12 +199,13 @@ release_bundle.tgz: dashing_s256 dashing_s512 dashing_s128
 	rm -fr release_bundle release_bundle.tgz && mkdir release_bundle && cp dashing_s256 dashing_s512 dashing_s128 release_bundle \
 	&& tar -xvzf release_bundle.tgz release_bundle
 
-linux_release:
-	+rm -f dashing_s128 dashing_s256 dashing_s512 release/linux/dashing_s* && \
-		$(MAKE) dashing_s128 dashing_s256 dashing_s512 && \
-		mv dashing_s128 dashing_s256 dashing_s512 release/linux && \
-		(zstd -22 --ultra dashing_s128 dashing_s256 dashing_s512 || echo "zstd failed") && gzip -f9 dashing_s128 dashing_s256 dashing_s512
+ALLSIMDS=dashing_s128 dashing_s256 dashing_s512
 
+linux_release:
+	+rm -f $(ALLSIMDS) rm release/linux/dashing_s* && \
+		$(MAKE) $(ALLSIMDS) && \
+		mv $(ALLSIMDS) release/linux && \
+		cd release/linux && (zstd -22 --ultra $(ALLSIMDS) || echo "zstd failed") && gzip -f9 $(ALLSIMDS)
 osx_release:
 	+rm -f dashing_s128 dashing_s256 && \
 		$(MAKE) dashing_s128 dashing_s256 && \
