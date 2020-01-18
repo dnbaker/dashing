@@ -1,6 +1,5 @@
 #pragma once
 #include "dashing.h"
-#include "blaze/Math.h"
 
 #define FILL_SKETCH_MIN(MinType)  \
     {\
