@@ -131,7 +131,7 @@ DASHINGSRC=src/main.cpp src/union.cpp src/hllmain.cpp src/mkdistmain.cpp src/fin
 bonsai/zstd/zlibWrapper/%.o: bonsai/zstd/zlibWrapper/%.c
 	cd bonsai && $(MAKE) libzstd.a && cd zstd && $(MAKE) lib  && cd zlibWrapper && $(MAKE) $(notdir $@)
 
-%: src/%.cpp $(ALL_ZOBJS) $(DEPS) libz.a libzstd.a $(DASHING_OBJ)
+%: src/%.cpp $(ALL_ZOBJS) $(DEPS) libz.a libzstd.a $(DASHING_OBJ) $(wildcard src/*.h)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) libz.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
 
 dashing-ar: src/main.o dashing.a
@@ -146,7 +146,7 @@ dashing: src/dashing.o $(ALL_ZOBJS) $(DEPS) libz.a libzstd.a $(BACKUPOBJ)
 %0: src/%.o $(ALL_ZOBJS) $(DEPS) libz.a libzstd.a src/main.o
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) src/main.o libz.a -O0 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
-src/%.o: src/%.cpp $(DEPS) libz.a libzstd.a
+src/%.o: src/%.cpp $(DEPS) libz.a libzstd.a $(wildcard src/*.h)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c -O3 $< libz.a -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
 
 sparse%: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.so
