@@ -209,7 +209,9 @@ struct GlobalArgs {
     size_t weighted_jaccard_cmsize = 22;
     size_t weighted_jaccard_nhashes = 8;
     uint32_t bbnbits = 16;
+    uint32_t number_neighbors = 0;
 };
+
 static GlobalArgs gargs;
 enum EmissionType {
     MASH_DIST = 0,

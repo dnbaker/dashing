@@ -74,6 +74,7 @@ static option_struct dist_long_options[] = {\
     LO_ARG("wj-cm-sketch-size", 140)\
     LO_ARG("wj-cm-nhashes", 141)\
     LO_FLAG("wj", 142, weighted_jaccard, true)\
+    LO_ARG("nearest-neighbors", 143)\
     {0,0,0,0}\
 };
 
@@ -137,6 +138,10 @@ int dist_main(int argc, char *argv[]) {
                 gargs.weighted_jaccard_cmsize  = std::atoi(optarg); weighted_jaccard = true; break;
             case 141:
                 gargs.weighted_jaccard_nhashes = std::atoi(optarg); weighted_jaccard = true; break;
+            case 143:
+                gargs.number_neighbors = std::atoi(optarg);
+                BNS_REQUIRE(gargs.number_neighbors > 0);
+                break;
             case 'h': case '?': dist_usage(bns::executable);
         }
     }
@@ -145,6 +150,9 @@ int dist_main(int argc, char *argv[]) {
     if(k > 32 && spacing.size())
         RUNTIME_ERROR("kmers must be unspaced for k > 32");
     if(nthreads < 0) nthreads = 1;
+    if(gargs.number_neighbors > 0) {
+        emit_fmt = EmissionFormat(unsigned(emit_fmt) | NEAREST_NEIGHBOR_TABLE);
+    }
 #if !NDEBUG
     std::fprintf(stderr, "paths file: %s/%zu\n", paths_file.data(), paths_file.size());
 #endif

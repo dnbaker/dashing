@@ -20,8 +20,11 @@ GIT_VERSION := $(shell git describe --abbrev=4 --always)
 
 OPT_MINUS_OPENMP= -O3 -funroll-loops\
 	  -pipe -fno-strict-aliasing -march=native -mpclmul -DUSE_PDQSORT \
-	-DNOT_THREADSAFE -flto \
-	$(FLAGS) $(EXTRA)
+	-DNOT_THREADSAFE \
+	$(FLAGS) $(EXTRA) \
+    -flto
+    #--param max-gcse-memory=200000000 \
+
 OPT=$(OPT_MINUS_OPENMP) # -lgomp /* sometimes needed */-lomp /* for clang */
 ifneq (,$(findstring clang++,$(CXX)))
 	OPT+=-lomp

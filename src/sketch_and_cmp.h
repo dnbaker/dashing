@@ -30,8 +30,6 @@ using namespace sketch;
 
 namespace bns {
 
-static int num_nearest_neighbors = -1;
-
 template<typename FType, typename=typename std::enable_if<std::is_floating_point<FType>::value>::type>
 size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks::string &str, const std::vector<std::string> &inpaths, EmissionFormat emit_fmt, bool use_scientific, const size_t buffer_flush_size=BUFFER_FLUSH_SIZE) {
     if(emit_fmt & BINARY) {
@@ -231,9 +229,10 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<Co
         std::fflush(pairofp);
     }
     if(emit_fmt & NEAREST_NEIGHBOR_TABLE) {
-        nndist_loop(pairofp, final_sketches, inpaths, k, result_type, emit_fmt, nq, num_nearest_neighbors);
+        nndist_loop(pairofp, final_sketches, inpaths, k, result_type, emit_fmt, nq, gargs.number_neighbors);
+    } else {
+        dist_loop<final_type>(pairofp, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, BUFFER_FLUSH_SIZE, nq);
     }
-    dist_loop<final_type>(pairofp, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, BUFFER_FLUSH_SIZE, nq);
     CONST_IF(!samesketch) {
 #if __cplusplus >= 201703L
         std::destroy_n(
@@ -391,6 +390,18 @@ INLINE void lock_update(float val, std::pair<float, uint32_t> *ptr,
         }
     }
 }
+template<typename Cmp>
+INLINE void lockfree_update(float val, std::pair<float, uint32_t> *ptr,
+                            unsigned nneighbors,
+                            size_t j, const Cmp &cmp)
+{
+    if(cmp(val, ptr->first)) {
+        std::pop_heap (ptr, ptr + nneighbors, cmp);
+        ptr[nneighbors - 1] = std::pair<float, uint32_t>(val, j);
+        std::push_heap(ptr, ptr + nneighbors, cmp);
+    }
+}
+
 
 template<typename SketchType, typename Cmp, typename Func>
 void perform_nns(std::unique_ptr<std::pair<float, uint32_t>[]> &neighbors,
@@ -399,28 +410,45 @@ void perform_nns(std::unique_ptr<std::pair<float, uint32_t>[]> &neighbors,
                  size_t nq,
                  unsigned nneighbors,
                  const Cmp &cmp, const Func &func) {
+    std::fflush(stderr);
     const float default_value = std::is_same<Cmp, std::greater<>>::value
                                 ? std::numeric_limits<float>::min()
                                 : std::numeric_limits<float>::max();
-    const size_t n = inpaths.size();
-    #pragma omp parallel for
-    for(size_t i = 0; i < n; ++i) {
-        std::fill_n(neighbors.get() + i * nneighbors, nneighbors,
+    const size_t n = nq ? nq: inpaths.size();
+    OMP_PFOR
+    for(size_t i = 0; i < n; ++i)
+        std::fill_n(&neighbors[i * nneighbors], nneighbors,
                   std::pair<float, uint32_t>(default_value, uint32_t(-1)));
-    }
-    auto mutexes = std::make_unique<std::mutex[]>(n);
-    #pragma omp parallel for schedule(dynamic)
-    for(size_t i = 0; i < n; ++i) {
-        auto lhptr = neighbors.get() + (i * nneighbors);
-        auto &h1 = sketches[i];
-        for(size_t j = i + 1; j < n; ++j) {
-            auto rhptr = neighbors.get() + (j * nneighbors);
-            const float distval = func(sketches[j], h1);
-            lock_update(distval, lhptr, nneighbors, j, mutexes[i], cmp);
-            lock_update(distval, rhptr, nneighbors, i, mutexes[j], cmp);
+    if(nq == 0) {
+        auto mutexes = std::make_unique<std::mutex[]>(n);
+        #pragma omp parallel for schedule(dynamic)
+        for(size_t i = 0; i < n; ++i) {
+            std::fprintf(stderr, "neighbor row: %zu. index: %zu\n", i, i * nneighbors);
+            auto lhptr = &neighbors[i * nneighbors];
+            const auto &h1 = sketches[i];
+            for(size_t j = i + 1; j < n; ++j) {
+                std::fprintf(stderr, "%tart%zu/%zu\n", i, j);
+                auto rhptr = &neighbors[j * nneighbors];
+                const float distval = func(sketches[j], h1);
+                lock_update(distval, lhptr, nneighbors, j, mutexes[i], cmp);
+                lock_update(distval, rhptr, nneighbors, i, mutexes[j], cmp);
+                std::fprintf(stderr, "finish %zu/%zu\n", i, j);
+            }
+        }
+    } else {
+        const size_t npaths = inpaths.size(), nr = npaths - nq;
+        #pragma omp parallel for schedule(dynamic)
+        for(size_t qi = nr; qi < npaths; ++qi) {
+            const size_t qind = qi - nr;
+            const auto srcptr = &neighbors[qind * nneighbors];
+            const auto &h1 = sketches[qi];
+            for(size_t j = 0; j < nr; ++j) {
+                lockfree_update(func(sketches[j], h1), srcptr, nneighbors, j, cmp);
+            }
         }
     }
-    #pragma omp parallel for
+    std::fprintf(stderr, "Finished loop, now sorting\n");
+    OMP_PFOR
     for(size_t i = 0; i < n; ++i) {
         std::sort(neighbors.get() + (i * nneighbors), neighbors.get() + ((i + 1) * nneighbors), cmp);
     }
@@ -440,14 +468,14 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
                const std::vector<std::string> &inpaths,
                const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt,
                size_t nq, unsigned nneighbors) {
-    if(nq) throw NotImplementedError("Not implemented: containment.");
     if(nneighbors > inpaths.size()) {
         std::fprintf(stderr, "Only reporting %zu rather than %u neighbors due to their being only that many sets.\n", inpaths.size(), nneighbors);
         nneighbors = inpaths.size();
     }
-    auto neighbors = std::make_unique<std::pair<float, uint32_t>[]>(nneighbors * inpaths.size());
-    
-    const size_t np = inpaths.size();
+    std::fprintf(stderr, "nndist loop begun\n");
+    std::fflush(stderr);
+    const size_t npairs = (nq ? nq: inpaths.size()) * nneighbors, qoffset = nq ? inpaths.size() - nq: size_t(0);
+    auto neighbors = std::make_unique<std::pair<float, uint32_t>[]>(npairs);
     const double ksinv = 1./ k;
 #define INDEX_FUNC(index, func, cmp) \
         case index: \
@@ -467,26 +495,51 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
         INDEX_FUNC(SYMMETRIC_CONTAINMENT_DIST, sym_cont_dist, cmp) \
         default: throw std::runtime_error("Not supported");\
         }
-            
+
     if(emt2nntype(result_type) == SIMILARITY_MEASURE) {
+        std::fprintf(stderr, "About to perform similarity measures\n");
         ALL_INDEXES(std::greater<>())
     } else {
         ALL_INDEXES(std::less<>())
     }
+    LOG_INFO("Performed inner loop, now emitting output\n");
 #undef ALL_INDEXES
 #undef INDEX_FUNC
     if(emit_fmt & BINARY) {
-        std::fwrite(neighbors.get(), nneighbors * inpaths.size(), sizeof(std::pair<float, uint32_t>), ofp);
+        if(unlikely(std::fwrite(neighbors.get(), sizeof(std::pair<float, uint32_t>), nneighbors * npairs, ofp) != nneighbors * npairs))
+            RUNTIME_ERROR("Failed to write neighbors to disk (binary)\n");
     } else {
-        for(size_t i = 0; i < np; ++i) {
-            const std::pair<float, uint32_t> *nptr = neighbors.get() + (i * nneighbors);
-            std::fwrite(inpaths[i].data(), 1, inpaths[i].size(), ofp);
-            for(unsigned j = 0; j < nneighbors; ++j) {
-                const auto &ndat = nptr[j];
-                std::fprintf(ofp, "\t%s:%g", inpaths[ndat.second].data(), ndat.first);
-            }
-            std::fputc('\n', ofp);
+        int nt = 1;
+#if defined(_OPENMP)
+        OMP_PRAGMA("omp parallel")
+        {
+            OMP_PRAGMA("omp single")
+            nt = omp_get_num_threads();
         }
+#endif
+        auto kstrs = std::make_unique<ks::string[]>(nt);
+        std::for_each(kstrs.get(), kstrs.get() + nt, [](auto &x) {x.resize(1 << 10);});
+        for(size_t i = 0; i < npairs; ++i) {
+            auto &buf = kstrs[i];
+            const std::pair<float, uint32_t> *nptr = &neighbors[i * nneighbors];
+            size_t nameind = i + qoffset;
+            buf += inpaths[nameind];
+            for(unsigned j = 0; j < nneighbors; ++j) {
+                const auto ndat = nptr[j];
+                buf.putc_('\t');
+                buf += inpaths[ndat.second];
+                buf.putc_(':');
+                buf.sprintf("%g", ndat.first);
+            }
+            buf.putc_('\n');
+            if(buf.size() > 1 << 14) {
+                OMP_CRITICAL
+                {
+                    buf.flush(ofp);
+                }
+            }
+        }
+        std::for_each(kstrs.get(), kstrs.get() + nt, [ofp](auto &x) {if(x.size()) x.flush(ofp);});
     }
 }
 
