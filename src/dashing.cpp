@@ -73,7 +73,7 @@ void dist_usage(const char *arg) {
                          "-b, --emit-binary\tEmit distances in binary (default: human-readable, upper-triangular)\n"
                          "-U, --phylip\tEmit distances in PHYLIP upper triangular format(default: human-readable, upper-triangular)\n"
                          "between bases repeated the second integer number of times\n"
-                         "-T, --full-tsv\tpostprocess binary format to human-readable TSV (not upper triangular)\n\n\n"
+                         "-T, --full-tsv\tpostprocess binary format to human-readable TSV (not upper triangular) [Square matrix]\n\n\n"
                          "===Emission Details===\n\n"
                          "-e, --emit-scientific\tEmit in scientific notation\n\n\n"
                          "===Data Structures===\n\n"
