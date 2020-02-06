@@ -383,10 +383,14 @@ INLINE void lock_update(float val, std::pair<float, uint32_t> *ptr,
 {
     if(cmp(val, ptr->first)) {
         std::lock_guard<std::mutex> lg(mut);
+        std::fprintf(stderr, "got lock\n");
         if(cmp(val, ptr->first)) { // after getting the lock, check again
             std::pop_heap (ptr, ptr + nneighbors, cmp);
-            ptr[nneighbors - 1] = std::pair<float, uint32_t>(val, j);
+            std::fprintf(stderr, "popped\n");
+            ptr[nneighbors - 1] = {val, j};
+            std::fprintf(stderr, "assigned\n");
             std::push_heap(ptr, ptr + nneighbors, cmp);
+            std::fprintf(stderr, "pushed\n");
         }
     }
 }
@@ -404,7 +408,7 @@ INLINE void lockfree_update(float val, std::pair<float, uint32_t> *ptr,
 
 
 template<typename SketchType, typename Cmp, typename Func>
-void perform_nns(std::unique_ptr<std::pair<float, uint32_t>[]> &neighbors,
+void perform_nns(std::pair<float, uint32_t> *neighbors,
                  SketchType *sketches, const std::vector<std::string> &inpaths,
                  const unsigned k, const EmissionType result_type,
                  size_t nq,
@@ -419,6 +423,8 @@ void perform_nns(std::unique_ptr<std::pair<float, uint32_t>[]> &neighbors,
     for(size_t i = 0; i < n; ++i)
         std::fill_n(&neighbors[i * nneighbors], nneighbors,
                   std::pair<float, uint32_t>(default_value, uint32_t(-1)));
+    size_t maxind = n * nneighbors;
+    std::fprintf(stderr, "n: %zu. maxind: %zu\n", n, maxind);
     if(nq == 0) {
         auto mutexes = std::make_unique<std::mutex[]>(n);
         #pragma omp parallel for schedule(dynamic)
@@ -427,7 +433,7 @@ void perform_nns(std::unique_ptr<std::pair<float, uint32_t>[]> &neighbors,
             auto lhptr = &neighbors[i * nneighbors];
             const auto &h1 = sketches[i];
             for(size_t j = i + 1; j < n; ++j) {
-                std::fprintf(stderr, "%tart%zu/%zu\n", i, j);
+                std::fprintf(stderr, "start %zu/%zu\n", i, j);
                 auto rhptr = &neighbors[j * nneighbors];
                 const float distval = func(sketches[j], h1);
                 lock_update(distval, lhptr, nneighbors, j, mutexes[i], cmp);
@@ -450,7 +456,7 @@ void perform_nns(std::unique_ptr<std::pair<float, uint32_t>[]> &neighbors,
     std::fprintf(stderr, "Finished loop, now sorting\n");
     OMP_PFOR
     for(size_t i = 0; i < n; ++i) {
-        std::sort(neighbors.get() + (i * nneighbors), neighbors.get() + ((i + 1) * nneighbors), cmp);
+        std::sort(neighbors + (i * nneighbors), neighbors + ((i + 1) * nneighbors), cmp);
     }
 }
 
@@ -475,11 +481,12 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
     std::fprintf(stderr, "nndist loop begun\n");
     std::fflush(stderr);
     const size_t npairs = (nq ? nq: inpaths.size()) * nneighbors, qoffset = nq ? inpaths.size() - nq: size_t(0);
+    std::fprintf(stderr, "npairs: %zu\n", npairs);
     auto neighbors = std::make_unique<std::pair<float, uint32_t>[]>(npairs);
     const double ksinv = 1./ k;
 #define INDEX_FUNC(index, func, cmp) \
         case index: \
-            perform_nns(neighbors, sketches, inpaths, k, result_type, nq, nneighbors, cmp,\
+            perform_nns(neighbors.get(), sketches, inpaths, k, result_type, nq, nneighbors, cmp,\
                         [ksinv](const auto &x, const auto &y) {return func(x, y);}); \
         break;
 
