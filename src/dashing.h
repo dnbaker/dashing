@@ -29,43 +29,6 @@
 #ifndef BUFFER_FLUSH_SIZE
 #define BUFFER_FLUSH_SIZE (1u << 18)
 #endif
-#define CORE_ITER(zomg) do {\
-        switch(result_type) {\
-            case MASH_DIST: {\
-                perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) {return dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
-                break;\
-            }\
-            case JI: {\
-            perform_core_op(dists, nsketches, hlls, similarity<const SketchType>, i);\
-                break;\
-            }\
-            case SIZES: {\
-            perform_core_op(dists, nsketches, hlls, us::union_size<SketchType>, i);\
-                break;\
-            }\
-            case FULL_MASH_DIST:\
-                perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) {return full_dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
-                break;\
-            case SYMMETRIC_CONTAINMENT_DIST:\
-                perform_core_op(dists, nsketches, hlls, [ksinv](const auto &x, const auto &y) { \
-                    const auto triple = set_triple(x, y);\
-                    auto ret = triple[2] / (std::min(triple[0], triple[1]) + triple[2]);\
-                    auto di = dist_index(ret, ksinv);\
-                    assert(di <= dist_index(triple[2] / (triple[0] + triple[2]), ksinv));\
-                    assert(di <= dist_index(triple[2] / (triple[1] + triple[2]), ksinv));\
-                    return di;\
-                }, i);\
-                break;\
-            case SYMMETRIC_CONTAINMENT_INDEX:\
-                perform_core_op(dists, nsketches, hlls, [&](const auto &x, const auto &y) {\
-                    const auto triple = set_triple(x, y);\
-                    auto ret = triple[2] / (std::min(triple[0], triple[1]) + triple[2]);\
-                    assert(ret >= triple[2] / (std::max(triple[0], triple[1]) + triple[2]) || triple[1] == 0. || triple[0] == 0.);\
-                    return ret;\
-                }, i);\
-                break;\
-            default: __builtin_unreachable();\
-        } } while(0)
 
 #define LO_ARG(LONG, SHORT) {LONG, required_argument, 0, SHORT},
 #define LO_NO(LONG, SHORT) {LONG, no_argument, 0, SHORT},
@@ -90,11 +53,11 @@ struct SeededHash {
 };
 
 using CountingSketch = sketch::hk::HeavyKeeper<6, 10, SeededHash<sketch::common::WangHash>>;
-template<typename T> INLINE double similarity(const T &a, const T &b) {
+template<typename T> inline double similarity(const T &a, const T &b) {
     return a.jaccard_index(b);
 }
 
-template<> INLINE double similarity<CRMFinal>(const CRMFinal &a, const CRMFinal &b) {
+template<> inline double similarity<CRMFinal>(const CRMFinal &a, const CRMFinal &b) {
     return a.histogram_intersection(b);
 }
 
@@ -170,14 +133,6 @@ CONTAIN_OVERLOAD_FAIL(CRMFinal)
 
 using CBBMinHashType = mh::CountingBBitMinHasher<uint64_t, uint16_t>; // Is counting to 65536 enough for a transcriptome?
 using SuperMinHashType = mh::SuperMinHash<>;
-template<typename SketchType, typename T, typename Func>
-INLINE void perform_core_op(T &dists, size_t nhlls, SketchType *hlls, const Func &func, size_t i) {
-    auto &h1 = hlls[i];
-    #pragma omp parallel for schedule(dynamic)
-    for(size_t j = i + 1; j < nhlls; ++j)
-        dists[j - i - 1] = func(hlls[j], h1);
-    h1.free();
-}
 
 static int flatten_all(const std::vector<std::string> &fpaths, size_t nk, const std::string outpath) {
     if(fpaths.empty()) RUNTIME_ERROR("no fpaths, see usage.");
@@ -217,7 +172,9 @@ enum EmissionFormat: unsigned {
     UPPER_TRIANGULAR = 2,
     PHYLIP_UPPER_TRIANGULAR = 2,
     FULL_TSV = 3,
-    JSON = 4
+    JSON = 4,
+    NEAREST_NEIGHBOR_TABLE = 8,
+    NEAREST_NEIGHBOR_BINARY =  NEAREST_NEIGHBOR_TABLE | BINARY
 };
 
 enum Sketch: int {
@@ -252,8 +209,13 @@ struct GlobalArgs {
     size_t weighted_jaccard_cmsize = 22;
     size_t weighted_jaccard_nhashes = 8;
     uint32_t bbnbits = 16;
+    uint32_t number_neighbors = 0;
+    void show() const {
+        std::fprintf(stderr, "Global Arguments: %zu wjcm, %zu wjnh, %u bbits %u nn\n", weighted_jaccard_cmsize, weighted_jaccard_nhashes, bbnbits, number_neighbors);
+    }
 };
-static GlobalArgs gargs;
+
+extern GlobalArgs gargs;
 enum EmissionType {
     MASH_DIST = 0,
     JI        = 1,
@@ -265,6 +227,28 @@ enum EmissionType {
     SYMMETRIC_CONTAINMENT_INDEX = 7,
     SYMMETRIC_CONTAINMENT_DIST = 8,
 };
+
+enum NNType {
+    // Nearest Neighbor Type
+    DECREASING = 0,
+    INCREASING = 1,
+    DIST_MEASURE = DECREASING,
+    SIMILARITY_MEASURE = INCREASING
+};
+
+INLINE static constexpr
+NNType emt2nntype(EmissionType result_type) {
+    switch(result_type) {
+        case MASH_DIST: case FULL_MASH_DIST: case CONTAINMENT_DIST:
+        case FULL_CONTAINMENT_DIST: case SYMMETRIC_CONTAINMENT_DIST:
+            return DIST_MEASURE;
+        case JI: case SIZES: case CONTAINMENT_INDEX: case SYMMETRIC_CONTAINMENT_INDEX:
+        default:
+            return SIMILARITY_MEASURE;
+    }
+    __builtin_unreachable();
+    return SIMILARITY_MEASURE;
+}
 
 static const char *emt2str(EmissionType result_type) {
     switch(result_type) {
@@ -376,10 +360,10 @@ template<> struct SketchEnum<wj::WeightedSketcher<khset64_t>> {static constexpr 
 template<> struct SketchEnum<wj::WeightedSketcher<SuperMinHashType>> {static constexpr Sketch value = BB_SUPERMINHASH;};
 
 template<typename T>
-INLINE void set_estim_and_jestim(T &x, hll::EstimationMethod estim, hll::JointEstimationMethod jestim) {}
+inline void set_estim_and_jestim(T &x, hll::EstimationMethod estim, hll::JointEstimationMethod jestim) {}
 
 template<typename Hashstruct>
-INLINE void set_estim_and_jestim(hll::hllbase_t<Hashstruct> &h, hll::EstimationMethod estim, hll::JointEstimationMethod jestim) {
+inline void set_estim_and_jestim(hll::hllbase_t<Hashstruct> &h, hll::EstimationMethod estim, hll::JointEstimationMethod jestim) {
     h.set_estim(estim);
     h.set_jestim(jestim);
 }
@@ -449,13 +433,13 @@ static inline std::string make_fname(const char *path, size_t sketch_p, int wsz,
 }
 
 namespace us {
-template<typename T> INLINE double union_size(const T &a, const T &b) {
+template<typename T> inline double union_size(const T &a, const T &b) {
     throw NotImplementedError(std::string("union_size not available for type ") + __PRETTY_FUNCTION__);
 }
 
 
 #define US_DEC(type) \
-template<> INLINE double union_size<type> (const type &a, const type &b) { \
+template<> inline double union_size<type> (const type &a, const type &b) { \
     return a.union_size(b); \
 }
 
@@ -463,15 +447,22 @@ US_DEC(RMFinal)
 US_DEC(CRMFinal)
 US_DEC(khset64_t)
 US_DEC(hll::hllbase_t<>)
-template<> INLINE double union_size<mh::FinalBBitMinHash> (const mh::FinalBBitMinHash &a, const mh::FinalBBitMinHash &b) {
+template<> inline double union_size<mh::FinalBBitMinHash> (const mh::FinalBBitMinHash &a, const mh::FinalBBitMinHash &b) {
     return (a.est_cardinality_ + b.est_cardinality_ ) / (1. + a.jaccard_index(b));
 }
-//template<> INLINE double union_size<mh::FinalBBitMinHash> (const mh::FinalBBitMinHash &a, const mh::FinalBBitMinHash &b) {
+//template<> inline double union_size<mh::FinalBBitMinHash> (const mh::FinalBBitMinHash &a, const mh::FinalBBitMinHash &b) {
 //    return (a.est_cardinality_ + b.est_cardinality_ ) / (1. + a.jaccard_index(b));
 //}
 } // namespace us
+
+template<typename T>
+inline auto symmetric_containment_func(const T &x, const T &y) {
+    auto tmp = set_triple(x, y);
+    return tmp[2] / (std::min(tmp[0], tmp[1]) + tmp[2]);
+}
+
 template<typename SketchType>
-void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size,
+void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, const size_t buffer_flush_size,
                    size_t nq)
 {
     const float ksinv = 1./ k;
@@ -490,10 +481,13 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
     for(size_t qi = nr; qi < inpaths.size(); ++qi) {
         size_t qind =  qi - nr;
         switch(result_type) {
+
+
 #define dist_sim(x, y) dist_index(similarity(x, y), ksinv)
 #define fulldist_sim(x, y) full_dist_index(similarity(x, y), ksinv)
 #define fullcont_sim(x, y) full_containment_dist(containment_index(x, y), ksinv)
 #define cont_sim(x, y) containment_dist(containment_index(x, y), ksinv)
+#define sym_cont_dist(x, y) containment_dist(symmetric_containment_func(x, y), ksinv)
 #define DO_LOOP(func)\
                 for(size_t j = 0; j < nr; ++j) {\
                     arr[qind * nr + j] = func(hlls[j], hlls[qi]);\
@@ -528,24 +522,18 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
                 break;
             case SYMMETRIC_CONTAINMENT_INDEX:
                 #pragma omp parallel for schedule(dynamic)
-                for(size_t j = 0; j < nr; ++j) {
-                    auto tmp = set_triple(hlls[j], hlls[qi]);
-                    arr[qind * nr + j] = tmp[2] / (std::min(tmp[0], tmp[1]) + tmp[2]);
-                }
+                DO_LOOP(symmetric_containment_func)
                 break;
             case SYMMETRIC_CONTAINMENT_DIST:
                 #pragma omp parallel for schedule(dynamic)
-                for(size_t j = 0; j < nr; ++j) {
-                    auto tmp = set_triple(hlls[j], hlls[qi]);
-                    arr[qind * nr + j] = dist_index(tmp[2] / (std::min(tmp[0], tmp[1]) + tmp[2]), ksinv);
-                }
+                DO_LOOP(sym_cont_dist)
                 break;
             default: throw std::runtime_error("Value not found");
 #undef DO_LOOP
-#undef dist_sim
-#undef cont_sim
-#undef fulldist_sim
-#undef fullcont_sim
+//#undef dist_sim
+//#undef cont_sim
+//#undef fulldist_sim
+//#undef fullcont_sim
         }
         switch(emit_fmt) {
             case BINARY:

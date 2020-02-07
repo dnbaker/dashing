@@ -29,6 +29,7 @@ using bns::KSeqBufferHolder;
 using namespace sketch;
 
 namespace bns {
+
 template<typename FType, typename=typename std::enable_if<std::is_floating_point<FType>::value>::type>
 size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks::string &str, const std::vector<std::string> &inpaths, EmissionFormat emit_fmt, bool use_scientific, const size_t buffer_flush_size=BUFFER_FLUSH_SIZE) {
     if(emit_fmt & BINARY) {
@@ -60,7 +61,7 @@ size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks:
     return index;
 }
 template<typename SketchType>
-void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size, size_t nq);
+void dist_loop(std::FILE *ofp, SketchType *sketches, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int, const size_t buffer_flush_size, size_t nq);
 using namespace sketch;
 using namespace hll;
 static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
@@ -227,7 +228,11 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<Co
         std::fprintf(pairofp, "%zu\n", inpaths.size());
         std::fflush(pairofp);
     }
-    dist_loop<final_type>(pairofp, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, BUFFER_FLUSH_SIZE, nq);
+    if(emit_fmt & NEAREST_NEIGHBOR_TABLE) {
+        nndist_loop(pairofp, final_sketches, inpaths, k, result_type, emit_fmt, nq);
+    } else {
+        dist_loop<final_type>(pairofp, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, BUFFER_FLUSH_SIZE, nq);
+    }
     CONST_IF(!samesketch) {
 #if __cplusplus >= 201703L
         std::destroy_n(
@@ -371,10 +376,228 @@ INLINE void sketch_by_seq_core(uint32_t ssarg, uint32_t nthreads, const Spacer &
     std::fclose(nameofp);
 }
 
+
+using validx_t = std::pair<float, uint32_t>;
+
+template<typename Cmp>
+INLINE void lock_update(float val, validx_t *ptr,
+                        unsigned nneighbors,
+                        size_t j, std::mutex &mut, const Cmp &cmp)
+{
+    if(cmp(val, ptr->first)) {
+        std::lock_guard<std::mutex> lg(mut);
+        if(cmp(val, ptr->first)) { // after getting the lock, check again
+            std::pop_heap (ptr, ptr + nneighbors, cmp);
+            ptr[nneighbors - 1] = {val, j};
+            std::push_heap(ptr, ptr + nneighbors, cmp);
+        }
+    }
+}
+template<typename Cmp>
+INLINE void lockfree_update(float val, validx_t *ptr,
+                            unsigned nneighbors,
+                            size_t j, const Cmp &cmp)
+{
+    if(cmp(val, ptr->first)) {
+        std::pop_heap (ptr, ptr + nneighbors, cmp);
+        ptr[nneighbors - 1] = validx_t(val, j);
+        std::push_heap(ptr, ptr + nneighbors, cmp);
+    }
+}
+
+
+template<typename SketchType, typename Cmp, typename Func>
+void perform_nns(validx_t *neighbors,
+                 SketchType *sketches, const std::vector<std::string> &inpaths,
+                 const unsigned k, const EmissionType result_type,
+                 size_t nq,
+                 unsigned nneighbors,
+                 const Cmp &cmp, const Func &func) {
+    float default_value = std::numeric_limits<float>::max();
+    if(std::is_same<Cmp, std::greater<>>::value)
+        default_value = -default_value;
+    const size_t n = nq ? nq: inpaths.size();
+    std::fprintf(stderr, "default value: %g\n", default_value);
+    OMP_PFOR
+    for(size_t i = 0; i < n; ++i)
+        std::fill_n(&neighbors[i * nneighbors], nneighbors,
+                  validx_t(default_value, uint32_t(-1)));
+    if(nq == 0) {
+        auto mutexes = std::make_unique<std::mutex[]>(n);
+        #pragma omp parallel for schedule(dynamic)
+        for(size_t i = 0; i < n; ++i) {
+            auto lhptr = &neighbors[i * nneighbors];
+            const auto &h1 = sketches[i];
+            for(size_t j = i + 1; j < n; ++j) {
+                auto rhptr = &neighbors[j * nneighbors];
+                const float distval = func(sketches[j], h1);
+                lock_update(distval, lhptr, nneighbors, j, mutexes[i], cmp);
+                lock_update(distval, rhptr, nneighbors, i, mutexes[j], cmp);
+            }
+        }
+    } else {
+        const size_t npaths = inpaths.size(), nr = npaths - nq;
+        #pragma omp parallel for schedule(dynamic)
+        for(size_t qi = nr; qi < npaths; ++qi) {
+            const size_t qind = qi - nr;
+            const auto srcptr = &neighbors[qind * nneighbors];
+            const auto &h1 = sketches[qi];
+            for(size_t j = 0; j < nr; ++j) {
+                lockfree_update(func(sketches[j], h1), srcptr, nneighbors, j, cmp);
+            }
+        }
+    }
+    LOG_DEBUG("Finished loop, now sorting\n");
+    OMP_PFOR
+    for(size_t i = 0; i < n; ++i) {
+        auto start = neighbors + (i * nneighbors), end = start + nneighbors;
+        std::sort(start, end, cmp);
+#if VERBOSE_AF
+        for(auto it = start; it < end; ++it) {
+            std::fprintf(stderr, "%zu/%u/%g\n", i, it->second, it->first);
+        }
+#endif
+    }
+#ifndef NDEBUG
+    if(std::find_if(neighbors, neighbors + nneighbors * n, [](auto x) {return x.second == uint32_t(-1);}) != neighbors + nneighbors * n)
+        throw std::runtime_error("Empty\n");
+#endif
+}
+
+template<typename SketchType, typename T, typename Func>
+inline void perform_core_op(T &dists, size_t nsketches, SketchType *sketches, const Func &func, size_t i) {
+    auto &h1 = sketches[i];
+    #pragma omp parallel for schedule(dynamic)
+    for(size_t j = i + 1; j < nsketches; ++j)
+        dists[j - i - 1] = func(sketches[j], h1);
+    h1.free();
+}
+
 template<typename SketchType>
-void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int nthreads, const size_t buffer_flush_size, size_t nq) {
+void nndist_loop(std::FILE *ofp, SketchType *sketches,
+               const std::vector<std::string> &inpaths,
+               const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt,
+               size_t nq) {
+    gargs.show();
+    unsigned nneighbors = gargs.number_neighbors;
+    size_t npairs = (nq ? nq: inpaths.size());
+    size_t possible_num_neighbors = nq ? inpaths.size() - nq: inpaths.size();
+    if(nneighbors > possible_num_neighbors) {
+        std::fprintf(stderr, "Only reporting %zu rather than %u neighbors due to their being only that many sets.\n", possible_num_neighbors, nneighbors);
+        nneighbors = possible_num_neighbors;
+    }
+    const size_t qoffset = nq ? inpaths.size() - nq: size_t(0);
+    auto neighbors = std::make_unique<validx_t[]>(npairs);
+    const double ksinv = 1./ k;
+#define INDEX_FUNC(index, func, cmp) \
+        case index: \
+            perform_nns(neighbors.get(), sketches, inpaths, k, result_type, nq, nneighbors, cmp,\
+                        [ksinv](const auto &x, const auto &y) {return func(x, y);}); \
+        break;
+
+#define ALL_INDEXES(cmp) \
+        switch(result_type) {\
+        INDEX_FUNC(CONTAINMENT_DIST, cont_sim, cmp) \
+        INDEX_FUNC(CONTAINMENT_INDEX, containment_index, cmp) \
+        INDEX_FUNC(FULL_CONTAINMENT_DIST, fullcont_sim, cmp) \
+        INDEX_FUNC(FULL_MASH_DIST, fulldist_sim, cmp) \
+        INDEX_FUNC(JI, similarity, cmp) \
+        INDEX_FUNC(MASH_DIST, dist_sim, cmp) \
+        INDEX_FUNC(SIZES, us::union_size, cmp) \
+        INDEX_FUNC(SYMMETRIC_CONTAINMENT_DIST, sym_cont_dist, cmp) \
+        default: throw std::runtime_error("Not supported");\
+        }
+
+    if(emt2nntype(result_type) == SIMILARITY_MEASURE) {
+        ALL_INDEXES(std::greater<>())
+    } else {
+        ALL_INDEXES(std::less<>())
+    }
+#undef ALL_INDEXES
+#undef INDEX_FUNC
+    if(emit_fmt & BINARY) {
+        uint32_t n = inpaths.size();
+        std::fwrite(&n, sizeof(n), 1, ofp);
+        n = nneighbors;
+        std::fwrite(&n, sizeof(n), 1, ofp);
+        ssize_t nb = nneighbors * inpaths.size();
+        if(unlikely(std::fwrite(neighbors.get(), sizeof(validx_t), nb, ofp) != nb))
+            RUNTIME_ERROR("Failed to write neighbors to disk (binary)\n");
+    } else {
+        std::fprintf(ofp, "#File\tNeighbor ID:distance\t...\n");
+        int nt = 1;
+#ifdef _OPENMP
+        OMP_PRAGMA("omp parallel")
+        {
+            OMP_PRAGMA("omp single")
+            nt = omp_get_num_threads();
+        }
+#endif
+        std::vector<ks::string> kstrs;
+        while(kstrs.size() < unsigned(nt))
+            kstrs.emplace_back(1ull<<10);
+        const size_t npaths = inpaths.size();
+        OMP_PFOR
+        for(size_t i = 0; i < npaths; ++i) {
+            auto &buf(kstrs[i]);
+            const validx_t *nptr = &neighbors[i * nneighbors];
+            size_t nameind = i + qoffset;
+            assert(nameind < inpaths.size());
+            buf += inpaths[nameind];
+            for(unsigned j = 0; j < nneighbors; ++j) {
+                const auto ndat = nptr[j];
+                buf.putc_('\t');
+                buf.putw_(ndat.second);
+                buf.putc_(':');
+                buf.sprintf("%g", ndat.first);
+            }
+            buf.putc_('\n');
+            if(buf.size() > (1u << 14))
+            OMP_CRITICAL
+            {
+                buf.flush(ofp);
+            }
+        }
+        for(auto buf: kstrs) buf.flush(ofp);
+    }
+}
+
+#define CORE_ITER() do {\
+        switch(result_type) {\
+            case MASH_DIST: {\
+                perform_core_op(dists, nsketches, sketches, [ksinv](const auto &x, const auto &y) {return dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
+                break;\
+            }\
+            case JI: {\
+            perform_core_op(dists, nsketches, sketches, similarity<const SketchType>, i);\
+                break;\
+            }\
+            case SIZES: {\
+            perform_core_op(dists, nsketches, sketches, us::union_size<SketchType>, i);\
+                break;\
+            }\
+            case FULL_MASH_DIST:\
+                perform_core_op(dists, nsketches, sketches, [ksinv](const auto &x, const auto &y) {return full_dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
+                break;\
+            case SYMMETRIC_CONTAINMENT_DIST:\
+                perform_core_op(dists, nsketches, sketches, [ksinv](const auto &x, const auto &y) { \
+                    const auto triple = set_triple(x, y);\
+                    auto ret = triple[2] / (std::min(triple[0], triple[1]) + triple[2]);\
+                    return dist_index(ret, ksinv);\
+                }, i);\
+                break;\
+            case SYMMETRIC_CONTAINMENT_INDEX:\
+                perform_core_op(dists, nsketches, sketches, [&](const auto &x, const auto &y) {\
+                    const auto triple = set_triple(x, y);\
+                    return triple[2] / (std::min(triple[0], triple[1]) + triple[2]);\
+                }, i);\
+                break;\
+            default: __builtin_unreachable();\
+        } } while(0)
+template<typename SketchType>
+void dist_loop(std::FILE *ofp, SketchType *sketches, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int, const size_t buffer_flush_size, size_t nq) {
     if(nq) {
-        partdist_loop<SketchType>(ofp, hlls, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, buffer_flush_size, nq);
+        partdist_loop<SketchType>(ofp, sketches, inpaths, use_scientific, k, result_type, emit_fmt, buffer_flush_size, nq);
         return;
     }
     if(!is_symmetric(result_type)) {
@@ -384,7 +607,6 @@ void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> 
     }
     const float ksinv = 1./ k;
     const int pairfi = fileno(ofp);
-    omp_set_num_threads(nthreads);
     const size_t nsketches = inpaths.size();
     if((emit_fmt & BINARY) == 0) {
         std::future<size_t> submitter;
@@ -394,7 +616,7 @@ void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> 
         ks::string str;
         for(size_t i = 0; i < nsketches; ++i) {
             std::vector<float> &dists = dps[i & 1];
-            CORE_ITER(_a);
+            CORE_ITER();
             //LOG_DEBUG("Finished chunk %zu of %zu\n", i + 1, nsketches);
             if(i) submitter.get();
             submitter = std::async(std::launch::async, submit_emit_dists<float>,
@@ -407,7 +629,7 @@ void dist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> 
         for(size_t i = 0; i < nsketches; ++i) {
             auto span = dm.row_span(i);
             auto &dists = span.first;
-            CORE_ITER(_b);
+            CORE_ITER();
         }
         if(emit_fmt == FULL_TSV) dm.printf(ofp, use_scientific, &inpaths);
         else {
