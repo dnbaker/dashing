@@ -210,9 +210,12 @@ struct GlobalArgs {
     size_t weighted_jaccard_nhashes = 8;
     uint32_t bbnbits = 16;
     uint32_t number_neighbors = 0;
+    void show() const {
+        std::fprintf(stderr, "Global Arguments: %zu wjcm, %zu wjnh, %u bbits %u nn\n", weighted_jaccard_cmsize, weighted_jaccard_nhashes, bbnbits, number_neighbors);
+    }
 };
 
-static GlobalArgs gargs;
+extern GlobalArgs gargs;
 enum EmissionType {
     MASH_DIST = 0,
     JI        = 1,

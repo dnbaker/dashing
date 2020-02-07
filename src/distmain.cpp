@@ -141,6 +141,7 @@ int dist_main(int argc, char *argv[]) {
             case 143:
                 gargs.number_neighbors = std::atoi(optarg);
                 BNS_REQUIRE(gargs.number_neighbors > 0);
+                std::fprintf(stderr, "gargs.number_neighbors: %u\n", gargs.number_neighbors);
                 break;
             case 'h': case '?': dist_usage(bns::executable);
         }
@@ -151,6 +152,7 @@ int dist_main(int argc, char *argv[]) {
         RUNTIME_ERROR("kmers must be unspaced for k > 32");
     if(nthreads < 0) nthreads = 1;
     if(gargs.number_neighbors > 0) {
+        gargs.show();
         emit_fmt = EmissionFormat(unsigned(emit_fmt) | NEAREST_NEIGHBOR_TABLE);
     }
 #if !NDEBUG
