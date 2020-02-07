@@ -516,7 +516,12 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
 #undef ALL_INDEXES
 #undef INDEX_FUNC
     if(emit_fmt & BINARY) {
-        if(unlikely(std::fwrite(neighbors.get(), sizeof(validx_t), nneighbors * npairs, ofp) != nneighbors * npairs))
+        uint32_t n = inpaths.size();
+        std::fwrite(&n, sizeof(n), 1, ofp);
+        n = nneighbors;
+        std::fwrite(&n, sizeof(n), 1, ofp);
+        ssize_t nb = nneighbors * inpaths.size();
+        if(unlikely(std::fwrite(neighbors.get(), sizeof(validx_t), nb, ofp) != nb))
             RUNTIME_ERROR("Failed to write neighbors to disk (binary)\n");
     } else {
         std::fprintf(ofp, "#File\tNeighbor ID:distance\t...\n");
