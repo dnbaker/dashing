@@ -5,6 +5,7 @@ using hll::hll_t;
 
 
 namespace bns {
+GlobalArgs gargs;
 // sketch_core forward declaration
 extern template void sketch_core<mh::RangeMinHash<uint64_t>>(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, int sketch_flags, uint32_t mincount, EncodingType enct);
 extern template void sketch_core<mh::CountingRangeMinHash<uint64_t>>(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, int sketch_flags, uint32_t mincount, EncodingType enct);
@@ -65,6 +66,9 @@ void dist_usage(const char *arg) {
                          "-F, --paths\tGet paths to genomes from file rather than positional arguments\n"
                          "-W, --cache-sketches\tCache sketches/use cached sketches\n"
                          "-p, --nthreads\tSet number of threads [1]\n"
+                         "-Q, --query-paths\tSets query paths to use for performing query against reference paths\n"
+                         "                 \tParticularly for asymmetric distances or panel queries.\n"
+                         "For use with option -F.\n"
                          "--presketched\tTreat provided paths as pre-made sketches.\n"
                          "-P, --prefix\tSet prefix for sketch file locations [empty]\n"
                          "-x, --suffix\tSet suffix in sketch file names [empty]\n"
@@ -73,7 +77,8 @@ void dist_usage(const char *arg) {
                          "-b, --emit-binary\tEmit distances in binary (default: human-readable, upper-triangular)\n"
                          "-U, --phylip\tEmit distances in PHYLIP upper triangular format(default: human-readable, upper-triangular)\n"
                          "between bases repeated the second integer number of times\n"
-                         "-T, --full-tsv\tpostprocess binary format to human-readable TSV (not upper triangular)\n\n\n"
+                         "-T, --full-tsv\tpostprocess binary format to human-readable TSV (not upper triangular)\n"
+                         "\n\n"
                          "===Emission Details===\n\n"
                          "-e, --emit-scientific\tEmit in scientific notation\n\n\n"
                          "===Data Structures===\n\n"
@@ -421,7 +426,7 @@ int flatten_main(int argc, char *argv[]) {
 }
 
 int setdist_main(int argc, char *argv[]) {
-    throw std::runtime_error("setdist_main was deprecated and has ben removed. Instead, call `dashing dist` with --use-full-khash-sets to use hash sets instead of sketches.\n");
+    RUNTIME_ERROR("setdist_main was deprecated and has ben removed. Instead, call `dashing dist` with --use-full-khash-sets to use hash sets instead of sketches.\n");
     return 1;
 }
 
@@ -491,7 +496,7 @@ int sketch_by_seq_main(int argc, char *argv[]) {
     if(nthreads > 1)
         std::fprintf(stderr, "note: sketch_by_seq isn't parallelized.");
     nthreads = std::max(nthreads, 1);
-    //omp_set_num_threads(nthreads);
+    omp_set_num_threads(nthreads);
     auto leftover = argc - optind;
     std::string inpath;
     switch(leftover) {

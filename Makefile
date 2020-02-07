@@ -20,8 +20,11 @@ GIT_VERSION := $(shell git describe --abbrev=4 --always)
 
 OPT_MINUS_OPENMP= -O3 -funroll-loops\
 	  -pipe -fno-strict-aliasing -march=native -mpclmul -DUSE_PDQSORT \
-	-DNOT_THREADSAFE -flto \
-	$(FLAGS) $(EXTRA)
+	-DNOT_THREADSAFE \
+	$(FLAGS) $(EXTRA) \
+    -flto
+    #--param max-gcse-memory=200000000 \
+
 OPT=$(OPT_MINUS_OPENMP) # -lgomp /* sometimes needed */-lomp /* for clang */
 ifneq (,$(findstring clang++,$(CXX)))
 	OPT+=-lomp
@@ -60,7 +63,7 @@ ZCOMPILE_FLAGS= $(ZFLAGS) -lzstd
 ZW_OBJS=$(patsubst %.c,%.o,bonsai/zstd/zlibWrapper/gzclose.c  bonsai/zstd/zlibWrapper/gzlib.c  bonsai/zstd/zlibWrapper/gzread.c  bonsai/zstd/zlibWrapper/gzwrite.c  bonsai/zstd/zlibWrapper/zstd_zlibwrapper.c) libzstd.a
 ALL_ZOBJS=$(ZOBJS) $(ZW_OBJS) bonsai/clhash.o bonsai/klib/kthread.o
 INCLUDE=-Ibonsai/clhash/include -I.  -Ibonsai/zlib -Ibonsai/libpopcnt -Iinclude -Ibonsai/circularqueue $(ZSTD_INCLUDE) $(INCPLUS) -Isketch/vec -Ibonsai -Ibonsai/include/ \
-    -Isketch/include -Isketch -Isketch/include/sketch
+    -Isketch/include -Isketch -Isketch/include/sketch -Isketch/vec
 
 EX=$(patsubst src/%.cpp,%,$(wildcard src/*.cpp))
 D_EX=$(patsubst src/%.cpp,%_d,$(wildcard src/*.cpp))
@@ -131,7 +134,7 @@ DASHINGSRC=src/main.cpp src/union.cpp src/hllmain.cpp src/mkdistmain.cpp src/fin
 bonsai/zstd/zlibWrapper/%.o: bonsai/zstd/zlibWrapper/%.c
 	cd bonsai && $(MAKE) libzstd.a && cd zstd && $(MAKE) lib  && cd zlibWrapper && $(MAKE) $(notdir $@)
 
-%: src/%.cpp $(ALL_ZOBJS) $(DEPS) libz.a libzstd.a $(DASHING_OBJ)
+%: src/%.cpp $(ALL_ZOBJS) $(DEPS) libz.a libzstd.a $(DASHING_OBJ) $(wildcard src/*.h)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) libz.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
 
 dashing-ar: src/main.o dashing.a
@@ -141,12 +144,12 @@ dashing-ar: src/main.o dashing.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) dashing.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
 
 dashing: src/dashing.o $(ALL_ZOBJS) $(DEPS) libz.a libzstd.a $(BACKUPOBJ)
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) $(BACKUPOBJ) libz.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) $(BACKUPOBJ) libz.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG # -DNDEBUG
 
 %0: src/%.o $(ALL_ZOBJS) $(DEPS) libz.a libzstd.a src/main.o
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) src/main.o libz.a -O0 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
-src/%.o: src/%.cpp $(DEPS) libz.a libzstd.a
+src/%.o: src/%.cpp $(DEPS) libz.a libzstd.a $(wildcard src/*.h)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c -O3 $< libz.a -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
 
 sparse%: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.so
