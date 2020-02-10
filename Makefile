@@ -107,7 +107,7 @@ test/%.zo: test/%.cpp
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c $< -o $@ $(LIB)
 
 libz.a: # bonsai/zlib/libz.a
-	+cp bonsai/zlib/libz.a $@ || (cd bonsai/zlib && ./configure && $(MAKE) && cd ../.. && cp bonsai/zlib/libz.a libz.a)
+	cp bonsai/zlib/libz.a $@ 2>/dev/null || (cd bonsai/zlib && ./configure && $(MAKE) && cd ../.. && cp bonsai/zlib/libz.a libz.a)
 
 #libz.so: # bonsai/zlib/libz.so
 #	+cp bonsai/zlib/libz.so $@ || (cd bonsai/zlib && ./configure && $(MAKE) && cd ../.. && cp bonsai/zlib/libz.so libz.so)
@@ -178,13 +178,13 @@ dashing_s: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a libgomp.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -static-libstdc++ -static-libgcc bonsai/zlib/libz.a  -DNDEBUG $(DASHINGSRC) src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 dashing_s128: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a libgomp.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mno-avx2 -msse2 -static-libstdc++ -static-libgcc bonsai/zlib/libz.a \
-		-DNDEBUG $(DASHINGSRC) src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+		-DNDEBUG $(DASHINGSRC) src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB) -ldl
 dashing_s256: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a libgomp.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mavx2 -msse2 -static-libstdc++ -static-libgcc bonsai/zlib/libz.a \
-	-DNDEBUG $(DASHINGSRC) src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+	-DNDEBUG $(DASHINGSRC) src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB) -ldl
 dashing_s512: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.a libgomp.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mavx512dq -mavx512vl -mavx512bw -static-libstdc++ -static-libgcc bonsai/zlib/libz.a\
-		-DNDEBUG $(DASHINGSRC) src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+		-DNDEBUG $(DASHINGSRC) src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB) -ldl
 dashing_di: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -fno-inline -O1 $(DASHINGSRC) src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 dashing_pg: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
