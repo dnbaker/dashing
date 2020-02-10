@@ -19,7 +19,7 @@ FLAGS=
 GIT_VERSION := $(shell git describe --abbrev=4 --always)
 
 OPT_MINUS_OPENMP= -O3 -funroll-loops\
-	  -pipe -fno-strict-aliasing -march=native -mpclmul -DUSE_PDQSORT \
+	  -pipe -fno-strict-aliasing -march=native -DUSE_PDQSORT \
 	-DNOT_THREADSAFE \
 	$(FLAGS) $(EXTRA) \
     -flto
@@ -160,7 +160,7 @@ sparse%: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.so
     $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -O1 -fno-inline # -fsanitize=undefined -fsanitize=address
 
 dashing_256: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(DASHINGSRC) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mavx2 -msse4.1 -msse2 -DNDEBUG src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(DASHINGSRC) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mavx -mavx2 -msse4.1 -msse2 -DNDEBUG src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
 dashing_512: $(DASHINSRC) $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(DASHINGSRC) $(ALL_ZOBJS) -mavx512dq -mavx512vl -mavx2 -msse4.1 -msse2 -DNDEBUG src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
@@ -169,7 +169,7 @@ dashing_512bw: $(ALL_ZOBJS) $(DEPS) $(DASHINGSRC)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(DASHINGSRC) $(ALL_ZOBJS) -mavx512dq -mavx512vl -mavx512bw -mavx2 -msse4.1 -msse2 -DNDEBUG src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
 dashing_128: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(DASHINGSRC) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mno-avx2 -msse2 -DNDEBUG src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(DASHINGSRC) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mno-avx2 -msse2 -msse4.1 -DNDEBUG src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
 libgomp.a:
 	ln -sf $(STATIC_GOMP)
