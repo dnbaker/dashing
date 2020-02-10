@@ -520,7 +520,7 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
         std::fwrite(&n, sizeof(n), 1, ofp);
         n = nneighbors;
         std::fwrite(&n, sizeof(n), 1, ofp);
-        ssize_t nb = nneighbors * inpaths.size();
+        size_t nb = nneighbors * inpaths.size();
         if(unlikely(std::fwrite(neighbors.get(), sizeof(validx_t), nb, ofp) != nb))
             RUNTIME_ERROR("Failed to write neighbors to disk (binary)\n");
     } else {
