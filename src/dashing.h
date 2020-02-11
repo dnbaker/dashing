@@ -216,6 +216,8 @@ struct GlobalArgs {
 };
 
 extern GlobalArgs gargs;
+extern uint64_t global_hash_seed;
+
 enum EmissionType {
     MASH_DIST = 0,
     JI        = 1,
