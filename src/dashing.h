@@ -22,11 +22,6 @@
 #if __cplusplus >= 201703L && __cpp_lib_execution
 #include <execution>
 #endif
-#ifdef FNAME_SEP
-#pragma message("Not: FNAME_SEP already defined. [not default \"' '\"]")
-#else
-#define FNAME_SEP ' '
-#endif
 #ifndef BUFFER_FLUSH_SIZE
 #define BUFFER_FLUSH_SIZE (1u << 18)
 #endif
@@ -37,7 +32,7 @@
 
 
 namespace bns {
-int flatten_all(const std::vector<std::string> &fpaths, size_t nk, const std::string outpath, std::vector<unsigned> &k_values);
+int flatten_all(const std::vector<std::string> &fpaths, const std::string outpath, std::vector<unsigned> &k_values);
 namespace detail {void sort_paths_by_fsize(std::vector<std::string> &paths);}
 size_t posix_fsizes(const std::string &path, const char sep=FNAME_SEP);
 using namespace sketch;

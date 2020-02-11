@@ -7,25 +7,27 @@
 
 
 namespace bns {
-std::pair<std::vector<float>, std::vector<uint64_t>> nuc_freqs(const std::vector<std::string> &fpaths, unsigned nt, unsigned k);
-
-
-#if 0
-enum EmissionType {
-    MASH_DIST = 0,
-    JI        = 1,
-    SIZES     = 2,
-    FULL_MASH_DIST = 3,
-    FULL_CONTAINMENT_DIST = 4,
-    CONTAINMENT_INDEX = 5,
-    CONTAINMENT_DIST = 6,
-    SYMMETRIC_CONTAINMENT_INDEX = 7,
-    SYMMETRIC_CONTAINMENT_DIST = 8,
+struct sumstats: public std::tuple<std::vector<float>, std::vector<uint64_t>, std::vector<unsigned>> {
+    auto &sizes() {return std::get<1>(*this);}
+    auto &freqs() {return std::get<0>(*this);}
+    auto &numseqs() {return std::get<2>(*this);}
+    void resize(size_t n) {
+        sizes().resize(n);
+        freqs().resize(n * 4);
+        numseqs().resize(n);
+    }
 };
-#endif
+sumstats nuc_freqs(const std::vector<std::string> &fpaths);
 
-dm::DistanceMatrix<float> mkmat2jcdistmat(std::string packedmatrix, EmissionType emtype);
+dm::DistanceMatrix<float> mkmat2jcdistmat(std::string packedmatrix, EmissionType emtype,
+                                          const uint64_t *genome_sizes,
+                                          const float *corrected_background_rates=nullptr,
+                                          const unsigned *nseqs=nullptr,
+                                          bool reassign_to_distance=false);
 
+static INLINE double jcp2dist(double p) {
+    return -0.75 * std::log1p(-4. / 3. * (1 - p));
+}
 
 } // namespace bns
 #endif /* DASHING_BACKGROUND_H__ */

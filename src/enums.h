@@ -1,6 +1,14 @@
 #ifndef EMISSION_FMT_H__
 #define EMISSION_FMT_H__
+
+#ifdef FNAME_SEP
+#pragma message("Not: FNAME_SEP already defined. [not default \"' '\"]")
+#else
+#define FNAME_SEP ' '
+#endif
+
 namespace bns {
+
 
 enum EmissionType {
     MASH_DIST = 0,
