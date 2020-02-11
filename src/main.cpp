@@ -29,7 +29,9 @@ int main(int argc, char *argv[]) {
     else if(std::strcmp(argv[1], "hll") == 0) return hll_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "view") == 0) return view_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "mkdist") == 0) return mkdist_main(argc - 1, argv + 1);
+#if 0
     else if(std::strcmp(argv[1], "flatten") == 0) return flatten_main(argc - 1, argv + 1);
+#endif
     else if(std::strcmp(argv[1], "printmat") == 0) return print_binary_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "sketch_by_seq") == 0) return sketch_by_seq_main(argc - 1, argv + 1);
     else if(std::strcmp(argv[1], "dist_by_seq") == 0) return dist_by_seq_main(argc - 1, argv + 1);

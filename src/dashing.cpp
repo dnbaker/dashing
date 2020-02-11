@@ -413,6 +413,7 @@ int print_binary_main(int argc, char *argv[]) {
 }
 
 
+#if 0
 void flatten_usage() {
     std::fprintf(stderr, "Usage: dashing flatten <output.bin> [in1.bin in2.bin...]\n");
     std::exit(1);
@@ -425,6 +426,7 @@ int flatten_main(int argc, char *argv[]) {
     omp_set_num_threads(std::thread::hardware_concurrency());
     return flatten_all(fpaths, fpaths.size(), argv[1], ks);
 }
+#endif
 
 int setdist_main(int argc, char *argv[]) {
     RUNTIME_ERROR("setdist_main was deprecated and has ben removed. Instead, call `dashing dist` with --use-full-khash-sets to use hash sets instead of sketches.\n");
