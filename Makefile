@@ -125,9 +125,9 @@ bonsai/zstd/zlibWrapper/%.c:
 dashing.a: src/dashing.o libz.a libzstd.a bonsai/klib/kthread.o bonsai/clhash.o $(ALL_ZOBJS)
 	ar r dashing.a src/dashing.o libz.a libzstd.a $(ALL_ZOBJS) bonsai/klib/kthread.o bonsai/clhash.o
 
-BACKUPOBJ=src/main.o src/union.o src/hllmain.o src/mkdistmain.o src/finalizers.o src/cardests.o src/distmain.o src/unionsz.o src/construct.o \
+BACKUPOBJ=src/main.o src/union.o src/hllmain.o src/mkdistmain.o src/finalizers.o src/cardests.o src/distmain.o src/construct.o \
         $(patsubst %.cpp,%.o,$(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp))
-DASHINGSRC=src/main.cpp src/union.cpp src/hllmain.cpp src/mkdistmain.cpp src/finalizers.cpp src/cardests.cpp src/distmain.cpp src/unionsz.cpp src/construct.cpp \
+DASHINGSRC=src/main.cpp src/union.cpp src/hllmain.cpp src/mkdistmain.cpp src/finalizers.cpp src/cardests.cpp src/distmain.cpp src/construct.cpp \
         $(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp)
 
 

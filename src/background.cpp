@@ -2,6 +2,12 @@
 #include "src/substrs.h"
 namespace bns {
 
+static inline auto background_match(unsigned lhid, unsigned rhid, const float *nucfreqs) {
+    auto lhp = nucfreqs + (lhid * 4), rhp = nucfreqs + (rhid * 4);
+    return lhp[0] * rhp[0] + lhp[1] * rhp[1] +
+           lhp[2] * rhp[2] + lhp[3] * rhp[3];
+}
+
 std::vector<float> nuc_freqs(const std::vector<std::string> &fpaths, unsigned nt) {
     std::vector<float> ret(4 * fpaths.size());
     const size_t np = fpaths.size();
@@ -33,7 +39,12 @@ std::vector<float> nuc_freqs(const std::vector<std::string> &fpaths, unsigned nt
     return nuc_freqs;
 }
 
-dm::DistanceMatrix<float> mkmat2jcdistmat(std::string packedmatrix, EmissionType emtype) {
+double jukes_cantor_dist(const std::vector<unsigned> &ks, const std::vector<float> &values,
+                         double background, bool is_intersection_size) {
+    return 1.;
+}
+
+dm::DistanceMatrix<float> mkmat2jcdistmat(std::string packedmatrix, EmissionType emtype, const float *corrected_background_rates=nullptr) {
     switch(emtype) {
         case MASH_DIST:
         case FULL_MASH_DIST:
@@ -46,12 +57,23 @@ dm::DistanceMatrix<float> mkmat2jcdistmat(std::string packedmatrix, EmissionType
     uint64_t number_sets, number_entries;
     gzFile ifp = gzopen(packedmatrix.data(), "rb");
     if(!ifp) RUNTIME_ERROR(std::string("Could not open file at ") + packedmatrix);
-    gzread(ifp, &number_sets, sizeof(number_sets));
+    uint32_t nk;
+    gzread(ifp, &nk, sizeof(nk));
+    std::vector<unsigned> k_values(nk);
     gzread(ifp, &number_entries, sizeof(number_entries));
+    gzread(ifp, &number_sets, sizeof(number_sets));
+    gzread(ifp, k_values.data(), k_values.size() * sizeof(unsigned));
     assert(((number_sets * (number_sets - 1)) >> 1) == number_entries);
     dm::DistanceMatrix<float> ret(number_sets);
+    std::vector<float> value_set(nk);
     for(size_t i = 0; i < number_sets; ++i) {
         auto rowptr = ret.row_ptr(i);
+        for(size_t j = i + 1; j < number_sets; ++j) {
+            double background = corrected_background_rates ? background_match(i, j): .25;
+            gzread(ifp, value_set.data(), nk * sizeof(float));
+            float jcdist = jukes_cantor_dist(k_values, value_set, background, is_intersection_size);
+            ret(i, j) = jcdist;
+        }
     }
     gzclose(ifp);
 }

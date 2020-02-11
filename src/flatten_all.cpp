@@ -2,7 +2,7 @@
 
 
 namespace bns {
-int flatten_all(const std::vector<std::string> &fpaths, size_t nk, const std::string outpath) {
+int flatten_all(const std::vector<std::string> &fpaths, size_t nk, const std::string outpath, std::vector<unsigned> &k_values) {
     if(fpaths.empty()) RUNTIME_ERROR("no fpaths, see usage.");
     // TODO: adapt this to pack an asymmetric comparison result into a flattened blaze distance matrix.
     std::vector<dm::DistanceMatrix<float>> dms;
@@ -27,8 +27,11 @@ int flatten_all(const std::vector<std::string> &fpaths, size_t nk, const std::st
     std::FILE *ofp = fopen(outpath.data(), "wb");
     if(!ofp) return 2;
     uint64_t number_sets = fpaths.size();
+    uint32_t numk = k_values.size();
+    std::fwrite(&numk, sizeof(numk), 1, ofp);
     std::fwrite(&ne, sizeof(ne), 1, ofp);
     std::fwrite(&number_sets, sizeof(number_sets), 1, ofp);
+    std::fwrite(k_values.data(), sizeof(unsigned), k_values.size(), ofp);
     std::fwrite(outp, nk * ne, sizeof(float), ofp);
     std::fclose(ofp);
     std::free(outp);
