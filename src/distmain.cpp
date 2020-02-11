@@ -260,7 +260,7 @@ void dist_by_seq_usage(const char *s=bns::executable) {
                          "--mash-dist, -M\t Emit mash distance"
                          "--symmetric-containment-index\tEmit symmetric containment index\n"
                          "--symmetric-containment-dist\tEmit symmetric containment distance\n"
-                         "--sizes\tEmit union sizes\n"
+                         "--sizes\tEmit intersection sizes\n"
                       , s);
     std::exit(EXIT_FAILURE);
 }

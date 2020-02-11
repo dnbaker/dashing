@@ -1,5 +1,6 @@
 #include "include/bonsai/encoder.h"
 #include "src/substrs.h"
+namespace bns {
 
 std::vector<float> nuc_freqs(const std::vector<std::string> &fpaths, unsigned nt) {
     std::vector<float> ret(4 * fpaths.size());
@@ -31,3 +32,28 @@ std::vector<float> nuc_freqs(const std::vector<std::string> &fpaths, unsigned nt
     }
     return nuc_freqs;
 }
+
+dm::DistanceMatrix<float> mkmat2jcdistmat(std::string packedmatrix, EmissionType emtype) {
+    switch(emtype) {
+        case MASH_DIST:
+        case FULL_MASH_DIST:
+        case FULL_CONTAINMENT_DIST:
+        case CONTAINMENT_INDEX:
+        case CONTAINMENT_DIST:
+            throw std::invalid_argument("EmissionType must be JI or SIZES");
+    }
+    const bool is_intersection_size = (emtype == SIZES);
+    uint64_t number_sets, number_entries;
+    gzFile ifp = gzopen(packedmatrix.data(), "rb");
+    if(!ifp) RUNTIME_ERROR(std::string("Could not open file at ") + packedmatrix);
+    gzread(ifp, &number_sets, sizeof(number_sets));
+    gzread(ifp, &number_entries, sizeof(number_entries));
+    assert(((number_sets * (number_sets - 1)) >> 1) == number_entries);
+    dm::DistanceMatrix<float> ret(number_sets);
+    for(size_t i = 0; i < number_sets; ++i) {
+        auto rowptr = ret.row_ptr(i);
+    }
+    gzclose(ifp);
+}
+
+} // namespace bns

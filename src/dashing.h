@@ -17,6 +17,7 @@
 #include <sys/stat.h>
 #include "substrs.h"
 #include "khset64.h"
+#include "enums.h"
 
 #if __cplusplus >= 201703L && __cpp_lib_execution
 #include <execution>
@@ -134,48 +135,8 @@ CONTAIN_OVERLOAD_FAIL(CRMFinal)
 using CBBMinHashType = mh::CountingBBitMinHasher<uint64_t, uint16_t>; // Is counting to 65536 enough for a transcriptome?
 using SuperMinHashType = mh::SuperMinHash<>;
 
-static int flatten_all(const std::vector<std::string> &fpaths, size_t nk, const std::string outpath) {
-    if(fpaths.empty()) RUNTIME_ERROR("no fpaths, see usage.");
-    // TODO: adapt this to pack an asymmetric comparison result into a flattened blaze distance matrix.
-    std::vector<dm::DistanceMatrix<float>> dms;
-    dms.reserve(nk);
-    for(const auto &fp: fpaths)
-        dms.emplace_back(fp.data());
-    const uint64_t ne = dms.front().num_entries();
-    assert(std::accumulate(dms.begin() + 1, dms.end(), true,
-           [ne](bool val, const auto &x) {return val && x.num_entries() == ne;}));
-    float *outp = static_cast<float *>(std::malloc(nk * ne * sizeof(float)));
-    if(!outp) {
-        std::fprintf(stderr, "Allocation of %zu bytes failed\n", size_t(nk * ne * sizeof(float))); return 1;
-    }
+int flatten_all(const std::vector<std::string> &fpaths, size_t nk, const std::string outpath);
 
-    static constexpr uint64_t NB = 4096;
-    #pragma omp parallel for
-    for(size_t i = 0; i < ((NB - 1) + ne) / NB; ++i) {
-        auto spos = i * NB, espos = std::min((i + 1) * NB, ne);
-        auto destp = outp + spos * nk;//, endp = std::min(destp + nk, outp + ne);
-        do {for(auto j = 0u; j < nk;*destp++ = dms[j++][spos]);} while(++spos < espos);
-    }
-    std::FILE *ofp = fopen(outpath.data(), "wb");
-    if(!ofp) return 2;
-    std::fwrite(&ne, sizeof(ne), 1, ofp);
-    std::fwrite(outp, nk * ne, sizeof(float), ofp);
-    std::fclose(ofp);
-    std::free(outp);
-    return 0;
-}
-// enums
-//
-enum EmissionFormat: unsigned {
-    UT_TSV = 0,
-    BINARY   = 1,
-    UPPER_TRIANGULAR = 2,
-    PHYLIP_UPPER_TRIANGULAR = 2,
-    FULL_TSV = 3,
-    JSON = 4,
-    NEAREST_NEIGHBOR_TABLE = 8,
-    NEAREST_NEIGHBOR_BINARY =  NEAREST_NEIGHBOR_TABLE | BINARY
-};
 
 enum Sketch: int {
     HLL,
@@ -198,11 +159,6 @@ static constexpr const char *const sketch_names [] {
     "CBB/Counting B-bit Minhash",
 };
 
-enum sketching_method: int {
-    EXACT = 0,
-    CBF   = 1,
-    BY_FNAME = 2
-};
 
 
 struct GlobalArgs {
@@ -218,25 +174,6 @@ struct GlobalArgs {
 extern GlobalArgs gargs;
 extern uint64_t global_hash_seed;
 
-enum EmissionType {
-    MASH_DIST = 0,
-    JI        = 1,
-    SIZES     = 2,
-    FULL_MASH_DIST = 3,
-    FULL_CONTAINMENT_DIST = 4,
-    CONTAINMENT_INDEX = 5,
-    CONTAINMENT_DIST = 6,
-    SYMMETRIC_CONTAINMENT_INDEX = 7,
-    SYMMETRIC_CONTAINMENT_DIST = 8,
-};
-
-enum NNType {
-    // Nearest Neighbor Type
-    DECREASING = 0,
-    INCREASING = 1,
-    DIST_MEASURE = DECREASING,
-    SIMILARITY_MEASURE = INCREASING
-};
 
 INLINE static constexpr
 NNType emt2nntype(EmissionType result_type) {
@@ -335,12 +272,6 @@ static constexpr bool is_symmetric(EmissionType result_type) {
     return false;
 }
 
-enum EncodingType {
-    BONSAI,
-    NTHASH,
-    RK,
-    CYCLIC
-};
 
 
 template<typename T> struct SketchEnum;

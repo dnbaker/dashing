@@ -100,7 +100,7 @@ void dist_usage(const char *arg) {
                          "Alternatives:\n"
                          "-M, --mash-dist    \tEmit Mash distance [ji ? (-log(2. * ji / (1. + ji)) / k) : 1.]\n"
                          "--full-mash-dist   \tEmit full (not approximate) Mash distance. [1. - (2.*ji/(1. + ji))^(1/k)]\n"
-                         "--sizes            \tEmit union sizes (default: jaccard index)\n"
+                         "--sizes            \tEmit intersection sizes (default: jaccard index)\n"
                          "--containment-index\tEmit Containment Index (|A & B| / |A|)\n"
                          "--containment-dist \tEmit distance metric using containment index. [Let C = (|A & B| / |A|). C ? -log(C) / k : 1.] \n"
                          "--symmetric-containment-dist\tEmit symmetric containment index symcon(A, B) = max(C(A, B), C(B, A))\n"
