@@ -4,7 +4,7 @@ using namespace bns;
 #if HAS_AVX_512
 #  pragma message("Building with AVX512 support")
 #elif __AVX2__
-#  pragma message("Building with AV2 support")
+#  pragma message("Building with AVX2 support")
 #elif __SSE4_1__
 #  pragma message("Building with SSE4.1 support")
 #else
