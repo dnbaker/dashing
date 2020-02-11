@@ -37,6 +37,7 @@
 
 
 namespace bns {
+int flatten_all(const std::vector<std::string> &fpaths, size_t nk, const std::string outpath, std::vector<unsigned> &k_values);
 namespace detail {void sort_paths_by_fsize(std::vector<std::string> &paths);}
 size_t posix_fsizes(const std::string &path, const char sep=FNAME_SEP);
 using namespace sketch;
@@ -135,7 +136,6 @@ CONTAIN_OVERLOAD_FAIL(CRMFinal)
 using CBBMinHashType = mh::CountingBBitMinHasher<uint64_t, uint16_t>; // Is counting to 65536 enough for a transcriptome?
 using SuperMinHashType = mh::SuperMinHash<>;
 
-int flatten_all(const std::vector<std::string> &fpaths, size_t nk, const std::string outpath, std::vector<unsigned>);
 
 
 enum Sketch: int {
