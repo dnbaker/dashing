@@ -7,7 +7,7 @@
 
 
 namespace bns {
-std::vector<float> nuc_freqs(const std::vector<std::string> &fpaths, unsigned nt);
+std::pair<std::vector<float>, std::vector<uint64_t>> nuc_freqs(const std::vector<std::string> &fpaths, unsigned nt, unsigned k);
 
 
 #if 0
