@@ -438,23 +438,36 @@ namespace us {
 template<typename T> inline double union_size(const T &a, const T &b) {
     throw NotImplementedError(std::string("union_size not available for type ") + __PRETTY_FUNCTION__);
 }
+template<typename T> inline double intersection_size(const T &a, const T &b) {
+    throw NotImplementedError(std::string("intersection_size not available for type ") + __PRETTY_FUNCTION__);
+}
 
 
 #define US_DEC(type) \
 template<> inline double union_size<type> (const type &a, const type &b) { \
     return a.union_size(b); \
+} \
+template<> inline double intersection_size<type> (const type &a, const type &b) { \
+    return a.intersection_size(b); \
 }
 
 US_DEC(RMFinal)
 US_DEC(CRMFinal)
 US_DEC(khset64_t)
-US_DEC(hll::hllbase_t<>)
+#undef US_DEC
+static inline double union_size(const hll::hllbase_t<> &h1, const hll::hllbase_t<> &h2) {
+    return h1.union_size(h2);
+}
+static inline double intersection_size(const hll::hllbase_t<> &h1, const hll::hllbase_t<> &h2) {
+    return std::max(0., h1.creport() + h2.creport() - union_size(h1, h2));
+}
 template<> inline double union_size<mh::FinalBBitMinHash> (const mh::FinalBBitMinHash &a, const mh::FinalBBitMinHash &b) {
     return (a.est_cardinality_ + b.est_cardinality_ ) / (1. + a.jaccard_index(b));
 }
-//template<> inline double union_size<mh::FinalBBitMinHash> (const mh::FinalBBitMinHash &a, const mh::FinalBBitMinHash &b) {
-//    return (a.est_cardinality_ + b.est_cardinality_ ) / (1. + a.jaccard_index(b));
-//}
+template<> inline double intersection_size<mh::FinalBBitMinHash> (const mh::FinalBBitMinHash &a, const mh::FinalBBitMinHash &b) {
+    const double ji = a.jaccard_index(b);
+    return ji * (a.est_cardinality_ + b.est_cardinality_ ) / (1. + ji);
+}
 } // namespace us
 
 template<typename T>
@@ -508,7 +521,7 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
                 break;
             case SIZES:
                 #pragma omp parallel for schedule(dynamic)
-                DO_LOOP(us::union_size);
+                DO_LOOP(us::intersection_size);
                 break;
             case CONTAINMENT_INDEX:
                 #pragma omp parallel for schedule(dynamic)

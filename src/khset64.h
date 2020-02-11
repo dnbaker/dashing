@@ -94,6 +94,10 @@ struct khset64_t: public kh::khset64_t {
         double is = c.count;
         return std::array<double, 3>{{this->n_occupied - is, other.n_occupied - is, is}};
     }
+    size_t intersection_size(const khset64_t &other) const {
+        return full_set_comparison(other)[2];
+    }
+    size_t isz(const khset64_t &o) const {return intersection_size(o);}
     double jaccard_index(const khset64_t &other) const {
         auto cmps = full_set_comparison(other);
         return double(cmps[2]) / (cmps[0] + cmps[1] + cmps[2]);
