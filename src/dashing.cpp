@@ -421,8 +421,9 @@ void flatten_usage() {
 int flatten_main(int argc, char *argv[]) {
     if(argc < 3 || std::find_if(argv, argv + argc, [](auto x){return std::strcmp(x, "-h") == 0;}) != argv + argc) flatten_usage();
     std::vector<std::string> fpaths(argv + 2, argv + argc);
+    std::vector<unsigned> ks(fpaths.size(), -1);
     omp_set_num_threads(std::thread::hardware_concurrency());
-    return flatten_all(fpaths, fpaths.size(), argv[1]);
+    return flatten_all(fpaths, fpaths.size(), argv[1], ks);
 }
 
 int setdist_main(int argc, char *argv[]) {

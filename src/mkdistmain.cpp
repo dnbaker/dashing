@@ -47,7 +47,9 @@ int mkdist_main(int argc, char *argv[]) {
     argv[itind] = &ea.first[0];
     argv[itind + 1] = &ea.second[0];
     assert(!std::strcmp("--multik", argv[itind]));
+    std::vector<unsigned> k_values;
     for(int ind = s; (e > s ? ind < e: ind > e); ind += step) {
+        k_values.push_back(ind);
         std::string sizes_name = std::string("-o_") + outpref + "_" + std::to_string(ind);
         std::sprintf(argv[itind], "-bO_%s_%d", outpref, ind);
         std::sprintf(argv[itind + 1], "-k%d", ind);
@@ -74,7 +76,7 @@ int mkdist_main(int argc, char *argv[]) {
     std::fprintf(stderr, "Finished distance matrix calculations. Now flattening\n");
     std::string outpath = outpref;
     outpath += ".bin";
-    auto ret = flatten_all(fpaths, nk, outpath);
+    auto ret = flatten_all(fpaths, nk, outpath, k_values);
     for(const auto &f: fpaths)
         std::system(ks::sprintf("rm %s %s.labels", f.data(), f.data()).data());
     return ret;
