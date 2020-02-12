@@ -21,63 +21,6 @@ DISTEXT(khset64_t)
 DISTEXT(SuperMinHashType)
 DISTEXT(mh::BBitMinHasher<uint64_t>)
 #undef DISTEXT
-#define DIST_LONG_OPTS \
-static option_struct dist_long_options[] = {\
-    LO_FLAG("avoid-sorting", 'n', avoid_fsorting, true)\
-    LO_FLAG("by-entropy", 'g', entropy_minimization, true) \
-    LO_FLAG("cache-sketches", 'W', cache_sketch, true)\
-    LO_FLAG("countmin", 'y', sm, CBF)\
-    LO_FLAG("emit-binary", 'b', emit_fmt, BINARY)\
-    LO_FLAG("full-mash-dist", 'l', result_type, FULL_MASH_DIST)\
-    LO_FLAG("full-tsv", 'T', emit_fmt, FULL_TSV)\
-    LO_FLAG("no-canon", 'C', canon, false)\
-    LO_FLAG("phylip", 'U', emit_fmt, UPPER_TRIANGULAR)\
-    LO_FLAG("presketched", 'H', presketched_only, true)\
-    LO_FLAG("sizes", 'Z', result_type, SIZES)\
-    LO_FLAG("sketch-by-fname", 'N', sm, BY_FNAME)\
-    LO_FLAG("use-bb-minhash", '8', sketch_type, BB_MINHASH)\
-    LO_FLAG("use-scientific", 'e', use_scientific, true)\
-    LO_ARG("bbits", 'B')\
-    LO_ARG("cm-sketch-size", 't')\
-    LO_ARG("ertl-joint-mle", 'J')\
-    LO_ARG("ertl-mle", 'm')\
-    LO_ARG("improved", 'I')\
-    LO_ARG("kmer-length", 'k')\
-    LO_ARG("min-count", 'c')\
-    LO_ARG("nhashes", 'q')\
-    LO_ARG("nthreads", 'p')\
-    LO_ARG("original", 'E')\
-    LO_ARG("out-dists", 'O') \
-    LO_ARG("out-sizes", 'o') \
-    LO_ARG("paths", 'F')\
-    LO_ARG("prefix", 'P')\
-    LO_ARG("query-paths", 'Q') \
-    LO_ARG("seed", 'R')\
-    LO_ARG("sketch-size", 'S')\
-    LO_ARG("spacing", 's')\
-    LO_ARG("suffix", 'x')\
-    LO_ARG("window-size", 'w')\
-    LO_ARG("help", 'h')\
-    LO_FLAG("use-range-minhash", 128, sketch_type, RANGE_MINHASH)\
-    LO_FLAG("use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)\
-    LO_FLAG("use-full-khash-sets", 130, sketch_type, FULL_KHASH_SET)\
-    LO_FLAG("full-containment-dist", 133, result_type, FULL_CONTAINMENT_DIST) \
-    LO_FLAG("use-bloom-filter", 134, sketch_type, BLOOM_FILTER)\
-    LO_FLAG("use-super-minhash", 135, sketch_type, BB_SUPERMINHASH)\
-    LO_FLAG("use-nthash", 136, enct, NTHASH)\
-    LO_FLAG("containment-index", 131, result_type, CONTAINMENT_INDEX) \
-    LO_FLAG("containment-dist", 132, result_type, CONTAINMENT_DIST) \
-    LO_FLAG("mash-dist", 'M', result_type, MASH_DIST)\
-    LO_FLAG("symmetric-containment-index", 137, result_type, SYMMETRIC_CONTAINMENT_INDEX) \
-    LO_FLAG("symmetric-containment-dist", 138, result_type, SYMMETRIC_CONTAINMENT_DIST) \
-    LO_FLAG("use-cyclic-hash", 139, enct, NTHASH)\
-    LO_ARG("wj-cm-sketch-size", 140)\
-    LO_ARG("wj-cm-nhashes", 141)\
-    LO_FLAG("wj", 142, weighted_jaccard, true)\
-    LO_ARG("nearest-neighbors", 143)\
-    {0,0,0,0}\
-};
-
 int dist_main(int argc, char *argv[]) {
     int wsz(0), k(31), sketch_size(10), use_scientific(false), co, cache_sketch(false),
         nthreads(1), mincount(5), nhashes(1), cmsketchsize(-1);
@@ -99,7 +42,7 @@ int dist_main(int argc, char *argv[]) {
     DIST_LONG_OPTS
     while((co = getopt_long(argc, argv, "n:Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:D:8TgazlICbMEeHJhZBNyUmqW?", dist_long_options, &option_index)) >= 0) {
         switch(co) {
-            case 'D': /* does nothing */ break;
+            case 1337: case 'D': /* does nothing */ break;
             case '8': sketch_type = BB_MINHASH; break;
             case 'B': gargs.bbnbits = std::atoi(optarg);   break;
             case 'F': paths_file = optarg;              break;

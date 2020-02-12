@@ -38,7 +38,7 @@ CXXFLAGS_MINUS_OPENMP=$(OPT_MINUS_OPENMP) $(XXFLAGS) -std=c++1z $(WARNINGS) -Wno
 	 -DDASHING_VERSION=\"$(GIT_VERSION)\"
 CCFLAGS=$(OPT) $(CFLAGS) -std=c11 $(WARNINGS)
 LIB=-lz
-LD=-L. $(EXTRA_LD) -Lbonsai/zlib
+LD=-L. $(EXTRA_LD)
 
 
 ifneq (,$(findstring g++,$(CXX)))
@@ -106,14 +106,6 @@ test/%.zo: test/%.cpp
 %.do: %.cpp
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c $< -o $@ $(LIB)
 
-libz.a: # bonsai/zlib/libz.a
-	cp bonsai/zlib/libz.a $@ 2>/dev/null || (cd bonsai/zlib && ./configure && $(MAKE) && cd ../.. && cp bonsai/zlib/libz.a libz.a)
-
-#libz.so: # bonsai/zlib/libz.so
-#	+cp bonsai/zlib/libz.so $@ || (cd bonsai/zlib && ./configure && $(MAKE) && cd ../.. && cp bonsai/zlib/libz.so libz.so)
-#
-#bonsai/zlib/libz.so:
-#	+cd bonsai/zlib && ./configure && $(MAKE))
 
 zobj: $(ALL_ZOBJS)
 
@@ -122,8 +114,8 @@ STATIC_GOMP?=$(shell $(CXX) --print-file-name=libgomp.a)
 bonsai/zstd/zlibWrapper/%.c:
 	cd bonsai && $(MAKE) libzstd.a
 
-dashing.a: src/dashing.o libz.a libzstd.a bonsai/klib/kthread.o bonsai/clhash.o $(ALL_ZOBJS)
-	ar r dashing.a src/dashing.o libz.a libzstd.a $(ALL_ZOBJS) bonsai/klib/kthread.o bonsai/clhash.o
+dashing.a: src/dashing.o  libzstd.a bonsai/klib/kthread.o bonsai/clhash.o $(ALL_ZOBJS)
+	ar r dashing.a src/dashing.o  libzstd.a $(ALL_ZOBJS) bonsai/klib/kthread.o bonsai/clhash.o
 
 BACKUPOBJ=src/main.o src/union.o src/hllmain.o src/mkdistmain.o src/finalizers.o src/cardests.o src/distmain.o src/construct.o src/flatten_all.o \
         $(patsubst %.cpp,%.o,$(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp)) src/background.o
@@ -134,8 +126,8 @@ DASHINGSRC=src/main.cpp src/union.cpp src/hllmain.cpp src/mkdistmain.cpp src/fin
 bonsai/zstd/zlibWrapper/%.o: bonsai/zstd/zlibWrapper/%.c
 	cd bonsai && $(MAKE) libzstd.a && cd zstd && $(MAKE) lib  && cd zlibWrapper && $(MAKE) $(notdir $@)
 
-%: src/%.cpp $(ALL_ZOBJS) $(DEPS) libz.a libzstd.a $(DASHING_OBJ) $(wildcard src/*.h)
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) libz.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
+%: src/%.cpp $(ALL_ZOBJS) $(DEPS) libzstd.a $(DASHING_OBJ) $(wildcard src/*.h)
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS)  -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
 
 dashing-ar: src/main.o dashing.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) dashing.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
@@ -143,16 +135,19 @@ dashing-ar: src/main.o dashing.a
 %: src/%.o dashing.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) dashing.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
 
-dashing: src/dashing.o $(ALL_ZOBJS) $(DEPS) libz.a libzstd.a $(BACKUPOBJ)
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) $(BACKUPOBJ) libz.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG # -DNDEBUG
+dashing: src/dashing.o $(ALL_ZOBJS) $(DEPS)  libzstd.a $(BACKUPOBJ)
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) $(BACKUPOBJ)  -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG # -DNDEBUG
 
-%0: src/%.o $(ALL_ZOBJS) $(DEPS) libz.a libzstd.a src/main.o
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) src/main.o libz.a -O0 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+dashing_d: $(ALL_ZOBJS) $(DEPS) libzstd.a $(DASHINGSRC)
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) $(DASHINGSRC)  -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) src/dashing.cpp # -DNDEBUG
 
-src/%.o: src/%.cpp $(DEPS) libz.a libzstd.a $(wildcard src/*.h)
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c -O3 $< libz.a -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
+%0: src/%.o $(ALL_ZOBJS) $(DEPS)  libzstd.a src/main.o
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) src/main.o  -O0 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
-sparse%: src/%.cpp $(ALL_ZOBJS) $(DEPS) bonsai/zlib/libz.so
+src/%.o: src/%.cpp $(DEPS)  libzstd.a $(wildcard src/*.h)
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c -O3 $<  -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
+
+sparse%: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -DUSE_SPARSE -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -DNDEBUG
 
 %_d: src/%.cpp $(ALL_ZOBJS) $(DEPS) src/main.o
