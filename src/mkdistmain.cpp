@@ -36,9 +36,10 @@ int mkdist_main(int argc, char *argv[]) {
     e = std::atoi(++pos);
     if((pos = std::strchr(pos, ','))) {
         step = std::atoi(++pos);
+        if((e > s) != (step > 0)) step = -step;
         assert(step > 0 ? e > s: e < s);
     } else step = e > s ? 1: -1;
-    std::fprintf(stderr, "step: %d\n", step);
+    std::fprintf(stderr, "start: %d. stop: %d. step: %d\n", s, e, step);
     std::pair<std::string, std::string> ea(std::string(_outpref.size() + 32, 0), std::string(_outpref.size() + 32, 0));
     //std::vector<char *> args(argv, argv + argc);
     std::vector<std::string> fpaths;
@@ -51,20 +52,43 @@ int mkdist_main(int argc, char *argv[]) {
     std::vector<std::string> fnames;
     bool binary = false;
     std::vector<char *> cargs(argv, argv + argc);
-    for(int c;(c = getopt(cargs.size(), cargs.data(), "n:Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:8TgazlICbMEeHJhZBNyUmqW?D:-")) >= 0;) {
+    int option_index;
+static option_struct dist_long_options[] = {
+    LO_ARG("bbits", 'B')
+    LO_ARG("cm-sketch-size", 't')
+    LO_ARG("ertl-joint-mle", 'J')
+    LO_ARG("ertl-mle", 'm')
+    LO_ARG("improved", 'I')
+    LO_ARG("kmer-length", 'k')
+    LO_ARG("min-count", 'c')
+    LO_ARG("nhashes", 'q')
+    LO_ARG("nthreads", 'p')
+    LO_ARG("original", 'E')
+    LO_ARG("out-dists", 'O') 
+    LO_ARG("out-sizes", 'o') 
+    LO_ARG("paths", 'F')
+    LO_ARG("prefix", 'P')
+    LO_ARG("query-paths", 'Q') 
+    LO_ARG("seed", 'R')
+    LO_ARG("sketch-size", 'S')
+    LO_ARG("spacing", 's')
+    LO_ARG("suffix", 'x')
+    LO_ARG("window-size", 'w')
+    LO_ARG("help", 'h')
+    LO_ARG("mkdist", 1337)
+    {0,0,0,0}
+};
+    for(int c;(c = getopt_long(cargs.size(), cargs.data(), "n:Q:P:x:F:c:p:o:s:w:O:S:k:=:t:R:8TgazlICbMEeHJhZBNyUmqW?D:-", dist_long_options, &option_index)) >= 0;) {
         // Ignore all other options, pass along to dist_main, which ignores the -D option
+        //std::fprintf(stderr, "c is %d/%c\n", c, c);
         if(c == 'D')
             path_to_dashing = const_cast<const char *>(optarg);
-        else if(c == 'F') {
-            fnames = get_paths(optarg); break;
-        } else if(c == 'l' || c == 'M' || c == 133 || c == 131 || c == 132 || c == 137 || c == 138) {
-            throw std::runtime_error("multi-k needs to use intersection size currently");
-        } else if(c == 'b') binary = true;
     }
     if(optind == argc && fnames.empty()) {
         RUNTIME_ERROR("fnames must be specified by -F or as positional arguments\n");
     }
     if(fnames.empty()) {
+        std::fprintf(stderr, "Failed to stuff\n");
         fnames.assign(argv + optind, argv + argc);
     }
     for(int ind = s; (e > s ? ind < e: ind > e); ind += step) {
@@ -79,9 +103,9 @@ int mkdist_main(int argc, char *argv[]) {
         ks::string cmd = path_to_dashing;
         for(const auto arg: largs)
             cmd.sprintf(" %s", arg);
-#ifndef NDEBUG
+//#ifndef NDEBUG
         std::fprintf(stderr, "About to call: '%s'\n", cmd.data());
-#endif
+//#endif
         int rc = std::system(cmd.data());
         POST_REQ(rc >= 0, std::strerror(rc));
         POST_REQ(WIFEXITED(rc), "non-zero exit status");
@@ -90,19 +114,27 @@ int mkdist_main(int argc, char *argv[]) {
     std::string outpath = outpref;
     outpath += ".bin";
     auto ret = flatten_all(fpaths, outpath, k_values);
-    sumstats fstatistics = nuc_freqs(fpaths);
+#if 0
+    // TODO: add distance calculation back in
+    sumstats fstatistics = nuc_freqs(fnames);
     auto kcdistmat = mkmat2jcdistmat(outpath, SIZES, fstatistics.sizes().data(),
                                      fstatistics.freqs().data(), fstatistics.numseqs().data(),
-                                     true);
-    if(binary) {
+                                     false);
+    if(0) {
+        std::fprintf(stderr, "Writing to disk in binary\n");
         kcdistmat.write(outpath + ".jcd");
     } else {
         std::FILE *ofp = std::fopen((outpath + ".jcd").data(), "wb");
-        kcdistmat.write(ofp);
+        kcdistmat.printf(ofp);
         fclose(ofp);
     }
-    for(const auto &f: fpaths)
-        std::system(ks::sprintf("rm %s %s.labels", f.data(), f.data()).data());
+    for(const auto &f: fpaths) {
+        auto cmd = ks::sprintf("rm %s %s.labels", f.data(), f.data());
+        int rc = std::system(cmd.data());
+        POST_REQ(rc >= 0, std::strerror(rc));
+        POST_REQ(WIFEXITED(rc), "non-zero exit status");
+    }
+#endif
     return ret;
 } // mkdist_main
 } // namespace bns

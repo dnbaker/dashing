@@ -8,12 +8,15 @@ namespace bns {
 
 static inline auto background_match(unsigned lhid, unsigned rhid, const float *nucfreqs) {
     auto lhp = nucfreqs + (lhid * 4), rhp = nucfreqs + (rhid * 4);
-#if defined(__SSE4_2__)
+#if __SSE2__
     auto mulval = _mm_mul_ps(_mm_loadu_ps(lhp), _mm_loadu_ps(rhp));
     mulval = _mm_hadd_ps(mulval, mulval);
     mulval = _mm_hadd_ps(mulval, mulval);
     return _mm_cvtss_f32(mulval);
 #else
+    std::fprintf(stderr, "background: %g %g %g %g %g %g %g %g\n",
+        lhp[0], lhp[1], lhp[2], lhp[3],
+        rhp[0], rhp[1], rhp[2], rhp[3]);
     return lhp[0] * rhp[0] + lhp[1] * rhp[1] +
            lhp[2] * rhp[2] + lhp[3] * rhp[3];
 #endif
@@ -23,8 +26,7 @@ static inline auto background_match(unsigned lhid, unsigned rhid, const float *n
 sumstats
 nuc_freqs(const std::vector<std::string> &fpaths)
 {
-    sumstats rettuple;
-    rettuple.resize(fpaths.size());
+    sumstats rettuple(fpaths.size());
     auto &genome_sizes = rettuple.sizes();
     auto &ret = rettuple.freqs();
     auto &numseqs = rettuple.numseqs();
@@ -44,25 +46,26 @@ nuc_freqs(const std::vector<std::string> &fpaths)
         size_t nkmer_windows = 0;
         unsigned nseq = 0;
         for_each_substr([&](const char *s) {
+            std::fprintf(stderr, "string: %s\n", s);
             const int tid = OMP_ELSE(omp_get_thread_num(), 0);
             gzFile fp = gzopen(s, "rb");
             if(!fp) {std::fprintf(stderr, "Missing file %s\n", s); std::exit(1);}
             kseq_t *ks = &kseqs[tid];
-            kseq_assign(ks, fp);
             while(kseq_read(ks) >= 0) {
+                std::fprintf(stderr, "seqlen: %zu. name: %s\n", ks->seq.l, ks->name.s);
                 nkmer_windows += ks->seq.l;
                 ++nseq;
                 for(size_t j = 0; j < ks->seq.l; ++arr[ks->seq.s[j++]]);
             }
             gzclose(fp);
         }, fpaths[i], FNAME_SEP);
-        float cparr[4];
         double total_valid = arr['A'] + arr['a'] + arr['t'] + arr['T'] +  arr['c'] + arr['C'] + arr['g'] + arr['G'];
-        cparr[0] = (arr['A'] + arr['a']) / total_valid;
-        cparr[1] = (arr['c'] + arr['C']) / total_valid;
-        cparr[2] = (arr['g'] + arr['G']) / total_valid;
-        cparr[3] = (arr['t'] + arr['T']) / total_valid;
-        std::memcpy(ret.data() + (4 * i), cparr, sizeof(cparr));
+        std::fprintf(stderr, "total valid: %g\n", total_valid);
+        auto ptr = ret.data() + 4 * i;
+        ptr[0] = (arr['A'] + arr['a']) / total_valid;
+        ptr[1] = (arr['c'] + arr['C']) / total_valid;
+        ptr[2] = (arr['g'] + arr['G']) / total_valid;
+        ptr[3] = (arr['t'] + arr['T']) / total_valid;
         genome_sizes[i] = nkmer_windows;
         numseqs[i] = nseq;
     }
@@ -127,6 +130,7 @@ dm::DistanceMatrix<float> mkmat2jcdistmat(std::string packedmatrix, EmissionType
     double kmean = std::accumulate(k_values.begin(), k_values.end(), 0.) / k_values.size();
     assert(((number_sets * (number_sets - 1)) >> 1) == number_entries);
     dm::DistanceMatrix<float> ret(number_sets);
+    std::fprintf(stderr, "num entries (at end): %zu\n", ret.num_entries());
     std::vector<float> value_set(nk);
     for(size_t i = 0; i < number_sets; ++i) {
         //auto rowptr = ret.row_ptr(i);
@@ -137,7 +141,12 @@ dm::DistanceMatrix<float> mkmat2jcdistmat(std::string packedmatrix, EmissionType
             const unsigned ns2 = nseqs ? nseqs[j]: 1u;
             const uint64_t genome_size2 = genome_sizes[j];
             const double background = corrected_background_rates ? background_match(i, j, corrected_background_rates): .25;
-            gzread(ifp, value_set.data(), nk * sizeof(float));
+            std::fprintf(stderr, "background rate: %g\n", background);
+            int nb;
+            if((nb = gzread(ifp, value_set.data(), nk * sizeof(float))) != int(nk * sizeof(float))) {
+                auto msg = ks::sprintf("Failed to read from disk at %zu/%zu. Requested %d, got %d \n", i, j, int(nk * sizeof(float)), nb);
+                throw std::runtime_error(msg);
+            }
             auto jcp = jukes_cantor_p(k_values, value_set.data(), background, kmean, genome_size1, genome_size2, ns1, ns2);
             ret(i, j) = jcp; // TODO: turn this into distances?
         }

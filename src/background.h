@@ -11,6 +11,9 @@ struct sumstats: public std::tuple<std::vector<float>, std::vector<uint64_t>, st
     auto &sizes() {return std::get<1>(*this);}
     auto &freqs() {return std::get<0>(*this);}
     auto &numseqs() {return std::get<2>(*this);}
+    sumstats(size_t n) {
+        resize(n);
+    }
     void resize(size_t n) {
         sizes().resize(n);
         freqs().resize(n * 4);

@@ -21,6 +21,7 @@ void for_each_substr(const F &func, const std::string &s, const int sep=' ') {
             break;
         }
         tmp = std::string(p2, p);
+        if(std::all_of(tmp.begin(), tmp.end(), [](auto x) {return std::isspace(x);})) break;
     } while(1);
 }
 
