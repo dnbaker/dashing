@@ -10,9 +10,14 @@ static inline auto background_match(unsigned lhid, unsigned rhid, const float *n
     auto lhp = nucfreqs + (lhid * 4), rhp = nucfreqs + (rhid * 4);
 #if __SSE2__
     auto mulval = _mm_mul_ps(_mm_loadu_ps(lhp), _mm_loadu_ps(rhp));
+#if 0
     mulval = _mm_hadd_ps(mulval, mulval);
     mulval = _mm_hadd_ps(mulval, mulval);
     return _mm_cvtss_f32(mulval);
+#else
+    const float *p = reinterpret_cast<const float *>(&mulval);
+    return p[0] + p[1] + p[2] + p[3];
+#endif
 #else
     std::fprintf(stderr, "background: %g %g %g %g %g %g %g %g\n",
         lhp[0], lhp[1], lhp[2], lhp[3],

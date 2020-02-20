@@ -439,11 +439,11 @@ US_DEC(RMFinal)
 US_DEC(CRMFinal)
 US_DEC(khset64_t)
 #undef US_DEC
-static inline double union_size(const hll::hllbase_t<> &h1, const hll::hllbase_t<> &h2) {
+template<> inline double union_size<hll::hllbase_t<>>(const hll::hllbase_t<> &h1, const hll::hllbase_t<> &h2) {
     return h1.union_size(h2);
 }
-static inline double intersection_size(const hll::hllbase_t<> &h1, const hll::hllbase_t<> &h2) {
-    return std::max(0., h1.creport() + h2.creport() - union_size(h1, h2));
+template<> inline double intersection_size<hll::hllbase_t<>>(const hll::hllbase_t<> &h1, const hll::hllbase_t<> &h2) {
+    return std::max(0., h1.creport() + h2.creport() - h1.union_size(h2));
 }
 template<> inline double union_size<mh::FinalBBitMinHash> (const mh::FinalBBitMinHash &a, const mh::FinalBBitMinHash &b) {
     return (a.est_cardinality_ + b.est_cardinality_ ) / (1. + a.jaccard_index(b));
