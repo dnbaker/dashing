@@ -503,7 +503,7 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
         INDEX_FUNC(FULL_MASH_DIST, fulldist_sim, cmp) \
         INDEX_FUNC(JI, similarity, cmp) \
         INDEX_FUNC(MASH_DIST, dist_sim, cmp) \
-        INDEX_FUNC(SIZES, us::union_size, cmp) \
+        INDEX_FUNC(SIZES, us::intersection_size, cmp) \
         INDEX_FUNC(SYMMETRIC_CONTAINMENT_DIST, sym_cont_dist, cmp) \
         default: throw std::runtime_error("Not supported");\
         }
@@ -573,7 +573,7 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
                 break;\
             }\
             case SIZES: {\
-            perform_core_op(dists, nsketches, sketches, us::union_size<SketchType>, i);\
+            perform_core_op(dists, nsketches, sketches, us::intersection_size<SketchType>, i);\
                 break;\
             }\
             case FULL_MASH_DIST:\
@@ -594,6 +594,7 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
                 break;\
             default: __builtin_unreachable();\
         } } while(0)
+
 template<typename SketchType>
 void dist_loop(std::FILE *ofp, SketchType *sketches, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int, const size_t buffer_flush_size, size_t nq) {
     if(nq) {
