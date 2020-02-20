@@ -84,6 +84,9 @@ static option_struct dist_long_options[] = {
         if(c == 'D')
             path_to_dashing = const_cast<const char *>(optarg);
     }
+    if(binary) {
+        std::fprintf(stderr, "Binary set, but currently this is unused\n");
+    }
     if(optind == argc && fnames.empty()) {
         RUNTIME_ERROR("fnames must be specified by -F or as positional arguments\n");
     }

@@ -202,7 +202,7 @@ ALLSIMDS=dashing_s128 dashing_s256 dashing_s512
 linux_release:
 	+rm -f $(ALLSIMDS) rm release/linux/dashing_s* && \
 		$(MAKE) $(ALLSIMDS) && \
-		mv $(ALLSIMDS) release/linux && \
+		cp $(ALLSIMDS) release/linux && \
 		cd release/linux && (zstd -22 --ultra $(ALLSIMDS) || echo "zstd failed") && gzip -f9 $(ALLSIMDS)
 osx_release:
 	+rm -f $(ALLSIMDS) && \
