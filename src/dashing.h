@@ -287,6 +287,7 @@ SSS(mh::RangeMinHash<uint64_t>, ".rmh");
 SSS(khset64_t, ".khs");
 SSS(bf::bf_t, ".bf");
 SSS(mh::BBitMinHasher<uint64_t>, ".bmh");
+SSS(WideHyperLogLogHasher<>, ".whll");
 SSS(SuperMinHashType, ".bbs");
 SSS(CBBMinHashType, ".cbmh");
 SSS(mh::HyperMinHash<uint64_t>, ".hmh");
