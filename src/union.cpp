@@ -56,8 +56,10 @@ int union_main(int argc, char *argv[]) {
         std::sprintf(mode, "wT");
     gzFile ofp = gzopen(opath, mode);
     if(!ofp) throw std::runtime_error(std::string("Could not open file at ") + opath);
+    using sketch::whll::wh119_t;
     switch(sketch_type) {
         case HLL: union_core<hll::hll_t>(paths, ofp); break;
+        case WIDE_HLL: union_core<wh119_t>(paths, ofp); break;
         case BLOOM_FILTER: union_core<bf::bf_t>(paths, ofp); break;
         case FULL_KHASH_SET: union_core<khset64_t>(paths, ofp); break;
         case RANGE_MINHASH: union_core<mh::FinalRMinHash<uint64_t>>(paths, ofp); break;

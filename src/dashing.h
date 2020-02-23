@@ -84,6 +84,7 @@ static option_struct dist_long_options[] = {\
     LO_ARG("wj-cm-nhashes", 141)\
     LO_FLAG("wj", 142, weighted_jaccard, true)\
     LO_ARG("nearest-neighbors", 143)\
+    LO_FLAG("use-wide-hll", 144, sketch_type, WIDE_HLL) \
     {0,0,0,0}\
 };
 
@@ -200,6 +201,7 @@ enum Sketch: int {
     BB_MINHASH,
     BB_SUPERMINHASH,
     COUNTING_BB_MINHASH, // TODO make this work.
+    WIDE_HLL
 };
 static constexpr const char *const sketch_names [] {
     "HLL/HyperLogLog",
@@ -210,6 +212,7 @@ static constexpr const char *const sketch_names [] {
     "BB/B-bit Minhash",
     "BBS/B-bit SuperMinHash",
     "CBB/Counting B-bit Minhash",
+    "WHLL/Wide HLL",
 };
 
 
@@ -268,12 +271,14 @@ template<> struct FinalSketch<type> { \
 FINAL_OVERLOAD(mh::CountingRangeMinHash<uint64_t>);
 FINAL_OVERLOAD(mh::RangeMinHash<uint64_t>);
 FINAL_OVERLOAD(mh::BBitMinHasher<uint64_t>);
+FINAL_OVERLOAD(WideHyperLogLogHasher<>);
 FINAL_OVERLOAD(SuperMinHashType);
 FINAL_OVERLOAD(CBBMinHashType);
 FINAL_OVERLOAD(wj::WeightedSketcher<mh::CountingRangeMinHash<uint64_t>>);
 FINAL_OVERLOAD(wj::WeightedSketcher<mh::RangeMinHash<uint64_t>>);
 FINAL_OVERLOAD(wj::WeightedSketcher<mh::BBitMinHasher<uint64_t>>);
 FINAL_OVERLOAD(wj::WeightedSketcher<SuperMinHashType>);
+FINAL_OVERLOAD(wj::WeightedSketcher<WideHyperLogLogHasher<>>);
 FINAL_OVERLOAD(wj::WeightedSketcher<CBBMinHashType>);
 template<typename T>struct SketchFileSuffix {static constexpr const char *suffix = ".sketch";};
 #define SSS(type, suf) template<> struct SketchFileSuffix<type> {static constexpr const char *suffix = suf;}
@@ -336,6 +341,7 @@ template<> struct SketchEnum<mh::BBitMinHasher<uint64_t>> {static constexpr Sket
 template<> struct SketchEnum<CBBMinHashType> {static constexpr Sketch value = COUNTING_BB_MINHASH;};
 template<> struct SketchEnum<khset64_t> {static constexpr Sketch value = FULL_KHASH_SET;};
 template<> struct SketchEnum<SuperMinHashType> {static constexpr Sketch value = BB_SUPERMINHASH;};
+template<> struct SketchEnum<WideHyperLogLogHasher<>> {static constexpr Sketch value = WIDE_HLL;};
 template<> struct SketchEnum<wj::WeightedSketcher<hll::hll_t>> {static constexpr Sketch value = HLL;};
 template<> struct SketchEnum<wj::WeightedSketcher<bf::bf_t>> {static constexpr Sketch value = BLOOM_FILTER;};
 template<> struct SketchEnum<wj::WeightedSketcher<mh::RangeMinHash<uint64_t>>> {static constexpr Sketch value = RANGE_MINHASH;};
@@ -344,6 +350,7 @@ template<> struct SketchEnum<wj::WeightedSketcher<mh::BBitMinHasher<uint64_t>>> 
 template<> struct SketchEnum<wj::WeightedSketcher<CBBMinHashType>> {static constexpr Sketch value = COUNTING_BB_MINHASH;};
 template<> struct SketchEnum<wj::WeightedSketcher<khset64_t>> {static constexpr Sketch value = FULL_KHASH_SET;};
 template<> struct SketchEnum<wj::WeightedSketcher<SuperMinHashType>> {static constexpr Sketch value = BB_SUPERMINHASH;};
+template<> struct SketchEnum<wj::WeightedSketcher<WideHyperLogLogHasher<>>> {static constexpr Sketch value = WIDE_HLL;};
 
 template<typename T>
 inline void set_estim_and_jestim(T &x, hll::EstimationMethod estim, hll::JointEstimationMethod jestim) {}

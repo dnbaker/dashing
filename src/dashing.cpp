@@ -265,6 +265,7 @@ static option_struct sketch_long_options[] = {\
     LO_FLAG("use-cyclic-hash", 134, enct, NTHASH)\
     LO_FLAG("avoid-sorting", 135, avoid_fsorting, true)\
     LO_FLAG("wj", 138, weighted_jaccard, true)\
+    LO_FLAG("use-wide-hll", 144, sketch_type, WIDE_HLL) \
     {0,0,0,0}\
 };
 
@@ -352,6 +353,7 @@ int sketch_main(int argc, char *argv[]) {
                             kseqs, use_filter, spacing, sketch_flags, mincount, enct)
     switch(sketch_type) {
         case HLL: SKETCH_CORE(hll::hll_t); break;
+        case WIDE_HLL: SKETCH_CORE(sketch::WideHyperLogLogHasher<>); break;
         case BLOOM_FILTER: SKETCH_CORE(bf::bf_t); break;
         case RANGE_MINHASH: SKETCH_CORE(mh::RangeMinHash<uint64_t>); break;
         case COUNTING_RANGE_MINHASH: SKETCH_CORE(mh::CountingRangeMinHash<uint64_t>); break;
@@ -519,6 +521,7 @@ int sketch_by_seq_main(int argc, char *argv[]) {
                              use_filter, sketch_flags, mincount, enct)
     switch(sketch_type) {
         case HLL: SKETCH_BY_SEQ_CORE(hll::hll_t); break;
+        case WIDE_HLL: SKETCH_BY_SEQ_CORE(sketch::WideHyperLogLogHasher<>); break;
         case BLOOM_FILTER: SKETCH_BY_SEQ_CORE(bf::bf_t); break;
         case RANGE_MINHASH: SKETCH_BY_SEQ_CORE(mh::RangeMinHash<uint64_t>); break;
         case COUNTING_RANGE_MINHASH: SKETCH_BY_SEQ_CORE(mh::CountingRangeMinHash<uint64_t>); break;

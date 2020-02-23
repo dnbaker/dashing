@@ -66,7 +66,7 @@ using namespace sketch;
 using namespace hll;
 static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
     switch(sketch) {
-        case HLL: return nblog2;
+        case HLL: case WIDE_HLL: return nblog2;
         case BLOOM_FILTER: return nblog2 + 3; // 8 bits per byte
         case RANGE_MINHASH: return size_t(1) << (nblog2 - 3); // 8 bytes per minimizer
         case COUNTING_RANGE_MINHASH: return (size_t(1) << (nblog2)) / (sizeof(uint64_t) + sizeof(uint32_t));
@@ -171,7 +171,10 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<Co
             CONST_IF(samesketch) {
                 sketch.read(path);
                 set_estim_and_jestim(sketch, estim, jestim); // HLL is the only type that needs this, and it's the same
-            } else new(final_sketches + i) final_type(path.data()); // Read from path
+            } else {
+                //TD<final_type> td;
+                new(final_sketches + i) final_type(path.data()); // Read from path
+            }
         } else {
             const std::string fpath(make_fname<SketchType>(path.data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix, enct));
             const bool isf = isfile(fpath);
