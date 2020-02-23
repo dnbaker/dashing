@@ -157,6 +157,7 @@ int dist_main(int argc, char *argv[]) {
         case BB_MINHASH:      CALL_DIST_BOTH(mh::BBitMinHasher<uint64_t>); break;
         case BB_SUPERMINHASH: CALL_DIST_BOTH(SuperMinHashType); break;
         case HLL:             CALL_DIST_BOTH(hll::hll_t); break;
+        case WIDE_HLL:        CALL_DIST_BOTH(sketch::WideHyperLogLogHasher<>); break;
         case RANGE_MINHASH:   CALL_DIST_BOTH(mh::RangeMinHash<uint64_t>); break;
         case BLOOM_FILTER:    CALL_DIST_BOTH(bf::bf_t); break;
         case FULL_KHASH_SET:  CALL_DIST_BOTH(khset64_t); break;
@@ -274,6 +275,7 @@ int dist_by_seq_main(int argc, char *argv[]) {
 
     switch(sketch_type) {
         case HLL: DBS(hll_t);
+        case WIDE_HLL: DBS(whll::wh119_t);
         case FULL_KHASH_SET:
              DBS(khset64_t);
         case BLOOM_FILTER: DBS(bf_t);
