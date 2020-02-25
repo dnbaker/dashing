@@ -2,7 +2,7 @@
 
 dashing sketches and computes distances between fasta and fastq data.
 
-Our preprint, which has recently been accepted at Genome Biology, is available [here](https://www.biorxiv.org/content/10.1101/501726v2).
+Our paper is available [here](https://www.biorxiv.org/content/10.1101/501726v2) as a preprint and [here](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-019-1875-0) at Genome Biology.
 
 # Use
 
@@ -83,13 +83,36 @@ Using hash sets provides a ground truth at the expense of greatly increased runt
 
 ```
 b-bit minhashing:             --use-bb-minhash
+
 bottom-k minhashing:          --use-range-minhash
+
 weighted bottom-k minhashing: --use-counting-range-minhash
+
 SuperMinHash:                 --use-super-minhash
+
 hash sets:                    --use-full-khash-sets
+
 bloom filters:                --use-bloom-filter
+
+Wide HLL:                     --use-wide-hll
 ```
 
 References:
 [SuperMinHash](https://arxiv.org/abs/1706.05698), modified. (Use 32-bit register instead of float between 0 and 1 to make use of more information.)
 [Bloom Filter Jaccard Index](https://www.ncbi.nlm.nih.gov/pubmed/17444629)
+
+
+## To Cite:
+
+```tex
+@Article{pmid31801633,
+   Author="Baker, D. N.  and Langmead, B. ",
+   Title="{{D}ashing: fast and accurate genomic distances with {H}yper{L}og{L}og}",
+   Journal="Genome Biol.",
+   Year="2019",
+   Volume="20",
+   Number="1",
+   Pages="265",
+   Month="12"
+}
+```
