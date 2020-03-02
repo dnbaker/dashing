@@ -1,5 +1,6 @@
 #pragma once
 #include "dashing.h"
+#include "kxsort.h"
 
 namespace bns {
 struct khset64_t: public kh::khset64_t {
@@ -32,7 +33,7 @@ struct khset64_t: public kh::khset64_t {
         assert(i == this->n_occupied);
         std::free(this->flags);
         this->flags = nullptr;
-        std::sort(newp, newp + i);
+        kx::radix_sort(newp, newp + i);
     }
     void read(const std::string &s) {read(s.data());}
     void read(const char *s) {
@@ -69,7 +70,7 @@ struct khset64_t: public kh::khset64_t {
         for(khiter_t ki = 0; ki != this->n_buckets; ++ki)
             if(kh_exist(this, ki))
                 *it++ = kh_key(this, ki);
-        std::sort(tmp.begin(), tmp.end());
+        kx::radix_sort(tmp.begin(), tmp.end());
         if(gzwrite(fp, &nelem, sizeof(nelem)) != sizeof(nelem)) throw std::runtime_error("Failed to write khash set to disk.");
         if(gzwrite(fp, this->keys, sizeof(*this->keys) * nelem) != ssize_t(sizeof(*this->keys) * nelem))
             throw std::runtime_error("Failed to write khash set to disk.");
