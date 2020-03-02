@@ -495,46 +495,23 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
 #define fullcont_sim(x, y) full_containment_dist(containment_index(x, y), ksinv)
 #define cont_sim(x, y) containment_dist(containment_index(x, y), ksinv)
 #define sym_cont_dist(x, y) containment_dist(symmetric_containment_func(x, y), ksinv)
-#define DO_LOOP(func)\
+#define DO_LOOP(name, func)\
+                case name: \
+                _Pragma("omp parallel for schedule(dynamic)") \
                 for(size_t j = 0; j < nr; ++j) {\
                     arr[qind * nr + j] = func(hlls[j], hlls[qi]);\
-                }
-            case MASH_DIST:
-                #pragma omp parallel for schedule(dynamic)
-                DO_LOOP(dist_sim);
+                } \
                 break;
-            case FULL_MASH_DIST:
-                #pragma omp parallel for schedule(dynamic)
-                DO_LOOP(fulldist_sim);
-                break;
-            case JI:
-                #pragma omp parallel for schedule(dynamic)
-                DO_LOOP(similarity);
-                break;
-            case SIZES:
-                #pragma omp parallel for schedule(dynamic)
-                DO_LOOP(us::intersection_size);
-                break;
-            case CONTAINMENT_INDEX:
-                #pragma omp parallel for schedule(dynamic)
-                DO_LOOP(containment_index);
-                break;
-            case CONTAINMENT_DIST:
-                #pragma omp parallel for schedule(dynamic)
-                DO_LOOP(cont_sim);
-                break;
-            case FULL_CONTAINMENT_DIST:
-                #pragma omp parallel for schedule(dynamic)
-                DO_LOOP(fullcont_sim);
-                break;
-            case SYMMETRIC_CONTAINMENT_INDEX:
-                #pragma omp parallel for schedule(dynamic)
-                DO_LOOP(symmetric_containment_func)
-                break;
-            case SYMMETRIC_CONTAINMENT_DIST:
-                #pragma omp parallel for schedule(dynamic)
-                DO_LOOP(sym_cont_dist)
-                break;
+
+            DO_LOOP(MASH_DIST, dist_sim);
+            DO_LOOP(FULL_MASH_DIST, fulldist_sim);
+            DO_LOOP(JI, similarity);
+            DO_LOOP(SIZES, us::intersection_size);
+            DO_LOOP(CONTAINMENT_INDEX, containment_index);
+            DO_LOOP(CONTAINMENT_DIST, cont_sim);
+            DO_LOOP(FULL_CONTAINMENT_DIST, fullcont_sim);
+            DO_LOOP(SYMMETRIC_CONTAINMENT_INDEX, symmetric_containment_func)
+            DO_LOOP(SYMMETRIC_CONTAINMENT_DIST, sym_cont_dist);
             default: throw std::runtime_error("Value not found");
 #undef DO_LOOP
 //#undef dist_sim
