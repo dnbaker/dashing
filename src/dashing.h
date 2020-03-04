@@ -108,7 +108,13 @@ struct SeededHash {
     uint64_t operator()(uint64_t x) const {return wh_(x ^ seed_);}
 };
 
-using CountingSketch = sketch::hk::HeavyKeeper<6, 10, SeededHash<sketch::common::WangHash>>;
+#if DASHING_USE_HK
+#define DASHING_COUNTING_SKETCH ::sketch::hk::HeavyKeeper<6, 10, SeededHash<sketch::common::WangHash>>
+#else
+#define DASHING_COUNTING_SKETCH ::sketch::ccm_t
+#endif
+using CountingSketch = DASHING_COUNTING_SKETCH;
+
 template<typename T> inline double similarity(const T &a, const T &b) {
     return a.jaccard_index(b);
 }
@@ -274,6 +280,12 @@ FINAL_OVERLOAD(mh::BBitMinHasher<uint64_t>);
 FINAL_OVERLOAD(WideHyperLogLogHasher<>);
 FINAL_OVERLOAD(SuperMinHashType);
 FINAL_OVERLOAD(CBBMinHashType);
+FINAL_OVERLOAD(bf::bf_t);
+FINAL_OVERLOAD(wj::WeightedSketcher<bf::bf_t>);
+FINAL_OVERLOAD(hll::hll_t);
+FINAL_OVERLOAD(wj::WeightedSketcher<hll::hll_t>);
+FINAL_OVERLOAD(khset64_t);
+FINAL_OVERLOAD(wj::WeightedSketcher<khset64_t>);
 FINAL_OVERLOAD(wj::WeightedSketcher<mh::CountingRangeMinHash<uint64_t>>);
 FINAL_OVERLOAD(wj::WeightedSketcher<mh::RangeMinHash<uint64_t>>);
 FINAL_OVERLOAD(wj::WeightedSketcher<mh::BBitMinHasher<uint64_t>>);
