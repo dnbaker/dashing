@@ -37,7 +37,7 @@ CXXFLAGS=$(OPT) $(XXFLAGS) -std=c++14 $(WARNINGS) \
 CXXFLAGS_MINUS_OPENMP=$(OPT_MINUS_OPENMP) $(XXFLAGS) -std=c++1z $(WARNINGS) -Wno-cast-align -Wno-gnu-zero-variadic-macro-arguments \
 	 -DDASHING_VERSION=\"$(GIT_VERSION)\"
 CCFLAGS=$(OPT) $(CFLAGS) -std=c11 $(WARNINGS)
-LIB=-lz
+LIB=
 LD=-L. $(EXTRA_LD)
 
 
@@ -61,7 +61,7 @@ ZSTD_INCLUDE=$(patsubst %,-I%,$(ZSTD_INCLUDE_DIRS))
 ZFLAGS=-DZWRAP_USE_ZSTD=1
 ZCOMPILE_FLAGS= $(ZFLAGS) -lzstd
 ZW_OBJS=$(patsubst %.c,%.o,bonsai/zstd/zlibWrapper/gzclose.c  bonsai/zstd/zlibWrapper/gzlib.c  bonsai/zstd/zlibWrapper/gzread.c  bonsai/zstd/zlibWrapper/gzwrite.c  bonsai/zstd/zlibWrapper/zstd_zlibwrapper.c) libzstd.a
-ALL_ZOBJS=$(ZOBJS) $(ZW_OBJS) bonsai/clhash.o bonsai/klib/kthread.o
+ALL_ZOBJS=$(ZOBJS) $(ZW_OBJS) bonsai/clhash.o bonsai/klib/kthread.o libz.a
 INCLUDE=-Ibonsai/clhash/include -I.  -Ibonsai/zlib -Ibonsai/libpopcnt -Iinclude -Ibonsai/circularqueue $(ZSTD_INCLUDE) $(INCPLUS) -Isketch/vec -Ibonsai -Ibonsai/include/ \
     -Isketch/include -Isketch -Isketch/include/sketch -Isketch/vec
 
@@ -165,6 +165,12 @@ dashing_512bw: $(ALL_ZOBJS) $(DEPS) $(DASHINGSRC)
 
 dashing_128: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(DASHINGSRC) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx -mno-avx512bw -mno-avx2 -msse2 -msse4.1 -DNDEBUG src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+
+libz.a: zlib/configure.log
+	+$(MAKE) -C zlib && cp zlib/libz.a $@
+
+zlib/configure.log:
+	cd zlib && ./configure && cd ..
 
 libgomp.a:
 	ln -sf $(STATIC_GOMP)
