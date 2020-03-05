@@ -131,7 +131,7 @@ void dist_by_seq(std::vector<std::string> &labels, std::string datapath,
 
 
 template<typename SketchType>
-void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,
+void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,
                          Spacer sp,
                          unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,
                          bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,
@@ -143,6 +143,7 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<Co
     //       except for the final comparison and output.
     assert(nq <= inpaths.size());
     using final_type = typename FinalSketch<SketchType>::final_type;
+    static_assert(!sketch::wj::is_weighted_sketch<final_type>::value, "Can't have a weighted sketch be a final type");
     std::vector<SketchType> sketches;
     sketches.reserve(inpaths.size());
     uint32_t sketch_size = bytesl2_to_arg(ssarg, SketchEnum<SketchType>::value);
@@ -151,56 +152,75 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<Co
         set_estim_and_jestim(sketches.back(), estim, jestim);
     }
     static constexpr bool samesketch = std::is_same<SketchType, final_type>::value;
-    final_type *final_sketches =
-        samesketch ? reinterpret_cast<final_type *>(sketches.data())
-                   : static_cast<final_type *>(std::malloc(sizeof(*final_sketches) * inpaths.size()));
-    CONST_IF(samesketch) {
-        if(final_sketches == nullptr) throw std::bad_alloc();
-    }
+    final_type *final_sketches;
+    std::unique_ptr<std::vector<final_type>> raii_final_sketches;
 
     std::atomic<uint32_t> ncomplete;
     ncomplete.store(0);
     const unsigned k = sp.k_;
     const unsigned wsz = sp.w_;
     RollingHasher<uint64_t> rolling_hasher(k, canon);
-    #pragma omp parallel for schedule(dynamic)
-    for(size_t i = 0; i < sketches.size(); ++i) {
-        const std::string &path(inpaths[i]);
-        auto &sketch = sketches[i];
-        if(presketched_only)  {
-            CONST_IF(samesketch) {
-                sketch.read(path);
-                set_estim_and_jestim(sketch, estim, jestim); // HLL is the only type that needs this, and it's the same
-            } else {
-                //TD<final_type> td;
-                new(final_sketches + i) final_type(path.data()); // Read from path
-            }
-        } else {
-            const std::string fpath(make_fname<SketchType>(path.data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix, enct));
-            const bool isf = isfile(fpath);
-            if(cache_sketch && isf) {
-                LOG_DEBUG("Sketch found at %s with size %zu, %u\n", fpath.data(), size_t(1ull << sketch_size), sketch_size);
-                CONST_IF(samesketch) {
-                    sketch.read(fpath);
-                    set_estim_and_jestim(sketch, estim, jestim);
-                } else {
-                    new(final_sketches + i) final_type(fpath);
-                }
-            } else {
-                const int tid = omp_get_thread_num();
-                if(entropy_minimization) {
-                    FILL_SKETCH_MIN(score::Entropy);
-                } else {
-                    FILL_SKETCH_MIN(score::Lex);
-                }
-                CONST_IF(samesketch) {
-                    if(cache_sketch && !isf) sketch.write(fpath);
-                } else if(cache_sketch) final_sketches[i].write(fpath);
+    if(inpaths.size() == 1 && presketched_only) {
+        raii_final_sketches.reset(new std::vector<final_type>);
+        gzFile ifp = gzopen(inpaths[0].data(), "rb");
+        if(!ifp) RUNTIME_ERROR("Failed to open file.");
+        for(;;) {
+            try {
+                //TD<decltype(raii_final_sketches)> td;
+                raii_final_sketches->emplace_back(ifp);
+                set_estim_and_jestim(raii_final_sketches->back(), estim, jestim);
+            } catch(...) {
+                break;
             }
         }
-        ++ncomplete; // Atomic
+        final_sketches = raii_final_sketches->data();
+        while(inpaths.size() < raii_final_sketches->size())
+            inpaths.emplace_back(std::to_string(inpaths.size()));
+        inpaths[0] = "0";
+        
+    } else {
+        final_sketches =
+            samesketch ? reinterpret_cast<final_type *>(sketches.data())
+                       : static_cast<final_type *>(std::malloc(sizeof(*final_sketches) * inpaths.size()));
+        #pragma omp parallel for schedule(dynamic)
+        for(size_t i = 0; i < sketches.size(); ++i) {
+            const std::string &path(inpaths[i]);
+            auto &sketch = sketches[i];
+            if(presketched_only)  {
+                CONST_IF(samesketch) {
+                    sketch.read(path);
+                    set_estim_and_jestim(sketch, estim, jestim); // HLL is the only type that needs this, and it's the same
+                } else {
+                    //TD<final_type> td;
+                    new(final_sketches + i) final_type(path.data()); // Read from path
+                }
+            } else {
+                const std::string fpath(make_fname<SketchType>(path.data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix, enct));
+                const bool isf = isfile(fpath);
+                if(cache_sketch && isf) {
+                    LOG_DEBUG("Sketch found at %s with size %zu, %u\n", fpath.data(), size_t(1ull << sketch_size), sketch_size);
+                    CONST_IF(samesketch) {
+                        sketch.read(fpath);
+                        set_estim_and_jestim(sketch, estim, jestim);
+                    } else {
+                        new(final_sketches + i) final_type(fpath);
+                    }
+                } else {
+                    const int tid = omp_get_thread_num();
+                    if(entropy_minimization) {
+                        FILL_SKETCH_MIN(score::Entropy);
+                    } else {
+                        FILL_SKETCH_MIN(score::Lex);
+                    }
+                    CONST_IF(samesketch) {
+                        if(cache_sketch && !isf) sketch.write(fpath);
+                    } else if(cache_sketch) final_sketches[i].write(fpath);
+                }
+            }
+            ++ncomplete; // Atomic
+        }
     }
-    _Pragma("omp parallel for")
+    OMP_PFOR
     for(size_t i = 0; i < sketches.size(); ++i) {
         sketch_finalize(final_sketches[i]);
     }
@@ -237,28 +257,26 @@ void dist_sketch_and_cmp(const std::vector<std::string> &inpaths, std::vector<Co
         dist_loop<final_type>(pairofp, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, BUFFER_FLUSH_SIZE, nq);
     }
     CONST_IF(!samesketch) {
+        if(!raii_final_sketches) {
 #if __cplusplus >= 201703L
-        std::destroy_n(
-#  if defined(__cpp_lib_execution) && __cpp_lib_execution >= 201703L
-            std::execution::par_unseq,
-#  endif
-            final_sketches, inpaths.size());
+            std::destroy_n(final_sketches, inpaths.size());
 #else
-        std::for_each(final_sketches, final_sketches + inpaths.size(), [](auto &sketch) {
-            using destructor_type = typename std::decay<decltype(sketch)>::type;
-            sketch.~destructor_type();
-        });
+            std::for_each(final_sketches, final_sketches + inpaths.size(), [](auto &sketch) {
+                using T = typename std::decay<decltype(sketch)>::type;
+                sketch.~T();
+            });
 #endif
-        std::free(final_sketches);
+            std::free(final_sketches);
+        }
     }
 } // dist_sketch_and_cmp
 #define DECSKETCHCMP(DS) \
-template void ::bns::dist_sketch_and_cmp<DS>(const std::vector<std::string> &inpaths, std::vector<::bns::CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,\
+template void ::bns::dist_sketch_and_cmp<DS>(std::vector<std::string> &inpaths, std::vector<::bns::CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,\
                    Spacer sp,\
                    unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,\
                    bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,\
                    size_t nq, EncodingType enct);\
-template void ::bns::dist_sketch_and_cmp<sketch::wj::WeightedSketcher<DS>>(const std::vector<std::string> &inpaths, std::vector<::bns::CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,\
+template void ::bns::dist_sketch_and_cmp<sketch::wj::WeightedSketcher<DS>>(std::vector<std::string> &inpaths, std::vector<::bns::CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,\
                    Spacer sp,\
                    unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,\
                    bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,\
@@ -276,7 +294,7 @@ INLINE void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_
                         const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix,
                         std::vector<CountingSketch> &cms, EstimationMethod estim, JointEstimationMethod jestim,
                         KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing,
-                        int sketchflags, uint32_t mincount, EncodingType enct)
+                        int sketchflags, uint32_t mincount, EncodingType enct, std::string output_file)
 {
     const auto canon = sketchflags & CANONICALIZE, skip_cached = sketchflags & SKIP_CACHED, entropy_minimization = sketchflags & ENTROPY_MIN;
     std::vector<SketchType> sketches;
@@ -316,8 +334,18 @@ INLINE void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_
             }
         }
         sketch_finalize(h);
-        h.write(fname.data());
-        h.clear();
+        if(output_file.empty()) {
+            h.write(fname.data());
+            h.clear();
+        }
+    }
+    if(!output_file.empty()) {
+        gzFile outputfp = gzopen(output_file.data(), "w");
+        if(!outputfp) RUNTIME_ERROR("Failed to emit sketches to output file");
+        for(const auto &s: sketches) {
+            s.write(outputfp);
+        }
+        gzclose(outputfp);
     }
 }
 template<typename SketchType>
@@ -649,7 +677,7 @@ void dist_loop(std::FILE *ofp, SketchType *sketches, const std::vector<std::stri
                                 const std::string &prefix, std::vector<CountingSketch> &counting_sketches,\
                                 EstimationMethod estim, JointEstimationMethod jestim,\
                                 KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing,\
-                                int sketchflags, uint32_t mincount, EncodingType enct);
+                                int sketchflags, uint32_t mincount, EncodingType enct, std::string s);
 
 
 } // namespace bns

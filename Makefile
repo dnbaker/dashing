@@ -37,7 +37,8 @@ CXXFLAGS=$(OPT) $(XXFLAGS) -std=c++14 $(WARNINGS) \
 CXXFLAGS_MINUS_OPENMP=$(OPT_MINUS_OPENMP) $(XXFLAGS) -std=c++1z $(WARNINGS) -Wno-cast-align -Wno-gnu-zero-variadic-macro-arguments \
 	 -DDASHING_VERSION=\"$(GIT_VERSION)\"
 CCFLAGS=$(OPT) $(CFLAGS) -std=c11 $(WARNINGS)
-LIB=-lz
+LIB=
+#LIB=-ldl
 LD=-L. $(EXTRA_LD)
 
 
