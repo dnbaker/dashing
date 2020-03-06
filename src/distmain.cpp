@@ -90,9 +90,9 @@ int dist_main(int argc, char *argv[]) {
         }
     }
     if(k > 32 && enct == BONSAI)
-        RUNTIME_ERROR("k must be <= 32 for non-rolling hashes.");
+        UNRECOVERABLE_ERROR("k must be <= 32 for non-rolling hashes.");
     if(k > 32 && spacing.size())
-        RUNTIME_ERROR("kmers must be unspaced for k > 32");
+        UNRECOVERABLE_ERROR("kmers must be unspaced for k > 32");
     if(nthreads < 0) nthreads = 1;
     if(gargs.number_neighbors > 0) {
         gargs.show();
@@ -166,7 +166,7 @@ int dist_main(int argc, char *argv[]) {
         default: {
                 char buf[128];
                 std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));
-                RUNTIME_ERROR(buf);
+                UNRECOVERABLE_ERROR(buf);
         }
     }
 
@@ -175,7 +175,7 @@ int dist_main(int argc, char *argv[]) {
         if(pairofp_labels.empty()) pairofp_labels = "unspecified";
         label_future = std::async(std::launch::async, [&inpaths](const std::string &labels) {
             std::FILE *fp = std::fopen(labels.data(), "wb");
-            if(fp == nullptr) RUNTIME_ERROR(std::string("Could not open file at '") + labels + "' for writing");
+            if(fp == nullptr) UNRECOVERABLE_ERROR(std::string("Could not open file at '") + labels + "' for writing");
             for(const auto &path: inpaths) std::fwrite(path.data(), path.size(), 1, fp), std::fputc('\n', fp);
             std::fclose(fp);
         }, pairofp_labels);
@@ -286,7 +286,7 @@ int dist_by_seq_main(int argc, char *argv[]) {
         case RANGE_MINHASH:
             DBS(RMFinal);
         default:
-            throw std::runtime_error("Unexpected value " + std::to_string(int(sketch_type)));
+            UNRECOVERABLE_ERROR("Unexpected value " + std::to_string(int(sketch_type)));
     }
 #undef DBS
     std::fclose(ofp);

@@ -174,17 +174,17 @@ inline std::array<double, 3> set_triple(const T &a, const T &b) {
 }
 template<typename T>
 inline std::array<double, 3> set_triple(const wj::WeightedSketcher<T> &a, const wj::WeightedSketcher<T> &b) {
-    RUNTIME_ERROR("This should only be called on the finalized sketches");
+    UNRECOVERABLE_ERROR("This should only be called on the finalized sketches");
 }
 
 #define CONTAIN_OVERLOAD_FAIL(x)\
 template<>\
 inline double containment_index<x>(const x &b, const x &a) {\
-    RUNTIME_ERROR(std::string("Containment index not implemented for ") + __PRETTY_FUNCTION__);\
+    UNRECOVERABLE_ERROR(std::string("Containment index not implemented for ") + __PRETTY_FUNCTION__);\
 }\
 template<>\
 inline std::array<double, 3> set_triple<x>(const x &b, const x &a) {\
-    RUNTIME_ERROR(std::string("set_triple not implemented for ") + __PRETTY_FUNCTION__);\
+    UNRECOVERABLE_ERROR(std::string("set_triple not implemented for ") + __PRETTY_FUNCTION__);\
 }
 CONTAIN_OVERLOAD_FAIL(RMFinal)
 CONTAIN_OVERLOAD_FAIL(bf::bf_t)
@@ -486,7 +486,7 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
 {
     const float ksinv = 1./ k;
     if(nq >= inpaths.size()) {
-        RUNTIME_ERROR(ks::sprintf("Wrong number of query/references. (ip size: %zu, nq: %zu\n", inpaths.size(), nq).data());
+        UNRECOVERABLE_ERROR(ks::sprintf("Wrong number of query/references. (ip size: %zu, nq: %zu\n", inpaths.size(), nq).data());
     }
     size_t nr = inpaths.size() - nq;
     float *arr = static_cast<float *>(std::malloc(nr * nq * sizeof(float)));
@@ -535,11 +535,11 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
             case BINARY:
                 if(write_future.valid()) write_future.get();
                 write_future = std::async(std::launch::async, [ptr=arr + (qi - nr) * nq, nb=sizeof(float) * nr](const int fn) {
-                    if(unlikely(::write(fn, ptr, nb) != ssize_t(nb))) RUNTIME_ERROR("Error writing to binary file");
+                    if(unlikely(::write(fn, ptr, nb) != ssize_t(nb))) UNRECOVERABLE_ERROR("Error writing to binary file");
                 }, ::fileno(ofp));
                 break;
             case UT_TSV: case UPPER_TRIANGULAR: default:
-                // RUNTIME_ERROR(std::string("Illegal output format. numeric: ") + std::to_string(int(emit_fmt)));
+                // UNRECOVERABLE_ERROR(std::string("Illegal output format. numeric: ") + std::to_string(int(emit_fmt)));
             case FULL_TSV:
                 if(fmt_future.valid()) fmt_future.get();
                 fmt_future = std::async(std::launch::async, [nr,qi,ofp,ind=qi-nr,&inpaths,use_scientific,arr,&buffers,&write_future]() {

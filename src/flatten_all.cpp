@@ -3,7 +3,7 @@
 
 namespace bns {
 int flatten_all(const std::vector<std::string> &fpaths, const std::string outpath, std::vector<unsigned> &k_values) {
-    if(fpaths.empty()) RUNTIME_ERROR("no fpaths, see usage.");
+    if(fpaths.empty()) UNRECOVERABLE_ERROR("no fpaths, see usage.");
     const size_t nk = k_values.size();
     // TODO: adapt this to pack an asymmetric comparison result into a flattened blaze distance matrix.
     std::vector<dm::DistanceMatrix<float>> dms;
@@ -36,14 +36,14 @@ int flatten_all(const std::vector<std::string> &fpaths, const std::string outpat
     gzread(ifp, &number_sets, sizeof(number_sets));
     gzread(ifp, k_values.data(), k_values.size() * sizeof(unsigned));
 #endif
-    if(std::fwrite(&numk, sizeof(numk), 1, ofp) != 1) throw std::runtime_error("Failed to write nk");
-    if(std::fwrite(&ne, sizeof(ne), 1, ofp) != 1) throw std::runtime_error("Failed to write num entries");
+    if(std::fwrite(&numk, sizeof(numk), 1, ofp) != 1) UNRECOVERABLE_ERROR("Failed to write nk");
+    if(std::fwrite(&ne, sizeof(ne), 1, ofp) != 1) UNRECOVERABLE_ERROR("Failed to write num entries");
     std::fwrite(&number_sets, sizeof(number_sets), 1, ofp);
     std::fprintf(stderr, "Wrote %u nk and %zu num e and %zu num sets\n", numk, size_t(ne), size_t(number_sets));
-    if(std::fwrite(k_values.data(), sizeof(unsigned), k_values.size(), ofp) != k_values.size()) throw std::runtime_error("Wrong count of written values");
+    if(std::fwrite(k_values.data(), sizeof(unsigned), k_values.size(), ofp) != k_values.size()) UNRECOVERABLE_ERROR("Wrong count of written values");
     size_t nwritten;
     if((nwritten = std::fwrite(outp, sizeof(float), nk * ne, ofp)) != nk * ne) {
-        throw std::runtime_error("Failed to write nk * ne");
+        UNRECOVERABLE_ERROR("Failed to write nk * ne");
     }
     std::fprintf(stderr, "Wrote %zu items (%zu * %zu) [%zu bytes]\n", size_t(nk * ne), nk, size_t(ne), size_t(nk * ne * 4));
     std::fclose(ofp);

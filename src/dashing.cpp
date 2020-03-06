@@ -315,9 +315,9 @@ int sketch_main(int argc, char *argv[]) {
         }
     }
     if(k > 32 && enct == BONSAI)
-        RUNTIME_ERROR("k must be <= 32 for non-rolling hashes.");
+        UNRECOVERABLE_ERROR("k must be <= 32 for non-rolling hashes.");
     if(k > 32 && spacing.size())
-        RUNTIME_ERROR("kmers must be unspaced for k > 32");
+        UNRECOVERABLE_ERROR("kmers must be unspaced for k > 32");
     nthreads = std::max(nthreads, 1);
     omp_set_num_threads(nthreads);
     Spacer sp(k, wsz, parse_spacing(spacing.data(), k));
@@ -368,7 +368,7 @@ int sketch_main(int argc, char *argv[]) {
         default: {
             char buf[128];
             std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));
-            RUNTIME_ERROR(buf);
+            UNRECOVERABLE_ERROR(buf);
         }
     }
 #undef SKETCH_CORE
@@ -413,7 +413,7 @@ int print_binary_main(int argc, char *argv[]) {
     std::FILE *fp;
     if(outpath.empty()) outpath = "/dev/stdout";
     dm::DistanceMatrix<float> mat(argv[optind]);
-    if((fp = std::fopen(outpath.data(), "wb")) == nullptr) RUNTIME_ERROR(ks::sprintf("[print_binary_main] Could not open file at %s", outpath.data()).data());
+    if((fp = std::fopen(outpath.data(), "wb")) == nullptr) UNRECOVERABLE_ERROR(ks::sprintf("[print_binary_main] Could not open file at %s", outpath.data()).data());
     mat.printf(fp, use_scientific);
     std::fclose(fp);
     return EXIT_SUCCESS;
@@ -436,7 +436,7 @@ int flatten_main(int argc, char *argv[]) {
 #endif
 
 int setdist_main(int argc, char *argv[]) {
-    RUNTIME_ERROR("setdist_main was deprecated and has ben removed. Instead, call `dashing dist` with --use-full-khash-sets to use hash sets instead of sketches.\n");
+    UNRECOVERABLE_ERROR("setdist_main was deprecated and has ben removed. Instead, call `dashing dist` with --use-full-khash-sets to use hash sets instead of sketches.\n");
     return 1;
 }
 
@@ -499,9 +499,9 @@ int sketch_by_seq_main(int argc, char *argv[]) {
         }
     }
     if(k > 32 && enct == BONSAI)
-        RUNTIME_ERROR("k must be <= 32 for non-rolling hashes.");
+        UNRECOVERABLE_ERROR("k must be <= 32 for non-rolling hashes.");
     if(k > 32 && spacing.size())
-        RUNTIME_ERROR("kmers must be unspaced for k > 32");
+        UNRECOVERABLE_ERROR("kmers must be unspaced for k > 32");
     if(argc != optind + 1) sketch_by_seq_usage(*argv);
     if(nthreads > 1)
         std::fprintf(stderr, "note: sketch_by_seq isn't parallelized.");
@@ -536,14 +536,14 @@ int sketch_by_seq_main(int argc, char *argv[]) {
         default: {
             char buf[128];
             std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));
-            RUNTIME_ERROR(buf);
+            UNRECOVERABLE_ERROR(buf);
         }
     }
     return EXIT_SUCCESS;
 }
 
 int view_main(int argc, char *argv[]) {
-    if(argc < 2) RUNTIME_ERROR("Usage: dashing view f1.hll [f2.hll ...]. Only HLLs currently supported.");
+    if(argc < 2) UNRECOVERABLE_ERROR("Usage: dashing view f1.hll [f2.hll ...]. Only HLLs currently supported.");
     for(int i = 1; i < argc; hll::hll_t(argv[i++]).printf(stdout));
     return 0;
 }
