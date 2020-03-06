@@ -177,7 +177,6 @@ void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<Counting
         while(inpaths.size() < raii_final_sketches->size())
             inpaths.emplace_back(std::to_string(inpaths.size()));
         inpaths[0] = "0";
-        
     } else {
         final_sketches =
             samesketch ? reinterpret_cast<final_type *>(sketches.data())
