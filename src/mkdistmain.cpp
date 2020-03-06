@@ -88,7 +88,7 @@ static option_struct dist_long_options[] = {
         std::fprintf(stderr, "Binary set, but currently this is unused\n");
     }
     if(optind == argc && fnames.empty()) {
-        RUNTIME_ERROR("fnames must be specified by -F or as positional arguments\n");
+        UNRECOVERABLE_ERROR("fnames must be specified by -F or as positional arguments\n");
     }
     if(fnames.empty()) {
         std::fprintf(stderr, "Failed to stuff\n");

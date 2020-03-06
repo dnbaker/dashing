@@ -121,7 +121,7 @@ dm::DistanceMatrix<float> mkmat2jcdistmat(std::string packedmatrix, EmissionType
     }
     uint64_t number_sets, number_entries;
     gzFile ifp = gzopen(packedmatrix.data(), "rb");
-    if(!ifp) RUNTIME_ERROR(std::string("Could not open file at ") + packedmatrix);
+    if(!ifp) UNRECOVERABLE_ERROR(std::string("Could not open file at ") + packedmatrix);
     uint32_t nk;
     gzread(ifp, &nk, sizeof(nk));
     std::vector<unsigned> k_values(nk);

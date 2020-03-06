@@ -78,7 +78,7 @@ static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
         default: {
             char buf[128];
             std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch]));
-            RUNTIME_ERROR(buf);
+            UNRECOVERABLE_ERROR(buf);
             return -1337;
         }
     }
@@ -101,7 +101,7 @@ void dist_by_seq(std::vector<std::string> &labels, std::string datapath,
     }
     if(otherpath.size()) {
         qnames = get_paths((otherpath + ".names").data());
-        if(qnames.empty()) RUNTIME_ERROR("Can't compare with empty qnames");
+        if(qnames.empty()) UNRECOVERABLE_ERROR("Can't compare with empty qnames");
         sketches.reserve(qnames.size() + sketches.size());
         for(size_t i = 0; i < qnames.size(); ++i) {
             sketches.emplace_back(sfp);
@@ -109,7 +109,7 @@ void dist_by_seq(std::vector<std::string> &labels, std::string datapath,
         }
         labels.insert(labels.end(), qnames.begin(), qnames.end());
     } else if(!is_symmetric(result_type)) {
-        RUNTIME_ERROR("Can't perform asymmetric comparison without query paths");
+        UNRECOVERABLE_ERROR("Can't perform asymmetric comparison without query paths");
     }
     const size_t nq = qnames.size();
     gzclose(sfp);
@@ -163,7 +163,7 @@ void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<Counting
     if(inpaths.size() == 1 && presketched_only) {
         raii_final_sketches.reset(new std::vector<final_type>);
         gzFile ifp = gzopen(inpaths[0].data(), "rb");
-        if(!ifp) RUNTIME_ERROR("Failed to open file.");
+        if(!ifp) UNRECOVERABLE_ERROR("Failed to open file.");
         for(;;) {
             try {
                 //TD<decltype(raii_final_sketches)> td;
@@ -303,7 +303,7 @@ INLINE void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_
     RollingHasher<uint64_t> rolling_hasher(k, canon);
 
     if(entropy_minimization)
-        throw std::runtime_error("Removed.");
+        UNRECOVERABLE_ERROR("Unsupported option: entropy_minimization.");
     #pragma omp parallel for schedule(dynamic)
     for(size_t i = 0; i < inpaths.size(); ++i) {
         const int tid = omp_get_thread_num();
@@ -340,7 +340,7 @@ INLINE void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_
     }
     if(!output_file.empty()) {
         gzFile outputfp = gzopen(output_file.data(), "w");
-        if(!outputfp) RUNTIME_ERROR("Failed to emit sketches to output file");
+        if(!outputfp) UNRECOVERABLE_ERROR("Failed to emit sketches to output file");
         for(const auto &s: sketches) {
             s.write(outputfp);
         }
@@ -370,7 +370,7 @@ INLINE void sketch_by_seq_core(uint32_t ssarg, uint32_t nthreads, const Spacer &
         ? std::string("stdout.names")
         : outpath + ".names";
     std::FILE *nameofp = fopen(namepath.data(), "w");
-    if(!nameofp) throw std::runtime_error(std::string("Failed to open file for writing at ") + namepath);
+    if(!nameofp) UNRECOVERABLE_ERROR(std::string("Failed to open file for writing at ") + namepath);
     fprintf(nameofp, "#k=%d:Names for sequences sketched\n", k);
     kseq_t *ks = kseq_init(fp);
     auto &h = working_sketch; // just alias for less typing
@@ -552,7 +552,7 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
         std::fwrite(&n, sizeof(n), 1, ofp);
         size_t nb = nneighbors * inpaths.size();
         if(unlikely(std::fwrite(neighbors.get(), sizeof(validx_t), nb, ofp) != nb))
-            RUNTIME_ERROR("Failed to write neighbors to disk (binary)\n");
+            UNRECOVERABLE_ERROR("Failed to write neighbors to disk (binary)\n");
     } else {
         std::fprintf(ofp, "#File\tNeighbor ID:distance\t...\n");
         int nt = 1;
@@ -634,7 +634,7 @@ void dist_loop(std::FILE *ofp, SketchType *sketches, const std::vector<std::stri
     if(!is_symmetric(result_type)) {
         char buf[1024];
         std::sprintf(buf, "Can't perform symmetric distance comparisons with a symmetric method (%s/%d). To perform an asymmetric distance comparison between a given set and itself, provide the same list of filenames to both -Q and -F.\n", emt2str(result_type), int(result_type));
-        RUNTIME_ERROR(buf);
+        UNRECOVERABLE_ERROR(buf);
     }
     const float ksinv = 1./ k;
     const int pairfi = fileno(ofp);

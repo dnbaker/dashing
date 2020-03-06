@@ -48,6 +48,6 @@ int main(int argc, char *argv[]) {
                              "\ncmp is also now a synonym for dist, which will be deprecated in the future.\n"
                              "mkdist, which is simply a wrapper around dist which runs the computation for multiple 'k' and organizes them into one result.\n"
                      , *argv, *argv);
-        RUNTIME_ERROR(std::string("Invalid subcommand ") + argv[1] + " provided.");
+        UNRECOVERABLE_ERROR(std::string("Invalid subcommand ") + argv[1] + " provided.");
     }
 }
