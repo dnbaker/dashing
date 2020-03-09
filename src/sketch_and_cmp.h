@@ -251,6 +251,7 @@ void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<Counting
         std::fflush(pairofp);
     }
     if(emit_fmt & NEAREST_NEIGHBOR_TABLE) {
+        std::fprintf(stderr, "[%s] About to make nn table with result type = %s\n", __PRETTY_FUNCTION__, emt2str(result_type));
         nndist_loop(pairofp, final_sketches, inpaths, k, result_type, emit_fmt, nq);
     } else {
         dist_loop<final_type>(pairofp, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, BUFFER_FLUSH_SIZE, nq);
@@ -518,6 +519,7 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
     }
     const size_t qoffset = nq ? inpaths.size() - nq: size_t(0);
     auto neighbors = std::make_unique<validx_t[]>(npairs);
+    std::fprintf(stderr, "made %zu pairs\n", npairs);
     const double ksinv = 1./ k;
 #define INDEX_FUNC(index, func, cmp) \
         case index: \
@@ -539,8 +541,10 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
         }
 
     if(emt2nntype(result_type) == SIMILARITY_MEASURE) {
+        std::fprintf(stderr, "Performign nn under similarity measure\n");
         ALL_INDEXES(std::greater<>())
     } else {
+        std::fprintf(stderr, "Performign nn under dissimilarity measure\n");
         ALL_INDEXES(std::less<>())
     }
 #undef ALL_INDEXES
@@ -566,11 +570,13 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
         std::vector<ks::string> kstrs;
         while(kstrs.size() < unsigned(nt))
             kstrs.emplace_back(1ull<<10);
+        std::fprintf(stderr, "Made buffer, ones per thread\n");
         const size_t npaths = inpaths.size();
         OMP_PFOR
         for(size_t i = 0; i < npaths; ++i) {
             auto &buf(kstrs[i]);
             const validx_t *nptr = &neighbors[i * nneighbors];
+            assert(n * nneighbors + nneighbors < npairs);
             size_t nameind = i + qoffset;
             assert(nameind < inpaths.size());
             buf += inpaths[nameind];

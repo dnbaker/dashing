@@ -249,6 +249,7 @@ NNType emt2nntype(EmissionType result_type) {
         default:
             return SIMILARITY_MEASURE;
     }
+    throw std::runtime_error("Error: unexpected EmissionType");
     __builtin_unreachable();
     return SIMILARITY_MEASURE;
 }
