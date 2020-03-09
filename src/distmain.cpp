@@ -150,8 +150,20 @@ int dist_main(int argc, char *argv[]) {
                                     entropy_minimization, spacing, nq, enct)
 
 #define CALL_DIST_WEIGHTED(sketchtype) CALL_DIST(sketch::wj::WeightedSketcher<sketchtype>)
+#define CALL_DIST_WEIGHTED_EXACT(sketchtype) do {\
+        using local_sketch = sketch::wj::WeightedSketcher<sketchtype, sketch::wj::ExactCountingAdapter>;\
+        CALL_DIST(local_sketch); \
+    } while(0)
 
-#define CALL_DIST_BOTH(sketchtype) do {if(weighted_jaccard) CALL_DIST_WEIGHTED(sketchtype); else CALL_DIST(sketchtype);} while(0)
+#define CALL_DIST_BOTH(sketchtype) do {\
+    if(gargs.exact_weighted || weighted_jaccard) {\
+        if(gargs.exact_weighted) {\
+            CALL_DIST_WEIGHTED_EXACT(sketchtype);\
+        } else {\
+            CALL_DIST_WEIGHTED(sketchtype);\
+        }\
+    } else CALL_DIST(sketchtype);\
+} while(0)
 
     switch(sketch_type) {
         case BB_MINHASH:      CALL_DIST_BOTH(mh::BBitMinHasher<uint64_t>); break;
