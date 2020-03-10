@@ -251,6 +251,7 @@ void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<Counting
         std::fflush(pairofp);
     }
     if(emit_fmt & NEAREST_NEIGHBOR_TABLE) {
+        std::fprintf(stderr, "[%s] About to make nn table with result type = %s. Number inpaths: %zu. \n", __PRETTY_FUNCTION__, emt2str(result_type), inpaths.size());
         nndist_loop(pairofp, final_sketches, inpaths, k, result_type, emit_fmt, nq);
     } else {
         dist_loop<final_type>(pairofp, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, BUFFER_FLUSH_SIZE, nq);
@@ -276,6 +277,11 @@ template void ::bns::dist_sketch_and_cmp<DS>(std::vector<std::string> &inpaths, 
                    bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,\
                    size_t nq, EncodingType enct);\
 template void ::bns::dist_sketch_and_cmp<sketch::wj::WeightedSketcher<DS>>(std::vector<std::string> &inpaths, std::vector<::bns::CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,\
+                   Spacer sp,\
+                   unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,\
+                   bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,\
+                   size_t nq, EncodingType enct);\
+template void ::bns::dist_sketch_and_cmp<sketch::wj::WeightedSketcher<DS, wj::ExactCountingAdapter>>(std::vector<std::string> &inpaths, std::vector<::bns::CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,\
                    Spacer sp,\
                    unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,\
                    bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,\
@@ -517,7 +523,9 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
         nneighbors = possible_num_neighbors;
     }
     const size_t qoffset = nq ? inpaths.size() - nq: size_t(0);
-    auto neighbors = std::make_unique<validx_t[]>(npairs);
+    const size_t ntups = npairs * nneighbors;
+    auto neighbors = std::make_unique<validx_t[]>(ntups);
+    std::fprintf(stderr, "made %zu pairs with %zu nq, %u neighbors and %zu tups\n", npairs, nq, nneighbors, ntups);
     const double ksinv = 1./ k;
 #define INDEX_FUNC(index, func, cmp) \
         case index: \
@@ -539,8 +547,10 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
         }
 
     if(emt2nntype(result_type) == SIMILARITY_MEASURE) {
+        std::fprintf(stderr, "Performing nn under similarity measure\n");
         ALL_INDEXES(std::greater<>())
     } else {
+        std::fprintf(stderr, "Performing nn under dissimilarity measure\n");
         ALL_INDEXES(std::less<>())
     }
 #undef ALL_INDEXES
@@ -556,25 +566,26 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
     } else {
         std::fprintf(ofp, "#File\tNeighbor ID:distance\t...\n");
         int nt = 1;
-#ifdef _OPENMP
         OMP_PRAGMA("omp parallel")
         {
             OMP_PRAGMA("omp single")
-            nt = omp_get_num_threads();
+            OMP_ONLY(nt = omp_get_num_threads();)
         }
-#endif
         std::vector<ks::string> kstrs;
         while(kstrs.size() < unsigned(nt))
             kstrs.emplace_back(1ull<<10);
         const size_t npaths = inpaths.size();
         OMP_PFOR
         for(size_t i = 0; i < npaths; ++i) {
-            auto &buf(kstrs[i]);
+            auto tid = omp_get_thread_num();
+            auto &buf(kstrs[tid]);
             const validx_t *nptr = &neighbors[i * nneighbors];
+            assert(i * nneighbors + nneighbors < npairs);
             size_t nameind = i + qoffset;
             assert(nameind < inpaths.size());
             buf += inpaths[nameind];
             for(unsigned j = 0; j < nneighbors; ++j) {
+                assert(nptr + j < neighbors.get() + ntups || std::fprintf(stderr, "i = %zu, j = %zu, offset = %zu\n", i, j, i * nneighbors + j));
                 const auto ndat = nptr[j];
                 buf.putc_('\t');
                 buf.putw_(ndat.second);
@@ -582,10 +593,11 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
                 buf.sprintf("%g", ndat.first);
             }
             buf.putc_('\n');
-            if(buf.size() > (1u << 14))
-            OMP_CRITICAL
-            {
-                buf.flush(ofp);
+            if(buf.size() > (1u << 14)) {
+                OMP_CRITICAL
+                {
+                    buf.flush(ofp);
+                }
             }
         }
         for(auto buf: kstrs) buf.flush(ofp);
@@ -669,14 +681,31 @@ void dist_loop(std::FILE *ofp, SketchType *sketches, const std::vector<std::stri
         }
     }
 }
-#define DECSKETCHCORE(DS) template void sketch_core<DS>(uint32_t ssarg, uint32_t nthreads,\
+#define DECSKETCHCORE(DS) \
+  template void sketch_core<DS>(uint32_t ssarg, uint32_t nthreads,\
                                 uint32_t wsz, uint32_t k, const Spacer &sp,\
                                 const std::vector<std::string> &inpaths,\
                                 const std::string &suffix,\
                                 const std::string &prefix, std::vector<CountingSketch> &counting_sketches,\
                                 EstimationMethod estim, JointEstimationMethod jestim,\
                                 KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing,\
-                                int sketchflags, uint32_t mincount, EncodingType enct, std::string s);
+                                int sketchflags, uint32_t mincount, EncodingType enct, std::string s);\
+  template void sketch_core<wj::WeightedSketcher<DS>>(uint32_t ssarg, uint32_t nthreads,\
+                                uint32_t wsz, uint32_t k, const Spacer &sp,\
+                                const std::vector<std::string> &inpaths,\
+                                const std::string &suffix,\
+                                const std::string &prefix, std::vector<CountingSketch> &counting_sketches,\
+                                EstimationMethod estim, JointEstimationMethod jestim,\
+                                KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing,\
+                                int sketchflags, uint32_t mincount, EncodingType enct, std::string s);\
+  template void sketch_core<wj::WeightedSketcher<DS, wj::ExactCountingAdapter>>(uint32_t ssarg, uint32_t nthreads,\
+                                uint32_t wsz, uint32_t k, const Spacer &sp,\
+                                const std::vector<std::string> &inpaths,\
+                                const std::string &suffix,\
+                                const std::string &prefix, std::vector<CountingSketch> &counting_sketches,\
+                                EstimationMethod estim, JointEstimationMethod jestim,\
+                                KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing,\
+                                int sketchflags, uint32_t mincount, EncodingType enct, std::string s);\
 
 
 } // namespace bns
