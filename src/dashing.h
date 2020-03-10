@@ -85,6 +85,7 @@ static option_struct dist_long_options[] = {\
     LO_FLAG("wj", 142, weighted_jaccard, true)\
     LO_ARG("nearest-neighbors", 143)\
     LO_FLAG("use-wide-hll", 144, sketch_type, WIDE_HLL) \
+    LO_FLAG("wj-exact", 145, gargs.exact_weighted, true)\
     {0,0,0,0}\
 };
 
@@ -191,6 +192,10 @@ CONTAIN_OVERLOAD_FAIL(bf::bf_t)
 CONTAIN_OVERLOAD_FAIL(wj::WeightedSketcher<RMFinal>)
 CONTAIN_OVERLOAD_FAIL(wj::WeightedSketcher<bf::bf_t>)
 CONTAIN_OVERLOAD_FAIL(CRMFinal)
+using wjRMFinal = wj::WeightedSketcher<RMFinal, wj::ExactCountingAdapter>;
+using wjBFFinal = wj::WeightedSketcher<bf::bf_t, wj::ExactCountingAdapter>;
+CONTAIN_OVERLOAD_FAIL(wjRMFinal)
+CONTAIN_OVERLOAD_FAIL(wjBFFinal)
 #undef CONTAIN_OVERLOAD_FAIL
 
 using CBBMinHashType = mh::CountingBBitMinHasher<uint64_t, uint16_t>; // Is counting to 65536 enough for a transcriptome?
@@ -224,12 +229,13 @@ static constexpr const char *const sketch_names [] {
 
 
 struct GlobalArgs {
-    size_t weighted_jaccard_cmsize = 22;
-    size_t weighted_jaccard_nhashes = 8;
+    uint32_t weighted_jaccard_cmsize = 22;
+    uint32_t weighted_jaccard_nhashes = 10;
     uint32_t bbnbits = 16;
     uint32_t number_neighbors = 0;
+    bool exact_weighted = false;
     void show() const {
-        std::fprintf(stderr, "Global Arguments: %zu wjcm, %zu wjnh, %u bbits %u nn\n", weighted_jaccard_cmsize, weighted_jaccard_nhashes, bbnbits, number_neighbors);
+        std::fprintf(stderr, "Global Arguments: %u wjcm, %u wjnh, %u bbits %u nn\n", weighted_jaccard_cmsize, weighted_jaccard_nhashes, bbnbits, number_neighbors);
     }
 };
 
@@ -271,9 +277,12 @@ template<typename SketchType>
 struct FinalSketch {
     using final_type = SketchType;
 };
-#define FINAL_OVERLOAD(type) \
-template<> struct FinalSketch<type> { \
-    using final_type = typename type::final_type;}
+#define FINAL_OVERLOAD(x) \
+template<> struct FinalSketch<x> { \
+    using final_type = typename x::final_type;}
+#define FINAL_OVERLOAD2(x, y) \
+template<> struct FinalSketch<x, y> { \
+    using final_type = typename x, y::final_type;}
 FINAL_OVERLOAD(mh::CountingRangeMinHash<uint64_t>);
 FINAL_OVERLOAD(mh::RangeMinHash<uint64_t>);
 FINAL_OVERLOAD(mh::BBitMinHasher<uint64_t>);
@@ -281,10 +290,10 @@ FINAL_OVERLOAD(WideHyperLogLogHasher<>);
 FINAL_OVERLOAD(SuperMinHashType);
 FINAL_OVERLOAD(CBBMinHashType);
 FINAL_OVERLOAD(bf::bf_t);
-FINAL_OVERLOAD(wj::WeightedSketcher<bf::bf_t>);
 FINAL_OVERLOAD(hll::hll_t);
-FINAL_OVERLOAD(wj::WeightedSketcher<hll::hll_t>);
 FINAL_OVERLOAD(khset64_t);
+FINAL_OVERLOAD(wj::WeightedSketcher<bf::bf_t>);
+FINAL_OVERLOAD(wj::WeightedSketcher<hll::hll_t>);
 FINAL_OVERLOAD(wj::WeightedSketcher<khset64_t>);
 FINAL_OVERLOAD(wj::WeightedSketcher<mh::CountingRangeMinHash<uint64_t>>);
 FINAL_OVERLOAD(wj::WeightedSketcher<mh::RangeMinHash<uint64_t>>);
@@ -292,6 +301,15 @@ FINAL_OVERLOAD(wj::WeightedSketcher<mh::BBitMinHasher<uint64_t>>);
 FINAL_OVERLOAD(wj::WeightedSketcher<SuperMinHashType>);
 FINAL_OVERLOAD(wj::WeightedSketcher<WideHyperLogLogHasher<>>);
 FINAL_OVERLOAD(wj::WeightedSketcher<CBBMinHashType>);
+FINAL_OVERLOAD2(wj::WeightedSketcher<bf::bf_t, wj::ExactCountingAdapter>);
+FINAL_OVERLOAD2(wj::WeightedSketcher<hll::hll_t, wj::ExactCountingAdapter>);
+FINAL_OVERLOAD2(wj::WeightedSketcher<khset64_t, wj::ExactCountingAdapter>);
+FINAL_OVERLOAD2(wj::WeightedSketcher<mh::CountingRangeMinHash<uint64_t>, wj::ExactCountingAdapter>);
+FINAL_OVERLOAD2(wj::WeightedSketcher<mh::RangeMinHash<uint64_t>, wj::ExactCountingAdapter>);
+FINAL_OVERLOAD2(wj::WeightedSketcher<mh::BBitMinHasher<uint64_t>, wj::ExactCountingAdapter>);
+FINAL_OVERLOAD2(wj::WeightedSketcher<SuperMinHashType, wj::ExactCountingAdapter>);
+FINAL_OVERLOAD2(wj::WeightedSketcher<WideHyperLogLogHasher<>, wj::ExactCountingAdapter>);
+FINAL_OVERLOAD2(wj::WeightedSketcher<CBBMinHashType, wj::ExactCountingAdapter>);
 template<typename T>struct SketchFileSuffix {static constexpr const char *suffix = ".sketch";};
 #define SSS(type, suf) template<> struct SketchFileSuffix<type> {static constexpr const char *suffix = suf;}
 SSS(mh::CountingRangeMinHash<uint64_t>, ".crmh");
@@ -355,6 +373,7 @@ template<> struct SketchEnum<CBBMinHashType> {static constexpr Sketch value = CO
 template<> struct SketchEnum<khset64_t> {static constexpr Sketch value = FULL_KHASH_SET;};
 template<> struct SketchEnum<SuperMinHashType> {static constexpr Sketch value = BB_SUPERMINHASH;};
 template<> struct SketchEnum<WideHyperLogLogHasher<>> {static constexpr Sketch value = WIDE_HLL;};
+
 template<> struct SketchEnum<wj::WeightedSketcher<hll::hll_t>> {static constexpr Sketch value = HLL;};
 template<> struct SketchEnum<wj::WeightedSketcher<bf::bf_t>> {static constexpr Sketch value = BLOOM_FILTER;};
 template<> struct SketchEnum<wj::WeightedSketcher<mh::RangeMinHash<uint64_t>>> {static constexpr Sketch value = RANGE_MINHASH;};
@@ -364,6 +383,17 @@ template<> struct SketchEnum<wj::WeightedSketcher<CBBMinHashType>> {static const
 template<> struct SketchEnum<wj::WeightedSketcher<khset64_t>> {static constexpr Sketch value = FULL_KHASH_SET;};
 template<> struct SketchEnum<wj::WeightedSketcher<SuperMinHashType>> {static constexpr Sketch value = BB_SUPERMINHASH;};
 template<> struct SketchEnum<wj::WeightedSketcher<WideHyperLogLogHasher<>>> {static constexpr Sketch value = WIDE_HLL;};
+
+template<> struct SketchEnum<wj::WeightedSketcher<hll::hll_t, wj::ExactCountingAdapter>> {static constexpr Sketch value = HLL;};
+template<> struct SketchEnum<wj::WeightedSketcher<bf::bf_t, wj::ExactCountingAdapter>> {static constexpr Sketch value = BLOOM_FILTER;};
+template<> struct SketchEnum<wj::WeightedSketcher<mh::RangeMinHash<uint64_t>, wj::ExactCountingAdapter>> {static constexpr Sketch value = RANGE_MINHASH;};
+template<> struct SketchEnum<wj::WeightedSketcher<mh::CountingRangeMinHash<uint64_t>, wj::ExactCountingAdapter>> {static constexpr Sketch value = COUNTING_RANGE_MINHASH;};
+template<> struct SketchEnum<wj::WeightedSketcher<mh::BBitMinHasher<uint64_t>, wj::ExactCountingAdapter>> {static constexpr Sketch value = BB_MINHASH;};
+template<> struct SketchEnum<wj::WeightedSketcher<CBBMinHashType, wj::ExactCountingAdapter>> {static constexpr Sketch value = COUNTING_BB_MINHASH;};
+template<> struct SketchEnum<wj::WeightedSketcher<khset64_t, wj::ExactCountingAdapter>> {static constexpr Sketch value = FULL_KHASH_SET;};
+template<> struct SketchEnum<wj::WeightedSketcher<SuperMinHashType, wj::ExactCountingAdapter>> {static constexpr Sketch value = BB_SUPERMINHASH;};
+template<> struct SketchEnum<wj::WeightedSketcher<WideHyperLogLogHasher<>, wj::ExactCountingAdapter>> {static constexpr Sketch value = WIDE_HLL;};
+
 
 template<typename T>
 inline void set_estim_and_jestim(T &x, hll::EstimationMethod estim, hll::JointEstimationMethod jestim) {}

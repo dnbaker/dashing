@@ -13,7 +13,7 @@ install:
 script:
   - gcc --version
   - g++ --version
-  - make dashing
+  - make dashing -j8
   - ./dashing dist bonsai/test/GCF_00*z
   - ./dashing dist -8 bonsai/test/GCF_00*z
   - ls bonsai/test/*.gz > fns.txt
@@ -21,7 +21,7 @@ script:
   - ./dashing dist --containment-index -Q qns.txt -F fns.txt
   - ./dashing dist -p4 --containment-index -Q qns.txt -F fns.txt
   - ./dashing dist -p4 --countmin --containment-index -Q qns.txt -F fns.txt
-  - ./dashing dist --nearest-neighbors 2 fns.txt
+  - ./dashing dist --nearest-neighbors 2 -F fns.txt
 notifications:
     slack: jhu-genomics:BbHYSks7DhOolq80IYf6m9oe
     rooms:
