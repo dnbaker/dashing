@@ -140,7 +140,7 @@ dashing-ar: src/main.o dashing.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) dashing.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -march=native -DNDEBUG
 
 dashing: src/dashing.o $(ALL_ZOBJS) $(DEPS)  libzstd.a $(BACKUPOBJ)
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) $(BACKUPOBJ)  -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -march=native -DNDEBUG
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) $(BACKUPOBJ)  -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -march=native -DNDEBUG -lz
 
 dashing_d: $(ALL_ZOBJS) $(DEPS) libzstd.a $(DASHINGSRC)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) $(DASHINGSRC)  -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -march=native src/dashing.cpp # -DNDEBUG
