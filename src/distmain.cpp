@@ -70,7 +70,6 @@ int dist_main(int argc, char *argv[]) {
             case 't': cmsketchsize = std::atoi(optarg); break;
             case 's': spacing  = optarg;                break;
             case 'w': wsz      = std::atoi(optarg);         break;
-            case 'W': cache_sketch = true; break;
             case 'x': suffix   = optarg;                 break;
             case 'O': if((pairofp = fopen(optarg, "wb")) == nullptr)
                           LOG_EXIT("Could not open file at %s for writing.\n", optarg);

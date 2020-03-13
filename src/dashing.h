@@ -311,7 +311,11 @@ FINAL_OVERLOAD2(wj::WeightedSketcher<SuperMinHashType, wj::ExactCountingAdapter>
 FINAL_OVERLOAD2(wj::WeightedSketcher<WideHyperLogLogHasher<>, wj::ExactCountingAdapter>);
 FINAL_OVERLOAD2(wj::WeightedSketcher<CBBMinHashType, wj::ExactCountingAdapter>);
 template<typename T>struct SketchFileSuffix {static constexpr const char *suffix = ".sketch";};
-#define SSS(type, suf) template<> struct SketchFileSuffix<type> {static constexpr const char *suffix = suf;}
+#define SSS(type, suf) \
+    template<> struct SketchFileSuffix<type> {static constexpr const char *suffix = suf;};\
+    template<> struct SketchFileSuffix<wj::WeightedSketcher<type>> {static constexpr const char *suffix = ".wj." suf;};\
+    template<> struct SketchFileSuffix<wj::WeightedSketcher<type, wj::ExactCountingAdapter>> {static constexpr const char *suffix = ".wj.exact." suf;}
+
 SSS(mh::CountingRangeMinHash<uint64_t>, ".crmh");
 SSS(mh::RangeMinHash<uint64_t>, ".rmh");
 SSS(khset64_t, ".khs");
@@ -606,6 +610,7 @@ void sketch_by_seq_usage(const char *arg);
 void flatten_usage();
 void union_usage [[noreturn]] (char *ex);
 int sketch_main(int argc, char *argv[]);
+int panel_main(int argc, char *argv[]);
 int dist_main(int argc, char *argv[]);
 int print_binary_main(int argc, char *argv[]);
 int mkdist_main(int argc, char *argv[]);

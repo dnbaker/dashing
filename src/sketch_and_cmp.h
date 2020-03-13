@@ -1,24 +1,6 @@
 #pragma once
 #include "dashing.h"
 
-#define FILL_SKETCH_MIN(MinType)  \
-    {\
-        Encoder<MinType> enc(nullptr, 0, sp, nullptr, canon);\
-        if(cms.empty()) {\
-            auto &h = sketch;\
-            if(enct == BONSAI) for_each_substr([&](const char *s) {enc.for_each([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
-            else if(enct == NTHASH) for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
-            else for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
-        } else {\
-            CountingSketch &cm = cms.at(tid);\
-            const auto lfunc = [&](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);};\
-            if(enct == BONSAI)      for_each_substr([&](const char *s) {enc.for_each(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
-            else if(enct == NTHASH) for_each_substr([&](const char *s) {enc.for_each_hash(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
-            else                    for_each_substr([&](const char *s) {rolling_hasher.for_each_hash(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
-            cm.clear();\
-        }\
-        CONST_IF(!samesketch) new(final_sketches + i) final_type(std::move(sketch)); \
-    }
 
 using ::sketch::hll::EstimationMethod;
 using ::sketch::hll::JointEstimationMethod;
@@ -69,7 +51,7 @@ static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
         case HLL: case WIDE_HLL: return nblog2;
         case BLOOM_FILTER: return nblog2 + 3; // 8 bits per byte
         case RANGE_MINHASH: return size_t(1) << (nblog2 - 3); // 8 bytes per minimizer
-        case COUNTING_RANGE_MINHASH: return (size_t(1) << (nblog2)) / (sizeof(uint64_t) + sizeof(uint32_t));
+        case COUNTING_RANGE_MINHASH: return (size_t(1) << (nblog2)) / double(sizeof(uint64_t) + sizeof(uint32_t));
         case BB_MINHASH:
             return nblog2 - std::floor(std::log2(gargs.bbnbits / 8));
         case BB_SUPERMINHASH:
@@ -206,11 +188,21 @@ void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<Counting
                     }
                 } else {
                     const int tid = omp_get_thread_num();
-                    if(entropy_minimization) {
-                        FILL_SKETCH_MIN(score::Entropy);
+                    Encoder<score::Lex> enc(nullptr, 0, sp, nullptr, canon);
+                    if(cms.empty()) {
+                        auto &h = sketch;
+                        if(enct == BONSAI) for_each_substr([&](const char *s) {enc.for_each([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
+                        else if(enct == NTHASH) for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
+                        else for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
                     } else {
-                        FILL_SKETCH_MIN(score::Lex);
+                        CountingSketch &cm = cms.at(tid);
+                        const auto lfunc = [&](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);};
+                        if(enct == BONSAI)      for_each_substr([&](const char *s) {enc.for_each(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
+                        else if(enct == NTHASH) for_each_substr([&](const char *s) {enc.for_each_hash(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
+                        else                    for_each_substr([&](const char *s) {rolling_hasher.for_each_hash(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
+                        cm.clear();
                     }
+                    CONST_IF(!samesketch) new(final_sketches + i) final_type(std::move(sketch)); 
                     CONST_IF(samesketch) {
                         if(cache_sketch && !isf) sketch.write(fpath);
                     } else if(cache_sketch) final_sketches[i].write(fpath);
@@ -304,53 +296,79 @@ INLINE void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_
     const auto canon = sketchflags & CANONICALIZE, skip_cached = sketchflags & SKIP_CACHED, entropy_minimization = sketchflags & ENTROPY_MIN;
     std::vector<SketchType> sketches;
     uint32_t sketch_size = bytesl2_to_arg(ssarg, SketchEnum<SketchType>::value);
-    while(sketches.size() < (u32)nthreads) sketches.push_back(construct<SketchType>(sketch_size)), set_estim_and_jestim(sketches.back(), estim, jestim);
+    if(output_file.empty()) {
+        while(sketches.size() < (u32)nthreads) sketches.push_back(construct<SketchType>(sketch_size)), set_estim_and_jestim(sketches.back(), estim, jestim);
+    } else {
+        while(sketches.size() < inpaths.size()) sketches.push_back(construct<SketchType>(sketch_size)), set_estim_and_jestim(sketches.back(), estim, jestim);
+    }
     std::vector<std::string> fnames(nthreads);
     RollingHasher<uint64_t> rolling_hasher(k, canon);
 
     if(entropy_minimization)
         UNRECOVERABLE_ERROR("Unsupported option: entropy_minimization.");
-    #pragma omp parallel for schedule(dynamic)
-    for(size_t i = 0; i < inpaths.size(); ++i) {
-        const int tid = omp_get_thread_num();
-        std::string &fname = fnames[tid];
-        fname = make_fname<SketchType>(inpaths[i].data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix, enct);
-        LOG_DEBUG("fname: %s from %s\n", fname.data(), inpaths[i].data());
-        if(skip_cached && isfile(fname)) continue;
-        Encoder<bns::score::Lex> enc(nullptr, 0, sp, nullptr, canon);
-        auto &h = sketches[tid];
-        if(use_filter.size() && use_filter[i]) {
-            auto &cm = cms[tid];
-            if(enct == NTHASH) {
-                for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.add(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
-            } else if(enct == BONSAI) {
-                for_each_substr([&](const char *s) {enc.for_each([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
-            } else {
-                for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
-            }
-            cm.clear();
-        } else {
-            if(enct == NTHASH) {
-                for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){h.add(kmer);}, inpaths[i].data(), &kseqs[tid]);}, inpaths[i], FNAME_SEP);
-            } else if(enct == BONSAI) {
-                for_each_substr([&](const char *s) {enc.for_each([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
-            } else {
-                for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
-            }
-        }
-        sketch_finalize(h);
-        if(output_file.empty()) {
-            h.write(fname.data());
-            h.clear();
-        }
-    }
-    if(!output_file.empty()) {
-        gzFile outputfp = gzopen(output_file.data(), "w");
-        if(!outputfp) UNRECOVERABLE_ERROR("Failed to emit sketches to output file");
-        for(const auto &s: sketches) {
-            s.write(outputfp);
+    gzFile outputfp = nullptr;
+    if(output_file.size()) {
+        if((outputfp = gzopen((output_file + ".labels.gz").data(), "w")) == nullptr) UNRECOVERABLE_ERROR("Failed to write sequence labels to file");
+        for(const auto &path: inpaths) {
+            gzwrite(outputfp, path.data(), path.size());
+            gzputc(outputfp, '\n');
         }
         gzclose(outputfp);
+        LOG_DEBUG("Wrote labels to file\n");
+    }
+    {
+        if(outputfp) {
+            if((outputfp = gzopen(output_file.data(), "w")) == nullptr)
+                UNRECOVERABLE_ERROR("Failed to write sketches to file");
+#ifndef NDEBUG
+            else std::fprintf(stderr, "Opened file at %s\n", output_file.data());
+#endif
+        }
+        OMP_PRAGMA("parallel for schedule(dynamic)")
+        for(size_t i = 0; i < inpaths.size(); ++i) {
+            const int tid = omp_get_thread_num();
+            std::string &fname = fnames[tid];
+            fname = make_fname<SketchType>(inpaths[i].data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix, enct);
+            LOG_DEBUG("fname: %s from %s\n", fname.data(), inpaths[i].data());
+            unsigned sketchind = outputfp ? unsigned(i): tid;
+            auto &h = sketches[sketchind];
+            if(skip_cached && isfile(fname)) {
+                if(outputfp) h.read(fname);
+                else continue;
+            }
+            Encoder<bns::score::Lex> enc(nullptr, 0, sp, nullptr, canon);
+            const auto &path = inpaths[i];
+            if(use_filter.size() && use_filter[i]) {
+                auto &cm = cms[tid];
+                auto lfunc = [&](u64 kmer){if(cm.addh(kmer) >= mincount) h.add(kmer);};
+#define FOR_EACH_FUNC(wrapperfunc) for_each_substr([&](const char *s) {wrapperfunc(lfunc, s, &kseqs[tid]);}, path, FNAME_SEP)
+                if(enct == NTHASH)      FOR_EACH_FUNC(enc.for_each_hash);
+                else if(enct == BONSAI) FOR_EACH_FUNC(enc.for_each);
+                else                    FOR_EACH_FUNC(rolling_hasher.for_each_hash);
+                cm.clear();
+            } else {
+                auto lfunc = [&](u64 kmer){h.add(kmer);};
+                if(enct == NTHASH)      FOR_EACH_FUNC(enc.for_each_hash);
+                else if(enct == BONSAI) FOR_EACH_FUNC(enc.for_each);
+                else                    FOR_EACH_FUNC(rolling_hasher.for_each_hash);
+            }
+#undef FOR_EACH_FUNC
+            sketch_finalize(h);
+            if(!outputfp) h.write(fname.data()), h.clear();
+        }
+        if(outputfp) {
+#ifndef NDEBUG
+            size_t i = 0;
+            auto it = inpaths.cbegin();
+#endif
+            for(const auto &sketch: sketches) {
+#ifndef NDEBUG
+                std::fprintf(stderr, "Writing sketch %zu/%zu from path %s to file\n", i++, inpaths.size(), (it++)->data());
+#endif
+                sketch.write(outputfp);
+            }
+            gzclose(outputfp);
+        }
     }
 }
 template<typename SketchType>

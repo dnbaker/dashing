@@ -13,7 +13,7 @@ install:
 script:
   - gcc --version
   - g++ --version
-  - make dashing -j8
+  - make dashing
   - ./dashing dist bonsai/test/GCF_00*z
   - ./dashing dist -8 bonsai/test/GCF_00*z
   - ls bonsai/test/*.gz > fns.txt

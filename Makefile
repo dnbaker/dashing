@@ -22,7 +22,7 @@ OPT_MINUS_OPENMP= -O3 -funroll-loops\
 	  -pipe -fno-strict-aliasing -DUSE_PDQSORT \
 	-DNOT_THREADSAFE -mpopcnt \
 	$(FLAGS) $(EXTRA) \
-    -flto
+    #-flto
     #--param max-gcse-memory=200000000 \
 
 OPT=$(OPT_MINUS_OPENMP) # -lgomp /* sometimes needed */-lomp /* for clang */
@@ -101,6 +101,9 @@ test/%.zo: test/%.cpp
 %.o: %.cpp libzstd.a libz.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -DNDEBUG -c $< -o $@ $(LIB) -march=native -lz
 
+%.do: %.cpp libzstd.a libz.a
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c $< -o $@ $(LIB) -march=native -lz
+
 %.o: %.c
 	$(CC) $(CFLAGS) $(INCLUDE) $(LD) -DNDEBUG -c $< -o $@ $(LIB) -march=native
 
@@ -119,9 +122,9 @@ dashing.a: src/dashing.o  libzstd.a bonsai/klib/kthread.o bonsai/clhash.o $(ALL_
 	ar r dashing.a src/dashing.o  libzstd.a $(ALL_ZOBJS) bonsai/klib/kthread.o bonsai/clhash.o
 
 BACKUPOBJ=src/main.o src/union.o src/hllmain.o src/mkdistmain.o src/finalizers.o src/cardests.o src/distmain.o src/construct.o src/flatten_all.o \
-        $(patsubst %.cpp,%.o,$(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp)) src/background.o
+        $(patsubst %.cpp,%.o,$(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp)) src/background.o src/panel.o
 DASHINGSRC=src/main.cpp src/union.cpp src/hllmain.cpp src/mkdistmain.cpp src/finalizers.cpp src/cardests.cpp src/distmain.cpp src/construct.cpp src/flatten_all.cpp \
-        $(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp) src/background.cpp
+        $(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp) src/background.cpp src/panel.cpp
 
 
 bonsai/zstd/zlibWrapper/%.o: bonsai/zstd/zlibWrapper/%.c
