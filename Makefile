@@ -38,7 +38,7 @@ CXXFLAGS_MINUS_OPENMP=$(OPT_MINUS_OPENMP) $(XXFLAGS) -std=c++1z $(WARNINGS) -Wno
 	 -DDASHING_VERSION=\"$(GIT_VERSION)\"
 CCFLAGS=$(OPT) $(CFLAGS) -std=c11 $(WARNINGS)
 #LIB=
-LIB=-ldl -lz
+LIB=-ldl
 LD=-L. $(EXTRA_LD)
 
 
@@ -99,7 +99,7 @@ test/%.zo: test/%.cpp
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c $< -o $@ $(ZCOMPILE_FLAGS)
 
 %.o: %.cpp libzstd.a libz.a
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -DNDEBUG -c $< -o $@ $(LIB) -march=native
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) libz.a -DNDEBUG -c $< -o $@ $(LIB) -march=native
 
 %.do: %.cpp libzstd.a libz.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c $< -o $@ $(LIB) -march=native
