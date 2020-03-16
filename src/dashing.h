@@ -254,7 +254,6 @@ NNType emt2nntype(EmissionType result_type) {
         default:
             return SIMILARITY_MEASURE;
     }
-    throw std::runtime_error("Error: unexpected EmissionType");
     __builtin_unreachable();
     return SIMILARITY_MEASURE;
 }
@@ -567,7 +566,7 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
             DO_LOOP(FULL_CONTAINMENT_DIST, fullcont_sim);
             DO_LOOP(SYMMETRIC_CONTAINMENT_INDEX, symmetric_containment_func)
             DO_LOOP(SYMMETRIC_CONTAINMENT_DIST, sym_cont_dist);
-            default: throw std::runtime_error("Value not found");
+            default: UNRECOVERABLE_ERROR("Value not found");
 #undef DO_LOOP
 //#undef dist_sim
 //#undef cont_sim
