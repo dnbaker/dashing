@@ -37,22 +37,20 @@ nuc_freqs(const std::vector<std::string> &fpaths)
     auto &numseqs = rettuple.numseqs();
     const size_t np = fpaths.size();
     unsigned nt = 1;
-#ifdef _OPENMP
-    OMP_PRAGMA("omp parallel")
+    #pragma omp parallel
     {
-        OMP_PRAGMA("omp single")
+        #pragma omp single
         nt = omp_get_num_threads();
     }
-#endif
     KSeqBufferHolder kseqs(nt);
-    OMP_PFOR
+    #pragma omp parallel for
     for(size_t i = 0; i < np; ++i) {
         uint64_t arr [128]{0};
         size_t nkmer_windows = 0;
         unsigned nseq = 0;
         for_each_substr([&](const char *s) {
             std::fprintf(stderr, "string: %s\n", s);
-            const int tid = OMP_ELSE(omp_get_thread_num(), 0);
+            const int tid = omp_get_thread_num();
             gzFile fp = gzopen(s, "rb");
             if(!fp) {std::fprintf(stderr, "Missing file %s\n", s); std::exit(1);}
             kseq_t *ks = &kseqs[tid];

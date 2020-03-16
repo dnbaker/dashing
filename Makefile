@@ -62,7 +62,7 @@ ZSTD_INCLUDE=$(patsubst %,-I%,$(ZSTD_INCLUDE_DIRS))
 ZFLAGS=-DZWRAP_USE_ZSTD=1
 ZCOMPILE_FLAGS= $(ZFLAGS) -lzstd
 ZW_OBJS=$(patsubst %.c,%.o,bonsai/zstd/zlibWrapper/gzclose.c  bonsai/zstd/zlibWrapper/gzlib.c  bonsai/zstd/zlibWrapper/gzread.c  bonsai/zstd/zlibWrapper/gzwrite.c  bonsai/zstd/zlibWrapper/zstd_zlibwrapper.c) libzstd.a
-ALL_ZOBJS=$(ZOBJS) $(ZW_OBJS) bonsai/clhash.o bonsai/klib/kthread.o libz.a
+ALL_ZOBJS=$(ZOBJS) $(ZW_OBJS) bonsai/clhash.o bonsai/klib/kthread.o
 INCLUDE=-Ibonsai/clhash/include -I.  -Ibonsai/zlib -Ibonsai/libpopcnt -Iinclude -Ibonsai/circularqueue $(ZSTD_INCLUDE) $(INCPLUS) -Isketch/vec -Ibonsai -Ibonsai/include/ \
     -Isketch/include -Isketch -Isketch/include/sketch -Isketch/vec
 
@@ -99,7 +99,10 @@ test/%.zo: test/%.cpp
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c $< -o $@ $(ZCOMPILE_FLAGS)
 
 %.o: %.cpp libzstd.a libz.a
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -DNDEBUG -c $< -o $@ $(LIB) -march=native -lz
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) libz.a -DNDEBUG -c $< -o $@ $(LIB) -march=native
+
+%.do: %.cpp libzstd.a libz.a
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) libz.a -c $< -o $@ $(LIB) -march=native
 
 %.o: %.c
 	$(CC) $(CFLAGS) $(INCLUDE) $(LD) -DNDEBUG -c $< -o $@ $(LIB) -march=native
@@ -119,9 +122,9 @@ dashing.a: src/dashing.o  libzstd.a bonsai/klib/kthread.o bonsai/clhash.o $(ALL_
 	ar r dashing.a src/dashing.o  libzstd.a $(ALL_ZOBJS) bonsai/klib/kthread.o bonsai/clhash.o
 
 BACKUPOBJ=src/main.o src/union.o src/hllmain.o src/mkdistmain.o src/finalizers.o src/cardests.o src/distmain.o src/construct.o src/flatten_all.o \
-        $(patsubst %.cpp,%.o,$(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp)) src/background.o
+        $(patsubst %.cpp,%.o,$(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp)) src/background.o src/panel.o
 DASHINGSRC=src/main.cpp src/union.cpp src/hllmain.cpp src/mkdistmain.cpp src/finalizers.cpp src/cardests.cpp src/distmain.cpp src/construct.cpp src/flatten_all.cpp \
-        $(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp) src/background.cpp
+        $(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp) src/background.cpp src/panel.cpp
 
 
 bonsai/zstd/zlibWrapper/%.o: bonsai/zstd/zlibWrapper/%.c
@@ -137,7 +140,7 @@ dashing-ar: src/main.o dashing.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) dashing.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -march=native -DNDEBUG
 
 dashing: src/dashing.o $(ALL_ZOBJS) $(DEPS)  libzstd.a $(BACKUPOBJ)
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) $(BACKUPOBJ)  -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -march=native -DNDEBUG
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) $(BACKUPOBJ)  -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -march=native -DNDEBUG -lz
 
 dashing_d: $(ALL_ZOBJS) $(DEPS) libzstd.a $(DASHINGSRC)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) $(DASHINGSRC)  -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -march=native src/dashing.cpp # -DNDEBUG
@@ -181,15 +184,15 @@ dashing_s: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS) libgomp.a
 dashing_s128: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)  libgomp.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mno-avx -mno-avx2 -msse2 -msse4.1 -static-libstdc++ -static-libgcc -flto \
     libgomp.a libzstd.a \
-		-DNDEBUG $(DASHINGSRC) src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB) -ldl
+		-DNDEBUG $(DASHINGSRC) src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB) -ldl -lz -lzstd
 dashing_s256: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)  libgomp.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx512bw -mavx2 -msse2 -static-libstdc++ -static-libgcc -flto \
     libgomp.a libzstd.a \
-	-DNDEBUG $(DASHINGSRC) src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB) -ldl
+	-DNDEBUG $(DASHINGSRC) src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB) -ldl -lz -lzstd
 dashing_s512: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)  libgomp.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -mavx512dq -mavx512vl -mavx512bw -static-libstdc++ -static-libgcc -flto  \
     libgomp.a libzstd.a \
-		-DNDEBUG $(DASHINGSRC) src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB) -ldl
+		-DNDEBUG $(DASHINGSRC) src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB) -ldl -lz -lzstd
 dashing_di: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -fno-inline -O1 $(DASHINGSRC) src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 dashing_pg: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
