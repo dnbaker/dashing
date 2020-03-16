@@ -29,6 +29,12 @@
 #define LO_ARG(LONG, SHORT) {LONG, required_argument, 0, SHORT},
 #define LO_NO(LONG, SHORT) {LONG, no_argument, 0, SHORT},
 #define LO_FLAG(LONG, SHORT, VAR, VAL) {LONG, no_argument, (int *)&VAR, VAL},
+
+#define SHARED_OPTS \
+    LO_FLAG("wj-exact", 145, gargs.exact_weighted, true)\
+    LO_FLAG("use-wide-hll", 144, sketch_type, WIDE_HLL) \
+    LO_FLAG("defer-hll", 146, gargs.defer_hll_creation, true)\
+
 #define DIST_LONG_OPTS \
 static option_struct dist_long_options[] = {\
     LO_FLAG("avoid-sorting", 'n', avoid_fsorting, true)\
@@ -84,8 +90,7 @@ static option_struct dist_long_options[] = {\
     LO_ARG("wj-cm-nhashes", 141)\
     LO_FLAG("wj", 142, weighted_jaccard, true)\
     LO_ARG("nearest-neighbors", 143)\
-    LO_FLAG("use-wide-hll", 144, sketch_type, WIDE_HLL) \
-    LO_FLAG("wj-exact", 145, gargs.exact_weighted, true)\
+    SHARED_OPTS \
     {0,0,0,0}\
 };
 
@@ -235,6 +240,7 @@ struct GlobalArgs {
     uint32_t bbnbits = 16;
     uint32_t number_neighbors = 0; // set to 0 signifies that the option is not activated.
     bool exact_weighted = false;
+    bool defer_hll_creation = false;
     void show() const {
         std::fprintf(stderr, "Global Arguments: %u wjcm, %u wjnh, %u bbits %u nn\n", weighted_jaccard_cmsize, weighted_jaccard_nhashes, bbnbits, number_neighbors);
     }

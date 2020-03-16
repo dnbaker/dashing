@@ -169,7 +169,9 @@ int dist_main(int argc, char *argv[]) {
     switch(sketch_type) {
         case BB_MINHASH:      CALL_DIST_BOTH(mh::BBitMinHasher<uint64_t>); break;
         case BB_SUPERMINHASH: CALL_DIST_BOTH(SuperMinHashType); break;
-        case HLL:             CALL_DIST_BOTH(HyperLogLogHasher<>); break;
+        case HLL:      if(gargs.defer_hll_creation) CALL_DIST_BOTH(HyperLogLogHasher<>);
+                       else                         CALL_DIST_BOTH(hll::hll_t);
+        break;
         case WIDE_HLL:        CALL_DIST_BOTH(sketch::WideHyperLogLogHasher<>); break;
         case RANGE_MINHASH:   CALL_DIST_BOTH(mh::RangeMinHash<uint64_t>); break;
         case BLOOM_FILTER:    CALL_DIST_BOTH(bf::bf_t); break;
