@@ -572,6 +572,7 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
         std::fprintf(stderr, "Performing nn under similarity measure\n");
         ALL_INDEXES(std::greater<>())
     } else {
+        std::fprintf(stderr, "Performing nn under dissimilarity measure\n");
         ALL_INDEXES(std::less<>())
     }
 #undef ALL_INDEXES

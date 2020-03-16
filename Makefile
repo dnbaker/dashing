@@ -102,7 +102,7 @@ test/%.zo: test/%.cpp
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) libz.a -DNDEBUG -c $< -o $@ $(LIB) -march=native
 
 %.do: %.cpp libzstd.a libz.a
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c $< -o $@ $(LIB) -march=native
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) libz.a -c $< -o $@ $(LIB) -march=native
 
 %.o: %.c
 	$(CC) $(CFLAGS) $(INCLUDE) $(LD) -DNDEBUG -c $< -o $@ $(LIB) -march=native
