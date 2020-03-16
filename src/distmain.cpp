@@ -13,7 +13,7 @@ namespace bns {
                          unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,\
                          bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,\
                          size_t nq, EncodingType enct);
-DISTEXT(hll::hll_t)
+DISTEXT(HyperLogLogHasher<>)
 DISTEXT(bf::bf_t)
 DISTEXT(mh::RangeMinHash<uint64_t>)
 DISTEXT(mh::CountingRangeMinHash<uint64_t>)
@@ -70,7 +70,6 @@ int dist_main(int argc, char *argv[]) {
             case 't': cmsketchsize = std::atoi(optarg); break;
             case 's': spacing  = optarg;                break;
             case 'w': wsz      = std::atoi(optarg);         break;
-            case 'W': cache_sketch = true; break;
             case 'x': suffix   = optarg;                 break;
             case 'O': if((pairofp = fopen(optarg, "wb")) == nullptr)
                           LOG_EXIT("Could not open file at %s for writing.\n", optarg);
@@ -158,7 +157,7 @@ int dist_main(int argc, char *argv[]) {
     } while(0)
 
 #define CALL_DIST_BOTH(sketchtype) do {\
-    if(weighted_jaccard) {\
+    if(gargs.exact_weighted || weighted_jaccard) {\
         if(gargs.exact_weighted) {\
             CALL_DIST_WEIGHTED_EXACT(sketchtype);\
         } else {\
@@ -170,7 +169,7 @@ int dist_main(int argc, char *argv[]) {
     switch(sketch_type) {
         case BB_MINHASH:      CALL_DIST_BOTH(mh::BBitMinHasher<uint64_t>); break;
         case BB_SUPERMINHASH: CALL_DIST_BOTH(SuperMinHashType); break;
-        case HLL:             CALL_DIST_BOTH(hll::hll_t); break;
+        case HLL:             CALL_DIST_BOTH(HyperLogLogHasher<>); break;
         case WIDE_HLL:        CALL_DIST_BOTH(sketch::WideHyperLogLogHasher<>); break;
         case RANGE_MINHASH:   CALL_DIST_BOTH(mh::RangeMinHash<uint64_t>); break;
         case BLOOM_FILTER:    CALL_DIST_BOTH(bf::bf_t); break;
@@ -288,7 +287,7 @@ int dist_by_seq_main(int argc, char *argv[]) {
     break
 
     switch(sketch_type) {
-        case HLL: DBS(hll_t);
+        case HLL: DBS(hll::hll_t);
         case WIDE_HLL: DBS(whll::wh119_t);
         case FULL_KHASH_SET:
              DBS(khset64_t);

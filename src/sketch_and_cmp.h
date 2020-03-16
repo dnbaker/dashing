@@ -1,24 +1,6 @@
 #pragma once
 #include "dashing.h"
 
-#define FILL_SKETCH_MIN(MinType)  \
-    {\
-        Encoder<MinType> enc(nullptr, 0, sp, nullptr, canon);\
-        if(cms.empty()) {\
-            auto &h = sketch;\
-            if(enct == BONSAI) for_each_substr([&](const char *s) {enc.for_each([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
-            else if(enct == NTHASH) for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
-            else for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
-        } else {\
-            CountingSketch &cm = cms.at(tid);\
-            const auto lfunc = [&](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);};\
-            if(enct == BONSAI)      for_each_substr([&](const char *s) {enc.for_each(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
-            else if(enct == NTHASH) for_each_substr([&](const char *s) {enc.for_each_hash(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
-            else                    for_each_substr([&](const char *s) {rolling_hasher.for_each_hash(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);\
-            cm.clear();\
-        }\
-        CONST_IF(!samesketch) new(final_sketches + i) final_type(std::move(sketch)); \
-    }
 
 using ::sketch::hll::EstimationMethod;
 using ::sketch::hll::JointEstimationMethod;
@@ -69,7 +51,7 @@ static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
         case HLL: case WIDE_HLL: return nblog2;
         case BLOOM_FILTER: return nblog2 + 3; // 8 bits per byte
         case RANGE_MINHASH: return size_t(1) << (nblog2 - 3); // 8 bytes per minimizer
-        case COUNTING_RANGE_MINHASH: return (size_t(1) << (nblog2)) / (sizeof(uint64_t) + sizeof(uint32_t));
+        case COUNTING_RANGE_MINHASH: return (size_t(1) << (nblog2)) / double(sizeof(uint64_t) + sizeof(uint32_t));
         case BB_MINHASH:
             return nblog2 - std::floor(std::log2(gargs.bbnbits / 8));
         case BB_SUPERMINHASH:
@@ -206,11 +188,21 @@ void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<Counting
                     }
                 } else {
                     const int tid = omp_get_thread_num();
-                    if(entropy_minimization) {
-                        FILL_SKETCH_MIN(score::Entropy);
+                    Encoder<score::Lex> enc(nullptr, 0, sp, nullptr, canon);
+                    if(cms.empty()) {
+                        auto &h = sketch;
+                        if(enct == BONSAI) for_each_substr([&](const char *s) {enc.for_each([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
+                        else if(enct == NTHASH) for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
+                        else for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
                     } else {
-                        FILL_SKETCH_MIN(score::Lex);
+                        CountingSketch &cm = cms.at(tid);
+                        const auto lfunc = [&](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);};
+                        if(enct == BONSAI)      for_each_substr([&](const char *s) {enc.for_each(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
+                        else if(enct == NTHASH) for_each_substr([&](const char *s) {enc.for_each_hash(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
+                        else                    for_each_substr([&](const char *s) {rolling_hasher.for_each_hash(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
+                        cm.clear();
                     }
+                    CONST_IF(!samesketch) new(final_sketches + i) final_type(std::move(sketch)); 
                     CONST_IF(samesketch) {
                         if(cache_sketch && !isf) sketch.write(fpath);
                     } else if(cache_sketch) final_sketches[i].write(fpath);
@@ -219,7 +211,7 @@ void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<Counting
             ++ncomplete; // Atomic
         }
     }
-    OMP_PFOR
+    #pragma omp parallel for
     for(size_t i = 0; i < sketches.size(); ++i) {
         sketch_finalize(final_sketches[i]);
     }
@@ -251,7 +243,7 @@ void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<Counting
         std::fflush(pairofp);
     }
     if(emit_fmt & NEAREST_NEIGHBOR_TABLE) {
-        std::fprintf(stderr, "[%s] About to make nn table with result type = %s\n", __PRETTY_FUNCTION__, emt2str(result_type));
+        std::fprintf(stderr, "[%s] About to make nn table with result type = %s. Number inpaths: %zu. \n", __PRETTY_FUNCTION__, emt2str(result_type), inpaths.size());
         nndist_loop(pairofp, final_sketches, inpaths, k, result_type, emit_fmt, nq);
     } else {
         dist_loop<final_type>(pairofp, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, BUFFER_FLUSH_SIZE, nq);
@@ -280,6 +272,11 @@ template void ::bns::dist_sketch_and_cmp<sketch::wj::WeightedSketcher<DS>>(std::
                    Spacer sp,\
                    unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,\
                    bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,\
+                   size_t nq, EncodingType enct);\
+template void ::bns::dist_sketch_and_cmp<sketch::wj::WeightedSketcher<DS, wj::ExactCountingAdapter>>(std::vector<std::string> &inpaths, std::vector<::bns::CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,\
+                   Spacer sp,\
+                   unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,\
+                   bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,\
                    size_t nq, EncodingType enct);
 
 
@@ -299,53 +296,79 @@ INLINE void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_
     const auto canon = sketchflags & CANONICALIZE, skip_cached = sketchflags & SKIP_CACHED, entropy_minimization = sketchflags & ENTROPY_MIN;
     std::vector<SketchType> sketches;
     uint32_t sketch_size = bytesl2_to_arg(ssarg, SketchEnum<SketchType>::value);
-    while(sketches.size() < (u32)nthreads) sketches.push_back(construct<SketchType>(sketch_size)), set_estim_and_jestim(sketches.back(), estim, jestim);
+    if(output_file.empty()) {
+        while(sketches.size() < (u32)nthreads) sketches.push_back(construct<SketchType>(sketch_size)), set_estim_and_jestim(sketches.back(), estim, jestim);
+    } else {
+        while(sketches.size() < inpaths.size()) sketches.push_back(construct<SketchType>(sketch_size)), set_estim_and_jestim(sketches.back(), estim, jestim);
+    }
     std::vector<std::string> fnames(nthreads);
     RollingHasher<uint64_t> rolling_hasher(k, canon);
 
     if(entropy_minimization)
         UNRECOVERABLE_ERROR("Unsupported option: entropy_minimization.");
-    #pragma omp parallel for schedule(dynamic)
-    for(size_t i = 0; i < inpaths.size(); ++i) {
-        const int tid = omp_get_thread_num();
-        std::string &fname = fnames[tid];
-        fname = make_fname<SketchType>(inpaths[i].data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix, enct);
-        LOG_DEBUG("fname: %s from %s\n", fname.data(), inpaths[i].data());
-        if(skip_cached && isfile(fname)) continue;
-        Encoder<bns::score::Lex> enc(nullptr, 0, sp, nullptr, canon);
-        auto &h = sketches[tid];
-        if(use_filter.size() && use_filter[i]) {
-            auto &cm = cms[tid];
-            if(enct == NTHASH) {
-                for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.add(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
-            } else if(enct == BONSAI) {
-                for_each_substr([&](const char *s) {enc.for_each([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
-            } else {
-                for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
-            }
-            cm.clear();
-        } else {
-            if(enct == NTHASH) {
-                for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){h.add(kmer);}, inpaths[i].data(), &kseqs[tid]);}, inpaths[i], FNAME_SEP);
-            } else if(enct == BONSAI) {
-                for_each_substr([&](const char *s) {enc.for_each([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
-            } else {
-                for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
-            }
-        }
-        sketch_finalize(h);
-        if(output_file.empty()) {
-            h.write(fname.data());
-            h.clear();
-        }
-    }
-    if(!output_file.empty()) {
-        gzFile outputfp = gzopen(output_file.data(), "w");
-        if(!outputfp) UNRECOVERABLE_ERROR("Failed to emit sketches to output file");
-        for(const auto &s: sketches) {
-            s.write(outputfp);
+    gzFile outputfp = nullptr;
+    if(output_file.size()) {
+        if((outputfp = gzopen((output_file + ".labels.gz").data(), "w")) == nullptr) UNRECOVERABLE_ERROR("Failed to write sequence labels to file");
+        for(const auto &path: inpaths) {
+            gzwrite(outputfp, path.data(), path.size());
+            gzputc(outputfp, '\n');
         }
         gzclose(outputfp);
+        LOG_DEBUG("Wrote labels to file\n");
+    }
+    {
+        if(outputfp) {
+            if((outputfp = gzopen(output_file.data(), "w")) == nullptr)
+                UNRECOVERABLE_ERROR("Failed to write sketches to file");
+#ifndef NDEBUG
+            else std::fprintf(stderr, "Opened file at %s\n", output_file.data());
+#endif
+        }
+        #pragma omp parallel for schedule(dynamic)
+        for(size_t i = 0; i < inpaths.size(); ++i) {
+            const int tid = omp_get_thread_num();
+            std::string &fname = fnames[tid];
+            fname = make_fname<SketchType>(inpaths[i].data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix, enct);
+            LOG_DEBUG("fname: %s from %s with tid = %d\n", fname.data(), inpaths[i].data(), tid);
+            unsigned sketchind = outputfp ? unsigned(i): tid;
+            auto &h = sketches[sketchind];
+            if(skip_cached && isfile(fname)) {
+                if(outputfp) h.read(fname);
+                else continue;
+            }
+            Encoder<bns::score::Lex> enc(nullptr, 0, sp, nullptr, canon);
+            const auto &path = inpaths[i];
+            if(use_filter.size() && use_filter[i]) {
+                auto &cm = cms[tid];
+                auto lfunc = [&](u64 kmer){if(cm.addh(kmer) >= mincount) h.add(kmer);};
+#define FOR_EACH_FUNC(wrapperfunc) for_each_substr([&](const char *s) {wrapperfunc(lfunc, s, &kseqs[tid]);}, path, FNAME_SEP)
+                if(enct == NTHASH)      FOR_EACH_FUNC(enc.for_each_hash);
+                else if(enct == BONSAI) FOR_EACH_FUNC(enc.for_each);
+                else                    FOR_EACH_FUNC(rolling_hasher.for_each_hash);
+                cm.clear();
+            } else {
+                auto lfunc = [&](u64 kmer){h.add(kmer);};
+                if(enct == NTHASH)      FOR_EACH_FUNC(enc.for_each_hash);
+                else if(enct == BONSAI) FOR_EACH_FUNC(enc.for_each);
+                else                    FOR_EACH_FUNC(rolling_hasher.for_each_hash);
+            }
+#undef FOR_EACH_FUNC
+            sketch_finalize(h);
+            if(!outputfp) h.write(fname.data()), h.clear();
+        }
+        if(outputfp) {
+#ifndef NDEBUG
+            size_t i = 0;
+            auto it = inpaths.cbegin();
+#endif
+            for(const auto &sketch: sketches) {
+#ifndef NDEBUG
+                std::fprintf(stderr, "Writing sketch %zu/%zu from path %s to file\n", i++, inpaths.size(), (it++)->data());
+#endif
+                sketch.write(outputfp);
+            }
+            gzclose(outputfp);
+        }
     }
 }
 template<typename SketchType>
@@ -449,7 +472,7 @@ void perform_nns(validx_t *neighbors,
         default_value = -default_value;
     const size_t n = nq ? nq: inpaths.size();
     std::fprintf(stderr, "default value: %g\n", default_value);
-    OMP_PFOR
+    #pragma omp parallel for
     for(size_t i = 0; i < n; ++i)
         std::fill_n(&neighbors[i * nneighbors], nneighbors,
                   validx_t(default_value, uint32_t(-1)));
@@ -479,7 +502,7 @@ void perform_nns(validx_t *neighbors,
         }
     }
     LOG_DEBUG("Finished loop, now sorting\n");
-    OMP_PFOR
+    #pragma omp parallel for
     for(size_t i = 0; i < n; ++i) {
         auto start = neighbors + (i * nneighbors), end = start + nneighbors;
         std::sort(start, end, cmp);
@@ -518,8 +541,9 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
         nneighbors = possible_num_neighbors;
     }
     const size_t qoffset = nq ? inpaths.size() - nq: size_t(0);
-    auto neighbors = std::make_unique<validx_t[]>(npairs);
-    std::fprintf(stderr, "made %zu pairs\n", npairs);
+    const size_t ntups = npairs * nneighbors;
+    auto neighbors = std::make_unique<validx_t[]>(ntups);
+    std::fprintf(stderr, "made %zu pairs with %zu nq, %u neighbors and %zu tups\n", npairs, nq, nneighbors, ntups);
     const double ksinv = 1./ k;
 #define INDEX_FUNC(index, func, cmp) \
         case index: \
@@ -528,7 +552,7 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
         break;
 
 #define ALL_INDEXES(cmp) \
-        switch(result_type) {\
+    switch(result_type) {\
         INDEX_FUNC(CONTAINMENT_DIST, cont_sim, cmp) \
         INDEX_FUNC(CONTAINMENT_INDEX, containment_index, cmp) \
         INDEX_FUNC(FULL_CONTAINMENT_DIST, fullcont_sim, cmp) \
@@ -537,14 +561,17 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
         INDEX_FUNC(MASH_DIST, dist_sim, cmp) \
         INDEX_FUNC(SIZES, us::intersection_size, cmp) \
         INDEX_FUNC(SYMMETRIC_CONTAINMENT_DIST, sym_cont_dist, cmp) \
-        default: throw std::runtime_error("Not supported");\
-        }
+        default: {\
+            char buf[256];\
+            std::sprintf(buf, "Not supported: %d/%s\n", int(result_type), emt2str(result_type));\
+            UNRECOVERABLE_ERROR(buf);\
+        }\
+    }
 
     if(emt2nntype(result_type) == SIMILARITY_MEASURE) {
-        std::fprintf(stderr, "Performign nn under similarity measure\n");
+        std::fprintf(stderr, "Performing nn under similarity measure\n");
         ALL_INDEXES(std::greater<>())
     } else {
-        std::fprintf(stderr, "Performign nn under dissimilarity measure\n");
         ALL_INDEXES(std::less<>())
     }
 #undef ALL_INDEXES
@@ -560,27 +587,27 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
     } else {
         std::fprintf(ofp, "#File\tNeighbor ID:distance\t...\n");
         int nt = 1;
-#ifdef _OPENMP
-        OMP_PRAGMA("omp parallel")
+        #pragma omp parallel
         {
-            OMP_PRAGMA("omp single")
+            #pragma omp single
             nt = omp_get_num_threads();
         }
-#endif
         std::vector<ks::string> kstrs;
         while(kstrs.size() < unsigned(nt))
             kstrs.emplace_back(1ull<<10);
         std::fprintf(stderr, "Made buffer, ones per thread\n");
         const size_t npaths = inpaths.size();
-        OMP_PFOR
+        #pragma omp parallel for
         for(size_t i = 0; i < npaths; ++i) {
-            auto &buf(kstrs[i]);
+            auto tid = omp_get_thread_num();
+            auto &buf(kstrs[tid]);
             const validx_t *nptr = &neighbors[i * nneighbors];
-            assert(n * nneighbors + nneighbors < npairs);
+            assert(i * nneighbors + nneighbors < npairs);
             size_t nameind = i + qoffset;
             assert(nameind < inpaths.size());
             buf += inpaths[nameind];
             for(unsigned j = 0; j < nneighbors; ++j) {
+                assert(nptr + j < neighbors.get() + ntups || std::fprintf(stderr, "i = %zu, j = %zu, offset = %zu\n", i, j, i * nneighbors + j));
                 const auto ndat = nptr[j];
                 buf.putc_('\t');
                 buf.putw_(ndat.second);
@@ -588,10 +615,11 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
                 buf.sprintf("%g", ndat.first);
             }
             buf.putc_('\n');
-            if(buf.size() > (1u << 14))
-            OMP_CRITICAL
-            {
-                buf.flush(ofp);
+            if(buf.size() > (1u << 14)) {
+                #pragma omp critical
+                {
+                    buf.flush(ofp);
+                }
             }
         }
         for(auto buf: kstrs) buf.flush(ofp);
@@ -675,14 +703,31 @@ void dist_loop(std::FILE *ofp, SketchType *sketches, const std::vector<std::stri
         }
     }
 }
-#define DECSKETCHCORE(DS) template void sketch_core<DS>(uint32_t ssarg, uint32_t nthreads,\
+#define DECSKETCHCORE(DS) \
+  template void sketch_core<DS>(uint32_t ssarg, uint32_t nthreads,\
                                 uint32_t wsz, uint32_t k, const Spacer &sp,\
                                 const std::vector<std::string> &inpaths,\
                                 const std::string &suffix,\
                                 const std::string &prefix, std::vector<CountingSketch> &counting_sketches,\
                                 EstimationMethod estim, JointEstimationMethod jestim,\
                                 KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing,\
-                                int sketchflags, uint32_t mincount, EncodingType enct, std::string s);
+                                int sketchflags, uint32_t mincount, EncodingType enct, std::string s);\
+  template void sketch_core<wj::WeightedSketcher<DS>>(uint32_t ssarg, uint32_t nthreads,\
+                                uint32_t wsz, uint32_t k, const Spacer &sp,\
+                                const std::vector<std::string> &inpaths,\
+                                const std::string &suffix,\
+                                const std::string &prefix, std::vector<CountingSketch> &counting_sketches,\
+                                EstimationMethod estim, JointEstimationMethod jestim,\
+                                KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing,\
+                                int sketchflags, uint32_t mincount, EncodingType enct, std::string s);\
+  template void sketch_core<wj::WeightedSketcher<DS, wj::ExactCountingAdapter>>(uint32_t ssarg, uint32_t nthreads,\
+                                uint32_t wsz, uint32_t k, const Spacer &sp,\
+                                const std::vector<std::string> &inpaths,\
+                                const std::string &suffix,\
+                                const std::string &prefix, std::vector<CountingSketch> &counting_sketches,\
+                                EstimationMethod estim, JointEstimationMethod jestim,\
+                                KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing,\
+                                int sketchflags, uint32_t mincount, EncodingType enct, std::string s);\
 
 
 } // namespace bns
