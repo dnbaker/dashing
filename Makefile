@@ -23,7 +23,6 @@ OPT_MINUS_OPENMP= -O3 -funroll-loops\
 	-DNOT_THREADSAFE -mpopcnt \
 	$(FLAGS) $(EXTRA) \
     -flto
-    #--param max-gcse-memory=200000000 \
 
 OPT=$(OPT_MINUS_OPENMP) # -lgomp /* sometimes needed */-lomp /* for clang */
 ifneq (,$(findstring clang++,$(CXX)))

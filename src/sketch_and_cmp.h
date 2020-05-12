@@ -57,6 +57,21 @@ static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
         case BB_SUPERMINHASH:
             return size_t(1) << (nblog2 - int(std::log2(gargs.bbnbits / 8)));
         case FULL_KHASH_SET: return 16; // Reserve hash set size a bit. Mostly meaningless, resizing as necessary.
+        case HYPERMINHASH: {
+            switch(gargs.bbnbits) {
+                case 8: return nblog2;
+                case 16: return nblog2 - 1;
+                case 32: return nblog2 - 2;
+                case 64: return nblog2 - 3;
+                default: {
+                    if(gargs.bbnbits < 8) {gargs.bbnbits = 8; return nblog2;}
+                    if(gargs.bbnbits < 16) {gargs.bbnbits = 16; return nblog2 - 1;}
+                    if(gargs.bbnbits < 32) {gargs.bbnbits = 32; return nblog2 - 2;}
+                    gargs.bbnbits = 64;
+                    return nblog2 - 3;
+                }
+            }
+        }
         default: {
             char buf[128];
             std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch]));
@@ -163,7 +178,7 @@ void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<Counting
         final_sketches =
             samesketch ? reinterpret_cast<final_type *>(sketches.data())
                        : static_cast<final_type *>(std::malloc(sizeof(*final_sketches) * inpaths.size()));
-        #pragma omp parallel for schedule(dynamic)
+        OMP_PFOR_DYN
         for(size_t i = 0; i < sketches.size(); ++i) {
             const std::string &path(inpaths[i]);
             auto &sketch = sketches[i];
@@ -211,7 +226,7 @@ void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<Counting
             ++ncomplete; // Atomic
         }
     }
-    #pragma omp parallel for
+    OMP_PFOR
     for(size_t i = 0; i < sketches.size(); ++i) {
         sketch_finalize(final_sketches[i]);
     }
@@ -324,7 +339,7 @@ INLINE void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_
             else std::fprintf(stderr, "Opened file at %s\n", output_file.data());
 #endif
         }
-        #pragma omp parallel for schedule(dynamic)
+        OMP_PFOR_DYN
         for(size_t i = 0; i < inpaths.size(); ++i) {
             const int tid = omp_get_thread_num();
             std::string &fname = fnames[tid];
@@ -472,13 +487,13 @@ void perform_nns(validx_t *neighbors,
         default_value = -default_value;
     const size_t n = nq ? nq: inpaths.size();
     std::fprintf(stderr, "default value: %g\n", default_value);
-    #pragma omp parallel for
+    OMP_PFOR
     for(size_t i = 0; i < n; ++i)
         std::fill_n(&neighbors[i * nneighbors], nneighbors,
                   validx_t(default_value, uint32_t(-1)));
     if(nq == 0) {
         auto mutexes = std::make_unique<std::mutex[]>(n);
-        #pragma omp parallel for schedule(dynamic)
+        OMP_PFOR_DYN
         for(size_t i = 0; i < n; ++i) {
             auto lhptr = &neighbors[i * nneighbors];
             const auto &h1 = sketches[i];
@@ -491,7 +506,7 @@ void perform_nns(validx_t *neighbors,
         }
     } else {
         const size_t npaths = inpaths.size(), nr = npaths - nq;
-        #pragma omp parallel for schedule(dynamic)
+        OMP_PFOR_DYN
         for(size_t qi = nr; qi < npaths; ++qi) {
             const size_t qind = qi - nr;
             const auto srcptr = &neighbors[qind * nneighbors];
@@ -502,7 +517,7 @@ void perform_nns(validx_t *neighbors,
         }
     }
     LOG_DEBUG("Finished loop, now sorting\n");
-    #pragma omp parallel for
+    OMP_PFOR
     for(size_t i = 0; i < n; ++i) {
         auto start = neighbors + (i * nneighbors), end = start + nneighbors;
         std::sort(start, end, cmp);
@@ -521,7 +536,7 @@ void perform_nns(validx_t *neighbors,
 template<typename SketchType, typename T, typename Func>
 inline void perform_core_op(T &dists, size_t nsketches, SketchType *sketches, const Func &func, size_t i) {
     auto &h1 = sketches[i];
-    #pragma omp parallel for schedule(dynamic)
+    OMP_PFOR_DYN
     for(size_t j = i + 1; j < nsketches; ++j)
         dists[j - i - 1] = func(sketches[j], h1);
     h1.free();
@@ -588,19 +603,21 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
     } else {
         std::fprintf(ofp, "#File\tNeighbor ID:distance\t...\n");
         int nt = 1;
-        #pragma omp parallel
+#ifdef _OPENMP
+        _Pragma("omp parallel")
         {
-            #pragma omp single
+            _Pragma("omp single")
             nt = omp_get_num_threads();
         }
+#endif
         std::vector<ks::string> kstrs;
         while(kstrs.size() < unsigned(nt))
             kstrs.emplace_back(1ull<<10);
         std::fprintf(stderr, "Made buffer, ones per thread\n");
         const size_t npaths = inpaths.size();
-        #pragma omp parallel for
+        OMP_PFOR
         for(size_t i = 0; i < npaths; ++i) {
-            auto tid = omp_get_thread_num();
+            auto tid = OMP_ELSE(omp_get_thread_num(), 0);
             auto &buf(kstrs[tid]);
             const validx_t *nptr = &neighbors[i * nneighbors];
             assert(i * nneighbors + nneighbors < npairs);
@@ -617,7 +634,7 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
             }
             buf.putc_('\n');
             if(buf.size() > (1u << 14)) {
-                #pragma omp critical
+                OMP_CRITICAL
                 {
                     buf.flush(ofp);
                 }

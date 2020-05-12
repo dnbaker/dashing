@@ -102,6 +102,7 @@ void dist_usage(const char *arg) {
                          "-e, --emit-scientific\tEmit in scientific notation\n\n\n"
                          "===Data Structures===\n\n"
                          "Default: HyperLogLog. Alternatives:\n"
+                         "--use-hyperminhash\tUse HyperMinHash. Defaults to 16-bit registers. Use --bbits/-B bits to modify remainder size to 8, 16, 32, or 64.\n"
                          "--use-bb-minhash/-8\tCreate b-bit minhash sketches\n"
                          "--use-bloom-filter\tCreate bloom filter sketches\n"
                          "--use-range-minhash\tCreate range minhash sketches\n"
@@ -113,7 +114,7 @@ void dist_usage(const char *arg) {
                          "-E, --original      \tUse Ertl's Original Estimator for HLL\n"
                          "-J, --ertl-joint-mle\tUse Ertl's JMLE Estimator for HLL[default:Uses Ertl-MLE]\n\n\n"
                          "===b-bit Minhashing Options (apply for b-bit minhash and b-bit superminhash) ===\n\n"
-                         "--bbits,-B\tSet `b` for b-bit minwise hashing to <int>. Default: 16\n\n\n"
+                         "--bbits,-B\tSet `b` for b-bit minwise hashing to <int>. Default: 16. For HyperMinHash, this sets the full register size.\n\n\n"
                          "===Distance Emission Types===\n\n"
                          "Default: Jaccard Index\n"
                          "Alternatives:\n"
@@ -174,6 +175,7 @@ void sketch_usage(const char *arg) {
                          "--min-count/-n\tProvide minimum expected count for fastq data. If unspecified, all kmers are passed.\n"
                          "--seed/-R\tSet seed for seeds for count-min sketches\n\n\n"
                          "Sketch Type Options --\n\n"
+                         "--use-hyperminhash\tUse HyperMinHash. Defaults to 16-bit registers. Use --bbits/-B bits to modify remainder size to 8, 16, 32, or 64.\n"
                          "--use-bb-minhash/-8\tCreate b-bit minhash sketches\n"
                          "--use-bloom-filter\tCreate bloom filter sketches\n"
                          "--use-range-minhash\tCreate range minhash sketches\n"
@@ -228,9 +230,9 @@ void sketch_by_seq_usage(const char *arg) {
                          "--min-count/-n\tProvide minimum expected count for fastq data. If unspecified, all kmers are passed.\n"
                          "--seed/-R\tSet seed for seeds for count-min sketches\n\n\n"
                          "Sketch Type Options --\n\n"
+                         "--use-hyperminhash\tUse HyperMinHash. Defaults to 16-bit registers. Use --bbits/-B bits to modify remainder size to 8, 16, 32, or 64.\n"
                          "--use-bb-minhash/-8\tCreate b-bit minhash sketches\n"
                          "--use-bloom-filter\tCreate bloom filter sketches\n"
-
                          "--use-range-minhash\tCreate range minhash sketches\n"
                          "--use-super-minhash\tCreate b-bit super minhash sketches\n"
                          "--use-counting-range-minhash\tCreate range minhash sketches\n"
@@ -369,7 +371,7 @@ int sketch_main(int argc, char *argv[]) {
             for(const auto &path: inpaths) use_filter.emplace_back(fname_is_fq(path));
         while(cms.size() < unsigned(nthreads))
 #if DASHING_USE_HK
-            cms.emplace_back(cmsketchsize, nhashes, 1.08, (cms.size() ^ seedseedseed) * 1337uL);
+            cms.emplace_back(cmsketchsize, nhashes, 1.05, (cms.size() ^ seedseedseed) * 1337uL);
 #else
             cms.emplace_back(16, cmsketchsize, nhashes, (cms.size() ^ seedseedseed) * 1337uL);
 #endif
@@ -402,6 +404,7 @@ int sketch_main(int argc, char *argv[]) {
         case BB_MINHASH: SKETCH_CORE(mh::BBitMinHasher<uint64_t>); break;
         case BB_SUPERMINHASH: SKETCH_CORE(SuperMinHashType); break;
         case FULL_KHASH_SET: SKETCH_CORE(khset64_t); break;
+        case HYPERMINHASH: SKETCH_CORE(sketch::HyperMinHash); break;
         default: {
             char buf[128];
             std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));
@@ -572,6 +575,7 @@ int sketch_by_seq_main(int argc, char *argv[]) {
         case BB_MINHASH: SKETCH_BY_SEQ_CORE(mh::BBitMinHasher<uint64_t>); break;
         case BB_SUPERMINHASH: SKETCH_BY_SEQ_CORE(SuperMinHashType); break;
         case FULL_KHASH_SET: SKETCH_BY_SEQ_CORE(khset64_t); break;
+        case HYPERMINHASH: SKETCH_BY_SEQ_CORE(sketch::HyperMinHash); break;
         default: {
             char buf[128];
             std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));
