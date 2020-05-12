@@ -3,6 +3,7 @@
 #include <omp.h>
 #include "sketch/bbmh.h"
 #include "sketch/mh.h"
+#include "sketch/hmh.h"
 #include "sketch/mult.h"
 #include "sketch/hk.h"
 #include "khset/khset.h"
@@ -19,6 +20,10 @@
 #include "khset64.h"
 #include "enums.h"
 
+#ifndef _OPENMP
+#error("Need OpenMP")
+#endif
+
 #if __cplusplus >= 201703L && __cpp_lib_execution
 #include <execution>
 #endif
@@ -34,6 +39,8 @@
     LO_FLAG("wj-exact", 145, gargs.exact_weighted, true)\
     LO_FLAG("use-wide-hll", 144, sketch_type, WIDE_HLL) \
     LO_FLAG("defer-hll", 146, gargs.defer_hll_creation, true)\
+    LO_FLAG("use-hyperminhash", 147, sketch_type, HYPERMINHASH)\
+
 
 #define DIST_LONG_OPTS \
 static option_struct dist_long_options[] = {\
@@ -98,6 +105,7 @@ static option_struct dist_long_options[] = {\
 
 namespace bns {
 using sketch::mh::HyperLogLogHasher;
+using sketch::HyperMinHash;
 int flatten_all(const std::vector<std::string> &fpaths, const std::string outpath, std::vector<unsigned> &k_values);
 namespace detail {void sort_paths_by_fsize(std::vector<std::string> &paths);}
 size_t posix_fsizes(const std::string &path, const char sep=FNAME_SEP);
@@ -218,7 +226,9 @@ enum Sketch: int {
     BB_MINHASH,
     BB_SUPERMINHASH,
     COUNTING_BB_MINHASH, // TODO make this work.
-    WIDE_HLL
+    WIDE_HLL,
+    HYPERMINHASH,
+    HMH = HYPERMINHASH
 };
 static constexpr const char *const sketch_names [] {
     "HLL/HyperLogLog",
@@ -230,6 +240,7 @@ static constexpr const char *const sketch_names [] {
     "BBS/B-bit SuperMinHash",
     "CBB/Counting B-bit Minhash",
     "WHLL/Wide HLL",
+    "HMH/HyperMinHash"
 };
 
 
@@ -300,6 +311,7 @@ FINAL_OVERLOAD(CBBMinHashType);
 FINAL_OVERLOAD(bf::bf_t);
 FINAL_OVERLOAD(hll::hll_t);
 FINAL_OVERLOAD(khset64_t);
+FINAL_OVERLOAD(HyperMinHash);
 FINAL_OVERLOAD(wj::WeightedSketcher<bf::bf_t>);
 FINAL_OVERLOAD(wj::WeightedSketcher<hll::hll_t>);
 FINAL_OVERLOAD(wj::WeightedSketcher<khset64_t>);
@@ -310,6 +322,7 @@ FINAL_OVERLOAD(wj::WeightedSketcher<SuperMinHashType>);
 FINAL_OVERLOAD(wj::WeightedSketcher<WideHyperLogLogHasher<>>);
 FINAL_OVERLOAD(wj::WeightedSketcher<HyperLogLogHasher<>>);
 FINAL_OVERLOAD(wj::WeightedSketcher<CBBMinHashType>);
+FINAL_OVERLOAD(wj::WeightedSketcher<HyperMinHash>);
 FINAL_OVERLOAD2(wj::WeightedSketcher<bf::bf_t, wj::ExactCountingAdapter>);
 FINAL_OVERLOAD2(wj::WeightedSketcher<hll::hll_t, wj::ExactCountingAdapter>);
 FINAL_OVERLOAD2(wj::WeightedSketcher<khset64_t, wj::ExactCountingAdapter>);
@@ -320,6 +333,7 @@ FINAL_OVERLOAD2(wj::WeightedSketcher<SuperMinHashType, wj::ExactCountingAdapter>
 FINAL_OVERLOAD2(wj::WeightedSketcher<WideHyperLogLogHasher<>, wj::ExactCountingAdapter>);
 FINAL_OVERLOAD2(wj::WeightedSketcher<HyperLogLogHasher<>, wj::ExactCountingAdapter>);
 FINAL_OVERLOAD2(wj::WeightedSketcher<CBBMinHashType, wj::ExactCountingAdapter>);
+FINAL_OVERLOAD2(wj::WeightedSketcher<HyperMinHash, wj::ExactCountingAdapter>);
 template<typename T>struct SketchFileSuffix {static constexpr const char *suffix = ".sketch";};
 #define SSS(type, suf) \
     template<> struct SketchFileSuffix<type> {static constexpr const char *suffix = suf;};\
@@ -334,7 +348,7 @@ SSS(mh::BBitMinHasher<uint64_t>, ".bmh");
 SSS(WideHyperLogLogHasher<>, ".whll");
 SSS(SuperMinHashType, ".bbs");
 SSS(CBBMinHashType, ".cbmh");
-SSS(mh::HyperMinHash<uint64_t>, ".hmh");
+SSS(HyperMinHash, ".hmh");
 SSS(hll::hll_t, ".hll");
 SSS(HyperLogLogHasher<>, ".hll");
 #undef SSS
@@ -389,6 +403,8 @@ template<> struct SketchEnum<CBBMinHashType> {static constexpr Sketch value = CO
 template<> struct SketchEnum<khset64_t> {static constexpr Sketch value = FULL_KHASH_SET;};
 template<> struct SketchEnum<SuperMinHashType> {static constexpr Sketch value = BB_SUPERMINHASH;};
 template<> struct SketchEnum<WideHyperLogLogHasher<>> {static constexpr Sketch value = WIDE_HLL;};
+template<> struct SketchEnum<HyperMinHash> {static constexpr Sketch value = HYPERMINHASH;};
+
 
 template<> struct SketchEnum<wj::WeightedSketcher<hll::hll_t>> {static constexpr Sketch value = HLL;};
 template<> struct SketchEnum<wj::WeightedSketcher<HLLH>> {static constexpr Sketch value = HLL;};
@@ -400,6 +416,7 @@ template<> struct SketchEnum<wj::WeightedSketcher<CBBMinHashType>> {static const
 template<> struct SketchEnum<wj::WeightedSketcher<khset64_t>> {static constexpr Sketch value = FULL_KHASH_SET;};
 template<> struct SketchEnum<wj::WeightedSketcher<SuperMinHashType>> {static constexpr Sketch value = BB_SUPERMINHASH;};
 template<> struct SketchEnum<wj::WeightedSketcher<WideHyperLogLogHasher<>>> {static constexpr Sketch value = WIDE_HLL;};
+template<> struct SketchEnum<wj::WeightedSketcher<HyperMinHash>> {static constexpr Sketch value = HYPERMINHASH;};
 
 template<> struct SketchEnum<wj::WeightedSketcher<hll::hll_t, wj::ExactCountingAdapter>> {static constexpr Sketch value = HLL;};
 template<> struct SketchEnum<wj::WeightedSketcher<HLLH, wj::ExactCountingAdapter>> {static constexpr Sketch value = HLL;};
@@ -411,6 +428,7 @@ template<> struct SketchEnum<wj::WeightedSketcher<CBBMinHashType, wj::ExactCount
 template<> struct SketchEnum<wj::WeightedSketcher<khset64_t, wj::ExactCountingAdapter>> {static constexpr Sketch value = FULL_KHASH_SET;};
 template<> struct SketchEnum<wj::WeightedSketcher<SuperMinHashType, wj::ExactCountingAdapter>> {static constexpr Sketch value = BB_SUPERMINHASH;};
 template<> struct SketchEnum<wj::WeightedSketcher<WideHyperLogLogHasher<>, wj::ExactCountingAdapter>> {static constexpr Sketch value = WIDE_HLL;};
+template<> struct SketchEnum<wj::WeightedSketcher<HyperMinHash, wj::ExactCountingAdapter>> {static constexpr Sketch value = HYPERMINHASH;};
 
 
 template<typename T>
@@ -451,6 +469,7 @@ inline double cardinality_estimate(T &x) {
 template<> inline double cardinality_estimate(hll::hll_t &x) {return x.report();}
 template<> inline double cardinality_estimate(mh::FinalBBitMinHash &x) {return x.est_cardinality_;}
 template<> inline double cardinality_estimate(mh::FinalDivBBitMinHash &x) {return x.est_cardinality_;}
+template<> inline double cardinality_estimate(sketch::HyperMinHash &x) {return x.getcard();}
 //extern template double cardinality_estimate(hll::hll_t &x);
 //extern template double cardinality_estimate(mh::FinalBBitMinHash &x);
 //extern template double cardinality_estimate(mh::FinalDivBBitMinHash &x);
@@ -504,12 +523,13 @@ template<> inline double intersection_size<type> (const type &a, const type &b) 
 }
 
 US_DEC(RMFinal)
+US_DEC(sketch::HyperMinHash)
 US_DEC(CRMFinal)
 US_DEC(khset64_t)
 #undef US_DEC
-template<> inline double union_size<hll::hllbase_t<>>(const hll::hllbase_t<> &h1, const hll::hllbase_t<> &h2) {
-    return h1.union_size(h2);
-}
+//template<> inline double union_size<hll::hllbase_t<>>(const hll::hllbase_t<> &h1, const hll::hllbase_t<> &h2) {
+//    return h1.union_size(h2);
+//}
 template<> inline double intersection_size<hll::hllbase_t<>>(const hll::hllbase_t<> &h1, const hll::hllbase_t<> &h2) {
     return std::max(0., h1.creport() + h2.creport() - h1.union_size(h2));
 }
@@ -557,7 +577,7 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
 #define sym_cont_dist(x, y) containment_dist(symmetric_containment_func(x, y), ksinv)
 #define DO_LOOP(name, func)\
                 case name: \
-                _Pragma("omp parallel for schedule(dynamic)") \
+                OMP_PFOR_DYN \
                 for(size_t j = 0; j < nr; ++j) {\
                     arr[qind * nr + j] = func(hlls[j], hlls[qi]);\
                 } \
