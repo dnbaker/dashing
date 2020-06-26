@@ -75,6 +75,41 @@ This would involve a loss of precision from the larger models.
 This currently doesn't support data structures besides HLLs, but we plan to make this change at a later date.
 
 
+## Features
+
+Transparently consumes uncompressed, zlib- or zstd-compressed files.
+
+Caching of sketches to disk (in compressed form)
+
+Calculation of a variety of (dis)similarity measures:
+1. Jaccard Similarity
+2. Mash distance
+3. Containment index 
+4. Containment distance (log transformed containment index)
+5. Symmetric Containment Index (`\frac{|A \bigcap B|}{\min{|A|,|B|}}`) (The maximum of each containment index)
+6. Symmetric Continament Distance (log transformed SCI)
+7. Intersection size
+
+Additionally, supports all the above under the weighted/multiset Jaccard index via labeled w-shingling. (See Broder, 1997 "On the Resemblance and Containment of Documents" for more details.)
+
+#### Filtering
+Filtering of of rare k-mer events via count-min sketch point query estimates. This is primarily desirable for raw sequencing datasets rather than genome assemblies. This is enabled with `-y/--countmin`, and the number of hashes (`--nhashes`), sketch size (`--cm-sketch-size`) and min count `--min-count` can all be controlled by command-line parameters.
+
+#### Encoding options
+1. Exact k-mer encoding (`k <= 32`)
+2. Rolling hashing encoding for any k
+3. Spaced seed encoding (Hamming weight <= 32)
+4. Windowed/minimized k-mers
+
+See the [bonsai](https://github.com/dnbaker/bonsai) for more details on encoding.
+
+#### Output formats
+
+Dashing defaults to upper triangular TSV matrix emission, but it also suppurts upper triangular PHYLIP format, packed binary encoding, and top k-nearest-neighbor emission formats.
+
+This is supported for all symmetric measures (Mash distance, Jaccard, Intersection size, and their multiset equivalents), whereas asymmetric measures and nearest neighbor forms (all variations of containment) have two emission options: tabular and binary.
+
+
 ## Alternative Data Structures
 
 Dashing supports comparisons with a variety of data structures, which have speed and accuracy tradeoffs for given situations.
