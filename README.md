@@ -1,4 +1,4 @@
-# Dashing 🕺 [![Build Status](https://travis-ci.com/dnbaker/dashing.svg?branch=master)](https://travis-ci.com/dnbaker/dashing) [![install with bioconda](https://img.shields.io/badge/install%20with-bioconda-brightgreen.svg?style=flat)](http://bioconda.github.io/recipes/dashing/README.html)
+# Dashing 🕺 [![Build Status](https://travis-ci.com/dnbaker/dashing.svg?branch=main)](https://travis-ci.com/dnbaker/dashing) [![install with bioconda](https://img.shields.io/badge/install%20with-bioconda-brightgreen.svg?style=flat)](http://bioconda.github.io/recipes/dashing/README.html)
 
 dashing sketches and computes distances between fasta and fastq data.
 

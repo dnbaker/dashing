@@ -1,11 +1,9 @@
 [submodule "bonsai"]
 	path = bonsai
 	url = https://github.com/dnbaker/bonsai
-    branch = master
 [submodule "distmat"]
 	path = distmat
 	url = https://github.com/dnbaker/distmat
-    branch = master
 [submodule "khset"]
 	path = khset
 	url = https://github.com/dnbaker/khset
