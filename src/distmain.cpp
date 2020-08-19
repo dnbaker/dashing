@@ -87,6 +87,8 @@ int dist_main(int argc, char *argv[]) {
                 break;
             case 145:
                 gargs.exact_weighted = true; break;
+            case 'W': presketched_only = true; break;
+            // Should also be set by getopt, but users are reporting that it does not.
             case 'h': case '?': dist_usage(bns::executable);
         }
     }
@@ -307,15 +309,6 @@ int dist_by_seq_main(int argc, char *argv[]) {
     std::fclose(ofp);
     return EXIT_SUCCESS;
 }
-
-#if 0
-template<typename SketchType>
-void dist_by_seq(const std::vector<std::string> &labels, const std::vector<SketchType> &sketches,
-                 std::FILE *pairofp, int k,
-                 EstimationMethod estim, EmissionType result_type, EmissionFormat emit_fmt,
-                 unsigned nthreads, bool use_scientific, size_t nq=0) {
-    PREC_REQ(labels.size() == sketches.size(), "Need the same number of sequence names as sketches\n");
-#endif
 
 #undef DIST_LONG_OPTS
 
