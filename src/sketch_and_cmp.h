@@ -86,9 +86,10 @@ template<typename SketchType>
 void dist_by_seq(std::vector<std::string> &labels, std::string datapath,
                  std::FILE *pairofp, int k,
                  EstimationMethod estim, JointEstimationMethod jestim, EmissionType result_type, EmissionFormat emit_fmt,
-                 unsigned nthreads, std::string otherpath) {
+                 unsigned nthreads, std::string otherpath)
+{
     gzFile sfp = gzopen(datapath.data(), "rb");
-    if(!sfp) throw "up";
+    if(!sfp) throw sketch::ZlibError(std::string("Failed to open file at ") + datapath);
     std::vector<SketchType> sketches;
     std::vector<std::string> qnames;
     sketches.reserve(labels.size());
@@ -111,7 +112,7 @@ void dist_by_seq(std::vector<std::string> &labels, std::string datapath,
     const size_t nq = qnames.size();
     gzclose(sfp);
     ks::string str;
-    if(emit_fmt == UT_TSV) {
+    if(emit_fmt == UT_TSV && !nq) {
         size_t nq = 0;
         str.sprintf("##Names\t");
         for(size_t i = 0; i < labels.size() - nq; ++i) {
@@ -143,7 +144,7 @@ void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<Counting
     static_assert(!sketch::wj::is_weighted_sketch<final_type>::value, "Can't have a weighted sketch be a final type");
     std::vector<SketchType> sketches;
     sketches.reserve(inpaths.size());
-    uint32_t sketch_size = bytesl2_to_arg(ssarg, SketchEnum<SketchType>::value);
+    const uint32_t sketch_size = bytesl2_to_arg(ssarg, SketchEnum<SketchType>::value);
     while(sketches.size() < inpaths.size()) {
         sketches.emplace_back(construct<SketchType>(sketch_size));
         set_estim_and_jestim(sketches.back(), estim, jestim);
@@ -247,7 +248,7 @@ void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<Counting
     }
     if(ofp != stdout) std::fclose(ofp);
     str.clear();
-    if(emit_fmt == UT_TSV) {
+    if(emit_fmt == UT_TSV && !nq) {
         str.sprintf("##Names\t");
         for(size_t i = 0; i < inpaths.size() - nq; ++i)
             str.sprintf("%s\t", inpaths[i].data());
