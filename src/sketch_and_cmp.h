@@ -229,7 +229,12 @@ void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<Counting
     }
     OMP_PFOR
     for(size_t i = 0; i < sketches.size(); ++i) {
-        sketch_finalize(final_sketches[i]);
+        try {
+            sketch_finalize(final_sketches[i]);
+        } catch(const std::exception &ex) {
+            std::cerr << "Failed to finalize sketch " << i << " for value " << inpaths[i] << ".\n"
+            << "msg: " << ex.what() << '\n';
+        }
     }
     kseqs.free();
     ks::string str("#Path\tSize (est.)\n");
@@ -434,7 +439,12 @@ INLINE void sketch_by_seq_core(uint32_t ssarg, uint32_t nthreads, const Spacer &
             else
                 rolling_hasher.for_each_hash(add, ks->seq.s, ks->seq.l);
         }
-        sketch_finalize(h);
+        try {
+            sketch_finalize(h);
+        } catch(const std::exception &ex) {
+            std::cerr << "Failed to finalize sketch  for sequence " << ks->seq.s << ".\n"
+            << "msg: " << ex.what() << '\n';
+        }
         if(std::fwrite(ks->name.s, 1, ks->name.l, nameofp) != ks->name.l) std::fprintf(stderr, "Warning: error in writing sequence name\n");
         std::fputc('\n', nameofp);
         h.write(ofp);
