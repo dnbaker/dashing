@@ -87,7 +87,7 @@ int dist_main(int argc, char *argv[]) {
                 break;
             case 145:
                 gargs.exact_weighted = true; break;
-            case 'W': presketched_only = true; break;
+            case 'W': cache_sketch = true; break;
             // Should also be set by getopt, but users are reporting that it does not.
             case 'h': case '?': dist_usage(bns::executable);
         }
