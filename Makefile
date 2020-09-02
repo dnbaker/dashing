@@ -164,9 +164,6 @@ dashing_512bw: $(ALL_ZOBJS) $(DEPS) $(DASHINGSRC)
 dashing_128: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(DASHINGSRC) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx -mno-avx512bw -mno-avx2 -msse2 -msse4.1 -DNDEBUG src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
-libz.a: zlib/configure.log
-	+$(MAKE) -C zlib && cp zlib/libz.a $@
-
 zlib/configure.log:
 	cd zlib && ./configure && cd ..
 
@@ -193,7 +190,6 @@ dashing_pg: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -pg -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 dashing_pgi: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -pg -fno-inline -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
-
 
 bonsai/zlib/libz.a:
 	cd bonsai && make zlib/libz.a && cd ..
