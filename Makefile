@@ -21,8 +21,7 @@ GIT_VERSION := $(shell git describe --abbrev=4 --always)
 OPT_MINUS_OPENMP= -O3 -funroll-loops\
 	  -pipe -fno-strict-aliasing -DUSE_PDQSORT \
 	-DNOT_THREADSAFE -mpopcnt \
-	$(FLAGS) $(EXTRA) \
-    -flto
+	$(FLAGS) $(EXTRA) -flto
 
 OPT=$(OPT_MINUS_OPENMP) # -lgomp /* sometimes needed */-lomp /* for clang */
 ifneq (,$(findstring clang++,$(CXX)))
@@ -61,7 +60,7 @@ ZSTD_INCLUDE=$(patsubst %,-I%,$(ZSTD_INCLUDE_DIRS))
 ZFLAGS=-DZWRAP_USE_ZSTD=1
 ZCOMPILE_FLAGS= $(ZFLAGS) -lzstd
 ZW_OBJS=$(patsubst %.c,%.o,bonsai/zstd/zlibWrapper/gzclose.c  bonsai/zstd/zlibWrapper/gzlib.c  bonsai/zstd/zlibWrapper/gzread.c  bonsai/zstd/zlibWrapper/gzwrite.c  bonsai/zstd/zlibWrapper/zstd_zlibwrapper.c) libzstd.a
-ALL_ZOBJS=$(ZOBJS) $(ZW_OBJS) bonsai/clhash.o bonsai/klib/kthread.o
+ALL_ZOBJS=$(ZOBJS) $(ZW_OBJS) bonsai/clhash.o bonsai/klib/kthread.o bonsai/zlib/libz.a
 INCLUDE=-Ibonsai/clhash/include -I.  -Ibonsai/zlib -Isketch/libpopcnt -Iinclude -Ibonsai/circularqueue $(ZSTD_INCLUDE) $(INCPLUS) -Isketch/vec -Ibonsai -Ibonsai/include/ \
     -Isketch/include -Isketch -Isketch/include/sketch -Isketch/vec
 
@@ -194,6 +193,10 @@ dashing_pg: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -pg -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 dashing_pgi: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -pg -fno-inline -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
+
+
+bonsai/zlib/libz.a:
+	cd bonsai && make zlib/libz.a && cd ..
 
 PREFIX?=/usr/local
 
