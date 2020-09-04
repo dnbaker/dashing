@@ -25,7 +25,7 @@ OPT_MINUS_OPENMP= -O3 -funroll-loops\
 
 OPT=$(OPT_MINUS_OPENMP) # -lgomp /* sometimes needed */-lomp /* for clang */
 ifneq (,$(findstring clang++,$(CXX)))
-	OPT+=-lomp
+	OPT+=-fopenmp -lomp
 else
 	OPT+=-fopenmp
 endif
@@ -192,7 +192,7 @@ dashing_pgi: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -pg -fno-inline -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
 bonsai/zlib/libz.a:
-	cd bonsai && make zlib/libz.a && cd ..
+	+cd bonsai && $(MAKE) zlib/libz.a && cd ..
 
 PREFIX?=/usr/local
 
