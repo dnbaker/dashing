@@ -3,6 +3,6 @@
 
 using namespace bns;
 int main(int argc, char **argv) {
-    bns::executable = argv[0];
+    bns::executable = "cardcmp";
     return card_main(argc, argv);
 }
