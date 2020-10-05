@@ -1,29 +1,5 @@
 #include "dashing.h"
 #include "sketch_and_cmp.h"
-#if 0
-template<typename SketchType>
-void size_sketch_and_emit(std::vector<std::string> &inpaths, std::vector<CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,
-                         Spacer sp,
-                         unsigned ssarg, unsigned mincount, EstimationMethod estim, bool cache_sketch, bool emit_binary,
-                         bool use_scientific,
-                         bool presketched_only, unsigned nthreads, std::string prefix, bool canon, std::string spacing)
-
-std::vector<std::string> &inpaths, std::vector<CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp,
-                         Spacer sp,                                                                    
-                         unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, bool emit_binary,
-                         bool use_scientific,                                                          
-                         bool presketched_only, unsigned nthreads, std::string prefix, bool canon, std::string spacing)
-
-
-
-    size_sketch_and_emit<sketchtype>(inpaths, cms, kseqs, ofp, sp, sketch_size,\
-                                    mincount, estim, jestim, cache_sketch,\
-                                    emit_binary, 
-                        presketched_only, nthreads,\
-                                    use_scientific, suffix, prefix, canon,\
-                                    entropy_minimization, spacing, nq, enct)
-
-#endif
 
 #define CALL_SIZE_MAIN(sketchtype) \
  size_sketch_and_emit<sketchtype>(inpaths, cms, kseqs, ofp, sp, sketch_size, mincount, enct, estim, jestim, cache_sketch, emit_binary, use_scientific, \
