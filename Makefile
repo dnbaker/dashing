@@ -21,7 +21,7 @@ GIT_VERSION := $(shell git describe --abbrev=4 --always)
 OPT_MINUS_OPENMP= -O3 -funroll-loops\
 	  -pipe -fno-strict-aliasing -DUSE_PDQSORT \
 	-DNOT_THREADSAFE -mpopcnt \
-	$(FLAGS) $(EXTRA) -flto
+	$(FLAGS) $(EXTRA) #-flto
 
 OPT=$(OPT_MINUS_OPENMP) # -lgomp /* sometimes needed */-lomp /* for clang */
 ifneq (,$(findstring clang++,$(CXX)))

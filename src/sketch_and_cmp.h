@@ -190,13 +190,7 @@ void size_sketch_and_emit(std::vector<std::string> &inpaths, std::vector<Countin
                 CONST_IF(samesketch) {
                     sketch.read(path);
                     set_estim_and_jestim(sketch, estim, jestim); // HLL is the only type that needs this, and it's the same
-#if 0
-                    if constexpr(std::is_same<hll_t, SketchType>::value) {
-                        std::fprintf(stderr, "Parsed genome of cardinality %g, p = %d\n", sketch.cardinality_estimate(), sketch.p());
-                    }
-#endif
                 } else {
-                    //TD<final_type> td;
                     new(final_sketches + i) final_type(path.data()); // Read from path
                 }
             } else {
