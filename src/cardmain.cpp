@@ -126,17 +126,14 @@ int card_main(int argc, char *argv[]) {
         std::fprintf(stderr, "Use nthash's rolling hash for kmers. This comes at the expense of reversibility\n");
 
     switch(sketch_type) {
-        case BB_MINHASH:      CALL_SIZE_MAIN(mh::BBitMinHasher<uint64_t>); break;
-        case BB_SUPERMINHASH: CALL_SIZE_MAIN(SuperMinHashType); break;
+        //case BB_MINHASH:      CALL_SIZE_MAIN(mh::BBitMinHasher<uint64_t>); break;
+        //case BB_SUPERMINHASH: CALL_SIZE_MAIN(SuperMinHashType); break;
         case HLL:      if(gargs.defer_hll_creation) CALL_SIZE_MAIN(HyperLogLogHasher<>);
                        else                         CALL_SIZE_MAIN(hll::hll_t);
         break;
-        case WIDE_HLL:        CALL_SIZE_MAIN(sketch::WideHyperLogLogHasher<>); break;
         case RANGE_MINHASH:   CALL_SIZE_MAIN(mh::RangeMinHash<uint64_t>); break;
         case BLOOM_FILTER:    CALL_SIZE_MAIN(bf::bf_t); break;
         case FULL_KHASH_SET:  CALL_SIZE_MAIN(khset64_t); break;
-        case COUNTING_RANGE_MINHASH:
-                              CALL_SIZE_MAIN(mh::CountingRangeMinHash<uint64_t>); break;
         default: {
                 char buf[128];
                 std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));
