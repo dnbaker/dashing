@@ -131,7 +131,7 @@ int card_main(int argc, char *argv[]) {
         case HLL:      if(gargs.defer_hll_creation) CALL_SIZE_MAIN(HyperLogLogHasher<>);
                        else                         CALL_SIZE_MAIN(hll::hll_t);
         break;
-        case RANGE_MINHASH:   CALL_SIZE_MAIN(mh::RangeMinHash<uint64_t>); break;
+        case RANGE_MINHASH:   CALL_SIZE_MAIN(BKHash64); break;
         case BLOOM_FILTER:    CALL_SIZE_MAIN(bf::bf_t); break;
         case FULL_KHASH_SET:  CALL_SIZE_MAIN(khset64_t); break;
         default: {
