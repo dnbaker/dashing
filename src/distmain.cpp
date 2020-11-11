@@ -15,7 +15,8 @@ namespace bns {
                          size_t nq, EncodingType enct);
 DISTEXT(HyperLogLogHasher<>)
 DISTEXT(bf::bf_t)
-DISTEXT(mh::RangeMinHash<uint64_t>)
+//DISTEXT(mh::RangeMinHash<uint64_t>)
+DISTEXT(BKHash64)
 DISTEXT(mh::CountingRangeMinHash<uint64_t>)
 DISTEXT(khset64_t)
 DISTEXT(SuperMinHashType)
@@ -175,7 +176,7 @@ int dist_main(int argc, char *argv[]) {
                        else                         CALL_DIST_BOTH(hll::hll_t);
         break;
         case WIDE_HLL:        CALL_DIST_BOTH(sketch::WideHyperLogLogHasher<>); break;
-        case RANGE_MINHASH:   CALL_DIST_BOTH(mh::RangeMinHash<uint64_t>); break;
+        case RANGE_MINHASH:   CALL_DIST_BOTH(BKHash64); break;
         case BLOOM_FILTER:    CALL_DIST_BOTH(bf::bf_t); break;
         case FULL_KHASH_SET:  CALL_DIST_BOTH(khset64_t); break;
         case COUNTING_RANGE_MINHASH:
