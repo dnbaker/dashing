@@ -129,6 +129,160 @@ void dist_by_seq(std::vector<std::string> &labels, std::string datapath,
 
 
 template<typename SketchType>
+void size_sketch_and_emit(std::vector<std::string> &inpaths, std::vector<CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp,
+                         Spacer sp,
+                         unsigned ssarg, unsigned mincount, EncodingType enct, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, bool emit_binary,
+                         bool use_scientific,
+                         bool presketched_only, unsigned nthreads, std::string suffix, std::string prefix, bool canon, std::string spacing)
+{
+    // nq -- number of queries
+    //       for convenience, we will perform our comparisons (all-p) against (all-q) [remainder]
+    //       and use the same guts for all portions of the process
+    //       except for the final comparison and output.
+    assert(nq <= inpaths.size());
+    using final_type = typename FinalSketch<SketchType>::final_type;
+    static_assert(!sketch::wj::is_weighted_sketch<final_type>::value, "Can't have a weighted sketch be a final type");
+    auto buf(std::make_unique<uint8_t[]>(inpaths.size() * sizeof(SketchType)));
+    auto bufp = &buf[0];
+    auto sketches = (SketchType *)bufp;
+    const size_t npaths = inpaths.size();
+    const uint32_t sketch_size = bytesl2_to_arg(ssarg, SketchEnum<SketchType>::value);
+    OMP_PFOR
+    for(size_t i = 0; i < npaths; ++i) {
+        new(sketches + i) SketchType(construct<SketchType>(sketch_size));
+        set_estim_and_jestim(sketches[i], estim, jestim);
+    }
+    static constexpr bool samesketch = std::is_same<SketchType, final_type>::value;
+    final_type *final_sketches;
+    std::unique_ptr<std::vector<final_type>> raii_final_sketches;
+
+    std::atomic<uint32_t> ncomplete;
+    ncomplete.store(0);
+    const unsigned k = sp.k_;
+    const unsigned wsz = sp.w_;
+    RollingHasher<uint64_t> rolling_hasher(k, canon);
+    if(npaths == 1 && presketched_only) {
+        raii_final_sketches.reset(new std::vector<final_type>);
+        gzFile ifp = gzopen(inpaths[0].data(), "rb");
+        if(!ifp) UNRECOVERABLE_ERROR("Failed to open file.");
+        for(;;) {
+            try {
+                //TD<decltype(raii_final_sketches)> td;
+                raii_final_sketches->emplace_back(ifp);
+                set_estim_and_jestim(raii_final_sketches->back(), estim, jestim);
+            } catch(...) {
+                break;
+            }
+        }
+        final_sketches = raii_final_sketches->data();
+        while(inpaths.size() < raii_final_sketches->size())
+            inpaths.emplace_back(std::to_string(inpaths.size()));
+        inpaths[0] = "0";
+    } else {
+        final_sketches =
+            samesketch ? reinterpret_cast<final_type *>(sketches)
+                       : static_cast<final_type *>(std::malloc(sizeof(*final_sketches) * npaths));
+        OMP_PFOR_DYN
+        for(size_t i = 0; i < npaths; ++i) {
+            const std::string &path(inpaths[i]);
+            auto &sketch = sketches[i];
+            if(presketched_only)  {
+                CONST_IF(samesketch) {
+                    sketch.read(path);
+                    set_estim_and_jestim(sketch, estim, jestim); // HLL is the only type that needs this, and it's the same
+                } else {
+                    new(final_sketches + i) final_type(path.data()); // Read from path
+                }
+            } else {
+                const std::string fpath(make_fname<SketchType>(path.data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix, enct));
+                const bool isf = isfile(fpath);
+                if(cache_sketch && isf) {
+                    LOG_DEBUG("Sketch found at %s with size %zu, %u\n", fpath.data(), size_t(1ull << sketch_size), sketch_size);
+                    CONST_IF(samesketch) {
+                        sketch.read(fpath);
+                        set_estim_and_jestim(sketch, estim, jestim);
+                    } else {
+                        new(final_sketches + i) final_type(fpath);
+                    }
+                } else {
+                    const int tid = omp_get_thread_num();
+                    Encoder<score::Lex> enc(nullptr, 0, sp, nullptr, canon);
+                    if(cms.empty()) {
+                        auto &h = sketch;
+                        if(enct == BONSAI) for_each_substr([&](const char *s) {enc.for_each([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
+                        else if(enct == NTHASH) for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
+                        else for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
+                    } else {
+                        CountingSketch &cm = cms.at(tid);
+                        const auto lfunc = [&](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);};
+                        if(enct == BONSAI)      for_each_substr([&](const char *s) {enc.for_each(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
+                        else if(enct == NTHASH) for_each_substr([&](const char *s) {enc.for_each_hash(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
+                        else                    for_each_substr([&](const char *s) {rolling_hasher.for_each_hash(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
+                        cm.clear();
+                    }
+                    CONST_IF(!samesketch) new(final_sketches + i) final_type(std::move(sketch)); 
+                    CONST_IF(samesketch) {
+                        if(cache_sketch && !isf) sketch.write(fpath);
+                    } else if(cache_sketch) final_sketches[i].write(fpath);
+                }
+            }
+            ++ncomplete; // Atomic
+        }
+    }
+    OMP_PFOR
+    for(size_t i = 0; i < npaths; ++i) {
+        try {
+            sketch_finalize(final_sketches[i]);
+        } catch(const std::exception &ex) {
+            std::cerr << "Failed to finalize sketch " << i << " for value " << inpaths[i] << ".\n"
+            << "msg: " << ex.what() << '\n';
+        }
+    }
+    kseqs.free();
+    auto fbuf = std::make_unique<float[]>(npaths);
+    OMP_PFOR
+    for(size_t i = 0; i < npaths; ++i) {
+        CONST_IF(samesketch) fbuf[i] = cardinality_estimate(sketches[i]);
+        else                 fbuf[i] = cardinality_estimate(final_sketches[i]);
+    }
+    if(emit_binary) {
+        if(std::fwrite(&fbuf[0], sizeof(float), npaths, ofp) != npaths) {
+            throw std::system_error(std::ferror(ofp), std::system_category(), "Failed to write cardinality estimates to file");
+        }
+    } else {
+        ks::string str("#Path\tSize (est.)\n");
+        str.resize(BUFFER_FLUSH_SIZE);
+        {
+            const int fn(fileno(ofp));
+            constexpr const char *scinotstr = "%s\t%0.12g\n";
+            constexpr const char *stdnotstr = "%s\t%0.8f\n";
+            const char *const ptr = use_scientific ? scinotstr: stdnotstr;
+            for(size_t i(0); i < npaths; ++i) {
+                str.sprintf(ptr, inpaths[i].data(), fbuf[i]);
+                if(str.size() >= BUFFER_FLUSH_SIZE) str.flush(fn);
+            }
+            str.flush(fn);
+        }
+    }
+    if(ofp != stdout) std::fclose(ofp);
+    CONST_IF(!samesketch) {
+        if(!raii_final_sketches) {
+            OMP_PFOR
+            for(size_t i = 0; i < npaths; ++i) {
+                using T = typename std::decay<decltype(final_sketches[0])>::type;
+                final_sketches[i].~T();
+            }
+            std::free(final_sketches);
+        }
+    }
+    OMP_PFOR
+    for(size_t i = 0; i < npaths; ++i) {
+        sketches[i].~SketchType();
+    }
+} // size_sketch_and_emit
+
+
+template<typename SketchType>
 void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,
                          Spacer sp,
                          unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,

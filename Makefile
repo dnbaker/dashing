@@ -21,11 +21,11 @@ GIT_VERSION := $(shell git describe --abbrev=4 --always)
 OPT_MINUS_OPENMP= -O3 -funroll-loops\
 	  -pipe -fno-strict-aliasing -DUSE_PDQSORT \
 	-DNOT_THREADSAFE -mpopcnt \
-	$(FLAGS) $(EXTRA) -flto
+	$(FLAGS) $(EXTRA) #-flto
 
 OPT=$(OPT_MINUS_OPENMP) # -lgomp /* sometimes needed */-lomp /* for clang */
 ifneq (,$(findstring clang++,$(CXX)))
-	OPT+=-lomp
+	OPT+=-fopenmp -lomp
 else
 	OPT+=-fopenmp
 endif
@@ -68,7 +68,7 @@ EX=$(patsubst src/%.cpp,%,$(wildcard src/*.cpp))
 D_EX=$(patsubst src/%.cpp,%_d,$(wildcard src/*.cpp))
 
 
-all: dashing
+all: dashing cardcmp
 
 d: $(D_EX)
 
@@ -116,9 +116,10 @@ dashing.a: src/dashing.o  libzstd.a bonsai/klib/kthread.o bonsai/clhash.o $(ALL_
 	ar r dashing.a src/dashing.o  libzstd.a $(ALL_ZOBJS) bonsai/klib/kthread.o bonsai/clhash.o
 
 BACKUPOBJ=src/main.o src/union.o src/hllmain.o src/mkdistmain.o src/finalizers.o src/cardests.o src/distmain.o src/construct.o src/flatten_all.o \
-        $(patsubst %.cpp,%.o,$(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp)) src/background.o src/panel.o
+        $(patsubst %.cpp,%.o,$(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp)) src/background.o src/panel.o src/cardmain.o
+CARDCMPO=src/cardmain.o src/finalizers.o src/dashing.o
 DASHINGSRC=src/main.cpp src/union.cpp src/hllmain.cpp src/mkdistmain.cpp src/finalizers.cpp src/cardests.cpp src/distmain.cpp src/construct.cpp src/flatten_all.cpp \
-        $(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp) src/background.cpp src/panel.cpp
+        $(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp) src/background.cpp src/panel.cpp src/cardmain.cpp
 
 
 bonsai/zstd/zlibWrapper/%.o: bonsai/zstd/zlibWrapper/%.c
@@ -132,6 +133,9 @@ dashing-ar: src/main.o dashing.a
 
 %: src/%.o dashing.a
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) dashing.a -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -march=native -DNDEBUG
+
+cardcmp: src/cardcmp.o $(ALL_ZOBJS) $(DEPS)  libzstd.a $(CARDCMPO)
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -O3 $< -o $@ $(CARDCMPO) $(ZCOMPILE_FLAGS) $(LIB) -march=native -DNDEBUG -lz
 
 dashing: src/dashing.o $(ALL_ZOBJS) $(DEPS)  libzstd.a $(BACKUPOBJ)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) $(BACKUPOBJ)  -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -march=native -DNDEBUG -lz
@@ -192,7 +196,7 @@ dashing_pgi: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g -pg -fno-inline -DNDEBUG $< -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
 bonsai/zlib/libz.a:
-	cd bonsai && make zlib/libz.a && cd ..
+	+cd bonsai && $(MAKE) zlib/libz.a && cd ..
 
 PREFIX?=/usr/local
 
