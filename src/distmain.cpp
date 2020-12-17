@@ -171,7 +171,6 @@ int dist_main(int argc, char *argv[]) {
 
     switch(sketch_type) {
         case BB_MINHASH:      CALL_DIST_BOTH(mh::BBitMinHasher<uint64_t>); break;
-        case BB_SUPERMINHASH: CALL_DIST_BOTH(SuperMinHashType); break;
         case HLL:      if(gargs.defer_hll_creation) CALL_DIST_BOTH(HyperLogLogHasher<>);
                        else                         CALL_DIST_BOTH(hll::hll_t);
         break;
@@ -179,8 +178,6 @@ int dist_main(int argc, char *argv[]) {
         case RANGE_MINHASH:   CALL_DIST_BOTH(BKHash64); break;
         case BLOOM_FILTER:    CALL_DIST_BOTH(bf::bf_t); break;
         case FULL_KHASH_SET:  CALL_DIST_BOTH(khset64_t); break;
-        case COUNTING_RANGE_MINHASH:
-                              CALL_DIST_BOTH(mh::CountingRangeMinHash<uint64_t>); break;
         default: {
                 char buf[128];
                 std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));
@@ -255,7 +252,7 @@ int dist_by_seq_main(int argc, char *argv[]) {
             case 'S':
             case '8': sketch_type = BB_MINHASH; break;
             case 'K': sketch_type = FULL_KHASH_SET; break;
-            case 'C': sketch_type = COUNTING_RANGE_MINHASH; break;
+            //case 'C': sketch_type = COUNTING_RANGE_MINHASH; break;
             case 'r': sketch_type = RANGE_MINHASH; break;
             case 'p': nthreads = std::atoi(optarg); break;
             case 'o': outpath = optarg; break;
@@ -299,8 +296,6 @@ int dist_by_seq_main(int argc, char *argv[]) {
         case BLOOM_FILTER: DBS(bf_t);
         case BB_MINHASH: case BB_SUPERMINHASH:
             DBS(FinalBBitMinHash);
-        case COUNTING_RANGE_MINHASH:
-            DBS(CRMFinal);
         case RANGE_MINHASH:
             DBS(RMFinal);
         default:
