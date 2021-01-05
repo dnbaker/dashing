@@ -3,16 +3,19 @@
 
 namespace bns {
 #define DISTEXT(sketchtype) \
-    extern template void dist_sketch_and_cmp<sketchtype>(std::vector<std::string> &inpaths, std::vector<CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp, \
+     extern template void  \
+                     dist_sketch_and_cmp<sketchtype>(std::vector<std::string> &inpaths, std::vector<CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *&pairofp, std::string outpath,\
                          Spacer sp,\
                          unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,\
                          bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,\
                          size_t nq, EncodingType enct);\
-    extern template void dist_sketch_and_cmp<sketch::wj::WeightedSketcher<sketchtype>>(std::vector<std::string> &inpaths, std::vector<CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp, \
+     extern template void  \
+                     dist_sketch_and_cmp<sketch::wj::WeightedSketcher<sketchtype>>(std::vector<std::string> &inpaths, std::vector<CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *&pairofp, std::string outpath,\
                          Spacer sp,\
                          unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,\
                          bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,\
                          size_t nq, EncodingType enct);
+
 DISTEXT(HyperLogLogHasher<>)
 DISTEXT(bf::bf_t)
 //DISTEXT(mh::RangeMinHash<uint64_t>)
@@ -147,7 +150,7 @@ int dist_main(int argc, char *argv[]) {
     if(enct == NTHASH)
         std::fprintf(stderr, "Use nthash's rolling hash for kmers. This comes at the expense of reversibility\n");
 #define CALL_DIST(sketchtype) \
-    dist_sketch_and_cmp<sketchtype>(inpaths, cms, kseqs, ofp, pairofp, sp, sketch_size,\
+    dist_sketch_and_cmp<sketchtype>(inpaths, cms, kseqs, ofp, pairofp, pairofp_path, sp, sketch_size,\
                                     mincount, estim, jestim, cache_sketch, result_type,\
                                     emit_fmt, presketched_only, nthreads,\
                                     use_scientific, suffix, prefix, canon,\
@@ -195,7 +198,7 @@ int dist_main(int argc, char *argv[]) {
             std::fclose(fp);
         }, pairofp_labels);
     }
-    if(pairofp != stdout) std::fclose(pairofp);
+    if(pairofp  && pairofp != stdout) std::fclose(pairofp);
     if(label_future.valid()) label_future.get();
     return EXIT_SUCCESS;
 } // dist_main
@@ -284,7 +287,7 @@ int dist_by_seq_main(int argc, char *argv[]) {
     std::FILE *ofp = std::fopen(outpath.data(), "wb");
     std::fprintf(stderr, "Prepared everything. Now calling dist_by_seq\n");
 #define DBS(sketch)  \
-    dist_by_seq<sketch>(labels, argv[optind], ofp, \
+    dist_by_seq<sketch>(labels, argv[optind], ofp, outpath, \
                         k, estim, jestim, result_type, emit_fmt, nthreads, otherpath); \
     break
 

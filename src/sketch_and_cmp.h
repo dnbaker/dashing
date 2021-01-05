@@ -43,7 +43,7 @@ size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks:
     return index;
 }
 template<typename SketchType>
-void dist_loop(std::FILE *ofp, SketchType *sketches, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int, const size_t buffer_flush_size, size_t nq);
+void dist_loop(std::FILE *&ofp, std::string ofpname, SketchType *sketches, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int, const size_t buffer_flush_size, size_t nq);
 using namespace sketch;
 using namespace hll;
 static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
@@ -84,7 +84,7 @@ static size_t bytesl2_to_arg(int nblog2, Sketch sketch) {
 
 template<typename SketchType>
 void dist_by_seq(std::vector<std::string> &labels, std::string datapath,
-                 std::FILE *pairofp, int k,
+                 std::FILE *pairofp, std::string outpath, int k,
                  EstimationMethod estim, JointEstimationMethod jestim, EmissionType result_type, EmissionFormat emit_fmt,
                  unsigned nthreads, std::string otherpath)
 {
@@ -124,7 +124,7 @@ void dist_by_seq(std::vector<std::string> &labels, std::string datapath,
         std::fprintf(pairofp, "%zu\n", labels.size());
         std::fflush(pairofp);
     }
-    dist_loop<SketchType>(pairofp, sketches.data(), labels, /* use_scientific=*/ true, k, result_type, emit_fmt, nthreads, BUFFER_FLUSH_SIZE, nq);
+    dist_loop<SketchType>(pairofp, outpath, sketches.data(), labels, /* use_scientific=*/ true, k, result_type, emit_fmt, nthreads, BUFFER_FLUSH_SIZE, nq);
 }
 
 
@@ -283,7 +283,7 @@ void size_sketch_and_emit(std::vector<std::string> &inpaths, std::vector<Countin
 
 
 template<typename SketchType>
-void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,
+void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *&pairofp, std::string outpath,
                          Spacer sp,
                          unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,
                          bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,
@@ -421,7 +421,7 @@ void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<Counting
         std::fprintf(stderr, "[%s] About to make nn table with result type = %s. Number inpaths: %zu. \n", __PRETTY_FUNCTION__, emt2str(result_type), inpaths.size());
         nndist_loop(pairofp, final_sketches, inpaths, k, result_type, emit_fmt, nq);
     } else {
-        dist_loop<final_type>(pairofp, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, BUFFER_FLUSH_SIZE, nq);
+        dist_loop<final_type>(pairofp, outpath, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, BUFFER_FLUSH_SIZE, nq);
     }
     CONST_IF(!samesketch) {
         if(!raii_final_sketches) {
@@ -438,17 +438,20 @@ void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<Counting
     }
 } // dist_sketch_and_cmp
 #define DECSKETCHCMP(DS) \
-template void ::bns::dist_sketch_and_cmp<DS>(std::vector<std::string> &inpaths, std::vector<::bns::CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,\
+template void ::bns::dist_sketch_and_cmp<DS>(std::vector<std::string> &inpaths, std::vector<::bns::CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *&pairofp,\
+                   std::string,\
                    Spacer sp,\
                    unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,\
                    bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,\
                    size_t nq, EncodingType enct);\
-template void ::bns::dist_sketch_and_cmp<sketch::wj::WeightedSketcher<DS>>(std::vector<std::string> &inpaths, std::vector<::bns::CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,\
+template void ::bns::dist_sketch_and_cmp<sketch::wj::WeightedSketcher<DS>>(std::vector<std::string> &inpaths, std::vector<::bns::CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *&pairofp,\
+                   std::string,\
                    Spacer sp,\
                    unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,\
                    bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,\
                    size_t nq, EncodingType enct);\
-template void ::bns::dist_sketch_and_cmp<sketch::wj::WeightedSketcher<DS, wj::ExactCountingAdapter>>(std::vector<std::string> &inpaths, std::vector<::bns::CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,\
+template void ::bns::dist_sketch_and_cmp<sketch::wj::WeightedSketcher<DS, wj::ExactCountingAdapter>>(std::vector<std::string> &inpaths, std::vector<::bns::CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *&pairofp,\
+                   std::string,\
                    Spacer sp,\
                    unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,\
                    bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,\
@@ -699,12 +702,17 @@ void perform_nns(validx_t *neighbors,
 }
 
 template<typename SketchType, typename T, typename Func>
-inline void perform_core_op(T &dists, size_t nsketches, SketchType *sketches, const Func &func, size_t i) {
+inline void perform_core_op(T &dists, size_t nsketches, SketchType *sketches, const Func &func, size_t i, bool multithreaded) {
     auto &h1 = sketches[i];
-    OMP_PFOR_DYN
-    for(size_t j = i + 1; j < nsketches; ++j)
-        dists[j - i - 1] = func(sketches[j], h1);
-    h1.free();
+    if(multithreaded) {
+        OMP_PFOR_DYN
+        for(size_t j = i + 1; j < nsketches; ++j)
+            dists[j - i - 1] = func(sketches[j], h1);
+    } else {
+        for(size_t j = i + 1; j < nsketches; ++j)
+            dists[j - i - 1] = func(sketches[j], h1);
+    }
+    //h1.free();
 }
 
 template<typename SketchType>
@@ -809,41 +817,41 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
     }
 }
 
-#define CORE_ITER() do {\
+#define CORE_ITER(mt) do {\
         switch(result_type) {\
             case MASH_DIST: {\
-                perform_core_op(dists, nsketches, sketches, [ksinv](const auto &x, const auto &y) {return dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
+                perform_core_op(dists, nsketches, sketches, [ksinv](const auto &x, const auto &y) {return dist_index(similarity<const SketchType>(x, y), ksinv);}, i, mt);\
                 break;\
             }\
             case JI: {\
-            perform_core_op(dists, nsketches, sketches, similarity<const SketchType>, i);\
+            perform_core_op(dists, nsketches, sketches, similarity<const SketchType>, i, mt);\
                 break;\
             }\
             case SIZES: {\
-            perform_core_op(dists, nsketches, sketches, us::intersection_size<SketchType>, i);\
+            perform_core_op(dists, nsketches, sketches, us::intersection_size<SketchType>, i, mt);\
                 break;\
             }\
             case FULL_MASH_DIST:\
-                perform_core_op(dists, nsketches, sketches, [ksinv](const auto &x, const auto &y) {return full_dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
+                perform_core_op(dists, nsketches, sketches, [ksinv](const auto &x, const auto &y) {return full_dist_index(similarity<const SketchType>(x, y), ksinv);}, i, mt);\
                 break;\
             case SYMMETRIC_CONTAINMENT_DIST:\
                 perform_core_op(dists, nsketches, sketches, [ksinv](const auto &x, const auto &y) { \
                     const auto triple = set_triple(x, y);\
                     auto ret = triple[2] / (std::min(triple[0], triple[1]) + triple[2]);\
                     return dist_index(ret, ksinv);\
-                }, i);\
+                }, i, mt);\
                 break;\
             case SYMMETRIC_CONTAINMENT_INDEX:\
                 perform_core_op(dists, nsketches, sketches, [&](const auto &x, const auto &y) {\
                     const auto triple = set_triple(x, y);\
                     return triple[2] / (std::min(triple[0], triple[1]) + triple[2]);\
-                }, i);\
+                }, i, mt);\
                 break;\
             default: __builtin_unreachable();\
         } } while(0)
 
 template<typename SketchType>
-void dist_loop(std::FILE *ofp, SketchType *sketches, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int, const size_t buffer_flush_size, size_t nq) {
+void dist_loop(std::FILE *&ofp, std::string ofp_name, SketchType *sketches, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int, const size_t buffer_flush_size, size_t nq) {
     if(nq) {
         partdist_loop<SketchType>(ofp, sketches, inpaths, use_scientific, k, result_type, emit_fmt, buffer_flush_size, nq);
         return;
@@ -864,7 +872,7 @@ void dist_loop(std::FILE *ofp, SketchType *sketches, const std::vector<std::stri
         ks::string str;
         for(size_t i = 0; i < nsketches; ++i) {
             std::vector<float> &dists = dps[i & 1];
-            CORE_ITER();
+            CORE_ITER(true);
             //LOG_DEBUG("Finished chunk %zu of %zu\n", i + 1, nsketches);
             if(i) submitter.get();
             submitter = std::async(std::launch::async, submit_emit_dists<float>,
@@ -875,16 +883,29 @@ void dist_loop(std::FILE *ofp, SketchType *sketches, const std::vector<std::stri
     } else {
         const float defv = static_cast<float>(emt2nntype(result_type) == SIMILARITY_MEASURE);
         // 1. for the diagonal for similarity, 0 for dissimilarity
-        if(emit_fmt == FULL_TSV) {
-            dm::DistanceMatrix<float> dm(nsketches, defv);
-            for(size_t i = 0; i < nsketches; ++i) {
+        auto fill_matrix = [&](dm::DistanceMatrix<float> &dm) {
+            OMP_PFOR
+            for(size_t i = 0; i < nsketches - 1; ++i) {
                 auto span = dm.row_span(i);
                 auto &dists = span.first;
-                CORE_ITER();
+                CORE_ITER(false);
             }
-            dm.printf(ofp, use_scientific, &inpaths);
+        };
+        if(emit_fmt == FULL_TSV || ::isatty(::fileno(ofp))) {
+            dm::DistanceMatrix<float> dm(nsketches, defv);
+            fill_matrix(dm);
+            if(emit_fmt == FULL_TSV)
+                dm.printf(ofp, use_scientific, &inpaths);
+            else
+                dm.write(ofp);
         } else {
-            dm.write(ofp);
+            // Resize file
+            ::ftruncate(::fileno(ofp), 1 + sizeof(uint64_t) + ((nsketches * (nsketches - 1)) >> 1));
+            std::fclose(ofp);
+            ofp = stdout;
+            // Modify in-place
+            dm::DistanceMatrix<float> dm(ofp_name.data());
+            fill_matrix(dm);
         }
     }
 }
