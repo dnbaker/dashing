@@ -873,15 +873,17 @@ void dist_loop(std::FILE *ofp, SketchType *sketches, const std::vector<std::stri
         }
         submitter.get();
     } else {
-        dm::DistanceMatrix<float> dm(nsketches);
-        for(size_t i = 0; i < nsketches; ++i) {
-            auto span = dm.row_span(i);
-            auto &dists = span.first;
-            CORE_ITER();
-        }
-        if(emit_fmt == FULL_TSV) dm.printf(ofp, use_scientific, &inpaths);
-        else {
-            assert(emit_fmt == BINARY);
+        const float defv = static_cast<float>(emt2nntype(result_type) == SIMILARITY_MEASURE);
+        // 1. for the diagonal for similarity, 0 for dissimilarity
+        if(emit_fmt == FULL_TSV) {
+            dm::DistanceMatrix<float> dm(nsketches, defv);
+            for(size_t i = 0; i < nsketches; ++i) {
+                auto span = dm.row_span(i);
+                auto &dists = span.first;
+                CORE_ITER();
+            }
+            dm.printf(ofp, use_scientific, &inpaths);
+        } else {
             dm.write(ofp);
         }
     }
