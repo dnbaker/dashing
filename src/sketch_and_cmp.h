@@ -701,18 +701,25 @@ void perform_nns(validx_t *neighbors,
 #endif
 }
 
-template<typename SketchType, typename T, typename Func>
-inline void perform_core_op(T &dists, size_t nsketches, SketchType *sketches, const Func &func, size_t i, bool multithreaded) {
+template<bool MT=true, typename SketchType, typename T, typename Func>
+inline void perform_core_op(T &dists, size_t nsketches, SketchType *sketches, const Func &func, size_t i) {
+    using f_t = std::decay_t<decltype(dists[0])>;
     auto &h1 = sketches[i];
-    if(multithreaded) {
+    auto perform_one = [&](size_t j)
+#ifdef __GNUC__
+    __attribute__((__always_inline__))
+#endif
+    {
+        f_t v = func(sketches[j], h1);
+        // In case memory storage is unaligned
+        std::memcpy(&dists[j - i - 1], &v, sizeof(v));
+    };
+    if(MT) {
         OMP_PFOR_DYN
-        for(size_t j = i + 1; j < nsketches; ++j)
-            dists[j - i - 1] = func(sketches[j], h1);
+        for(size_t j = i + 1; j < nsketches; ++j) perform_one(j);
     } else {
-        for(size_t j = i + 1; j < nsketches; ++j)
-            dists[j - i - 1] = func(sketches[j], h1);
+        for(size_t j = i + 1; j < nsketches; perform_one(j++));
     }
-    //h1.free();
 }
 
 template<typename SketchType>
@@ -820,32 +827,32 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
 #define CORE_ITER(mt) do {\
         switch(result_type) {\
             case MASH_DIST: {\
-                perform_core_op(dists, nsketches, sketches, [ksinv](const auto &x, const auto &y) {return dist_index(similarity<const SketchType>(x, y), ksinv);}, i, mt);\
+                perform_core_op<mt>(dists, nsketches, sketches, [ksinv](const auto &x, const auto &y) {return dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
                 break;\
             }\
             case JI: {\
-            perform_core_op(dists, nsketches, sketches, similarity<const SketchType>, i, mt);\
+            perform_core_op<mt>(dists, nsketches, sketches, similarity<const SketchType>, i);\
                 break;\
             }\
             case SIZES: {\
-            perform_core_op(dists, nsketches, sketches, us::intersection_size<SketchType>, i, mt);\
+            perform_core_op<mt>(dists, nsketches, sketches, us::intersection_size<SketchType>, i);\
                 break;\
             }\
             case FULL_MASH_DIST:\
-                perform_core_op(dists, nsketches, sketches, [ksinv](const auto &x, const auto &y) {return full_dist_index(similarity<const SketchType>(x, y), ksinv);}, i, mt);\
+                perform_core_op<mt>(dists, nsketches, sketches, [ksinv](const auto &x, const auto &y) {return full_dist_index(similarity<const SketchType>(x, y), ksinv);}, i);\
                 break;\
             case SYMMETRIC_CONTAINMENT_DIST:\
-                perform_core_op(dists, nsketches, sketches, [ksinv](const auto &x, const auto &y) { \
+                perform_core_op<mt>(dists, nsketches, sketches, [ksinv](const auto &x, const auto &y) { \
                     const auto triple = set_triple(x, y);\
                     auto ret = triple[2] / (std::min(triple[0], triple[1]) + triple[2]);\
                     return dist_index(ret, ksinv);\
-                }, i, mt);\
+                }, i);\
                 break;\
             case SYMMETRIC_CONTAINMENT_INDEX:\
-                perform_core_op(dists, nsketches, sketches, [&](const auto &x, const auto &y) {\
+                perform_core_op<mt>(dists, nsketches, sketches, [&](const auto &x, const auto &y) {\
                     const auto triple = set_triple(x, y);\
                     return triple[2] / (std::min(triple[0], triple[1]) + triple[2]);\
-                }, i, mt);\
+                }, i);\
                 break;\
             default: __builtin_unreachable();\
         } } while(0)
@@ -902,7 +909,7 @@ void dist_loop(std::FILE *&ofp, std::string ofp_name, SketchType *sketches, cons
             // Resize file
             ::ftruncate(::fileno(ofp), 1 + sizeof(uint64_t) + ((nsketches * (nsketches - 1)) >> 1));
             std::fclose(ofp);
-            ofp = stdout;
+            ofp = nullptr;
             // Modify in-place
             dm::DistanceMatrix<float> dm(ofp_name.data());
             fill_matrix(dm);
