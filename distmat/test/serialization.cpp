@@ -1,4 +1,5 @@
 #include "distmat.h"
+#include <iostream>
 #include <random>
 
 template<typename T>
@@ -44,4 +45,17 @@ int main() {
     test_serialization<int16_t>(n);
     test_serialization<int32_t>(n);
     test_serialization<int64_t>(n);
+    std::FILE *tmp = std::fopen("zomg.file", "wb");
+    std::fputc('\0', tmp);
+    std::fwrite(&n, sizeof(n), 1, tmp);
+    size_t nelem = (n * (n - 1)) >> 1;
+    float val = 1.37;
+    for(size_t i = 0; i < nelem; ++i)
+        std::fwrite(&val, sizeof(val), 1, tmp);
+    std::fclose(tmp);
+    if(1) {
+        dm::DistanceMatrix<float> dm("zomg.file");
+    }
+    ::system("rm zomg.file");
+    //std::cerr << dm << '\n';
 }

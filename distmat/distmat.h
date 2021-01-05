@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <optional>
 #include <cassert>
 #include <cinttypes>
 #include <cstdint>
@@ -164,25 +165,8 @@ class DistanceMatrix {
     std::unique_ptr<ArithType> dup_;
     uint64_t  nelem_, num_entries_;
     ArithType default_value_;
-    struct MMapFPBundle {
-        using sink_t = mio::mmap_sink;
-        mio::mmap_sink *ms_ = nullptr;
-        std::FILE *fp_ = nullptr;
-        ~MMapFPBundle() {
-            if(fp_) std::fclose(fp_);
-            if(ms_) ms_->~sink_t();
-        }
-        MMapFPBundle(const MMapFPBundle &o) {
-            fp_ = o.fp_;
-            ms_ = o.ms_;
-        }
-        MMapFPBundle() {}
-        MMapFPBundle(std::FILE *fp): fp_(fp) {
-            ms_ = new mio::mmap_sink(::fileno(fp));
-        }
-    };
-    
-    MMapFPBundle mfbp_;
+    std::unique_ptr<mio::mmap_sink> mfbp_;
+
 public:
     static constexpr const char *magic_string() {return more_magic::MAGIC_NUMBER<ArithType>::name();}
     static constexpr more_magic::MagicNumber magic_number() {return more_magic::MAGIC_NUMBER<ArithType>::magic_number;}
@@ -406,22 +390,19 @@ public:
             gzread(gzfp, data_, sizeof(ArithType) * num_entries_);
             gzclose(gzfp);
         } else {
-            // Otherwise, open a new file on disk, mmap it, and return a pointer
-            std::FILE *ofp = std::fopen(path, "wb");
-            const size_t nb = 1 + sizeof(num_entries_) + sizeof(ArithType) * num_entries_;
-            std::fputc(magic_number(), ofp);
-            if(std::fwrite(&nelem_, sizeof(nelem_), 1, ofp) != 1) throw std::runtime_error("Failed to write nelem to disk");
-            // Resize
-            std::fprintf(stderr, "About to truncate\n");
-            ::ftruncate(::fileno(ofp), nb);
-            struct stat ss;
-            ::fstat(::fileno(ofp), &ss);
-            std::fprintf(stderr, "truncated. file size: %zd\n", ss.st_size);
-            std::fclose(ofp);
-            mio::mmap_sink ms(path);
-            // MMap
-            //mfbp_ = MMapFPBundle(ofp);
-            data_ = reinterpret_cast<ArithType *>(ms.data() + 1 + sizeof(nelem_));
+            if(::access(path, F_OK) == -1) {
+                // If file does not exist,
+                // open a new file on disk and resize it.
+                std::FILE *ofp = std::fopen(path, "wb");
+                const size_t nb = 1 + sizeof(num_entries_) + sizeof(ArithType) * num_entries_;
+                std::fputc(magic_number(), ofp);
+                if(std::fwrite(&nelem_, sizeof(nelem_), 1, ofp) != 1) throw std::runtime_error("Failed to write nelem to disk");
+                // Resize
+                ::ftruncate(::fileno(ofp), nb);
+                std::fclose(ofp);
+            }
+            mfbp_.reset(new mio::mmap_sink(path));
+            data_ = reinterpret_cast<ArithType *>((*mfbp_).data() + 1 + sizeof(nelem_));
         }
         std::fclose(fp);
     }
