@@ -1,29 +1,38 @@
 #include "dashing.h"
 namespace bns {
+using sketch::hll_t;
 
-template<typename T>
-T &merge(T &dest, const T &src) {
-    return dest += src;
+void show(const std::vector<std::string> &p) {
+    for(const auto &x: p) std::fprintf(stderr, "%s ", x.data());
+    std::fputc('\n', stderr);
 }
+
 template<typename T>
 void union_core(std::vector<std::string> &paths, gzFile ofp) {
     T ret(paths.back().data());
     paths.pop_back();
-    if(paths.size() == 1) {
-        merge(ret, T(paths.back().data()));
-        paths.pop_back();
-        assert(paths.empty());
-        return;
-    }
-    T tmp(paths.back().data());
-    paths.pop_back();
-    merge(ret, tmp);
-    while(paths.size()) {
-        tmp.read(paths.back().data());
-        paths.pop_back();
-        merge(ret, tmp);
+    for(const auto &path: paths) {
+        T tmp(path.data());
+        ret += tmp;
     }
     ret.write(ofp);
+}
+
+template<>
+void union_core<sketch::hll_t>(std::vector<std::string> &paths, gzFile ofp) {
+    sketch::hll_t fs(paths[0]);
+    fs.sum();
+    char *p = new char[sizeof(sketch::hll_t) * (paths.size() - 1)];
+    hll_t *oh = reinterpret_cast<hll_t *>(p);
+    OMP_PFOR
+    for(size_t i = 1; i < paths.size(); ++i) {
+        new(oh + i - 1) hll_t(paths[i].data());
+    }
+    for(size_t i = 1; i < paths.size(); ++i) {
+        fs += oh[i - 1];
+    }
+    for(size_t i = 1; i < paths.size(); ++i) oh[i].~hll_t();
+    fs.write(ofp);
 }
 
 int union_main(int argc, char *argv[]) {
