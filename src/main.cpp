@@ -29,7 +29,6 @@ int main(int argc, char *argv[]) {
     {"hll", hll_main},
     {"view", view_main},
     {"panel", panel_main},
-    //{"mkdist", mkdist_main},
     {"card", card_main},
     {"printmat", print_binary_main},
     {"dist_by_seq", dist_by_seq_main},
