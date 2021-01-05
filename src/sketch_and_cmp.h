@@ -283,11 +283,7 @@ void size_sketch_and_emit(std::vector<std::string> &inpaths, std::vector<Countin
 
 
 template<typename SketchType>
-<<<<<<< HEAD
-void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *pairofp,
-=======
 void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<CountingSketch> &cms, KSeqBufferHolder &kseqs, std::FILE *ofp, std::FILE *&pairofp, std::string outpath,
->>>>>>> 522d52a7b0bf187d2329a9ae8b953be81adb23dd
                          Spacer sp,
                          unsigned ssarg, unsigned mincount, EstimationMethod estim, JointEstimationMethod jestim, bool cache_sketch, EmissionType result_type, EmissionFormat emit_fmt,
                          bool presketched_only, unsigned nthreads, bool use_scientific, std::string suffix, std::string prefix, bool canon, bool entropy_minimization, std::string spacing,

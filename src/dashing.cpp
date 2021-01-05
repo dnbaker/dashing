@@ -568,10 +568,6 @@ int sketch_by_seq_main(int argc, char *argv[]) {
         case WIDE_HLL: SKETCH_BY_SEQ_CORE(sketch::WideHyperLogLogHasher<>); break;
         case BLOOM_FILTER: SKETCH_BY_SEQ_CORE(bf::bf_t); break;
         case RANGE_MINHASH: SKETCH_BY_SEQ_CORE(BKHash64); break;
-<<<<<<< HEAD
-        case COUNTING_RANGE_MINHASH: SKETCH_BY_SEQ_CORE(mh::CountingRangeMinHash<uint64_t>); break;
-=======
->>>>>>> 522d52a7b0bf187d2329a9ae8b953be81adb23dd
         case BB_MINHASH: SKETCH_BY_SEQ_CORE(mh::BBitMinHasher<uint64_t>); break;
         case FULL_KHASH_SET: SKETCH_BY_SEQ_CORE(khset64_t); break;
         default: {
