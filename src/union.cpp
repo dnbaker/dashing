@@ -25,6 +25,7 @@ void union_core(std::vector<std::string> &paths, gzFile ofp) {
     }
     ret.write(ofp);
 }
+
 int union_main(int argc, char *argv[]) {
     if(std::find_if(argv, argc + argv,
                     [](const char *s) {return std::strcmp(s, "--help") == 0 || std::strcmp(s, "-h") == 0;})

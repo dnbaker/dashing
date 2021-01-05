@@ -102,12 +102,9 @@ void dist_usage(const char *arg) {
                          "-e, --emit-scientific\tEmit in scientific notation\n\n\n"
                          "===Data Structures===\n\n"
                          "Default: HyperLogLog. Alternatives:\n"
-                         "--use-hyperminhash\tUse HyperMinHash. Defaults to 16-bit registers. Use --bbits/-B bits to modify remainder size to 8, 16, 32, or 64.\n"
                          "--use-bb-minhash/-8\tCreate b-bit minhash sketches\n"
                          "--use-bloom-filter\tCreate bloom filter sketches\n"
                          "--use-range-minhash\tCreate range minhash sketches\n"
-                         "--use-super-minhash\tCreate b-bit superminhash sketches\n"
-                         "--use-counting-range-minhash\tCreate range minhash sketches\n"
                          "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n\n\n"
                          "===Sketch-specific Options===\n\n"
                          "-I, --improved      \tUse Ertl's Improved Estimator for HLL\n"
@@ -283,10 +280,10 @@ static option_struct sketch_long_options[] = {\
     LO_ARG("suffix", 'x')\
 \
     LO_FLAG("use-range-minhash", 128, sketch_type, RANGE_MINHASH)\
-    LO_FLAG("use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)\
+    /*LO_FLAG("use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)*/\
     LO_FLAG("use-full-khash-sets", 130, sketch_type, FULL_KHASH_SET)\
     LO_FLAG("use-bloom-filter", 131, sketch_type, BLOOM_FILTER)\
-    LO_FLAG("use-super-minhash", 132, sketch_type, BB_SUPERMINHASH)\
+    /*LO_FLAG("use-super-minhash", 132, sketch_type, BB_SUPERMINHASH)*/\
     LO_FLAG("use-nthash", 133, enct, NTHASH)\
     LO_FLAG("use-cyclic-hash", 134, enct, NTHASH)\
     LO_FLAG("avoid-sorting", 135, avoid_fsorting, true)\
@@ -404,7 +401,6 @@ int sketch_main(int argc, char *argv[]) {
         case BB_MINHASH: SKETCH_CORE(mh::BBitMinHasher<uint64_t>); break;
         case BB_SUPERMINHASH: SKETCH_CORE(SuperMinHashType); break;
         case FULL_KHASH_SET: SKETCH_CORE(khset64_t); break;
-        case HYPERMINHASH: SKETCH_CORE(sketch::HyperMinHash); break;
         default: {
             char buf[128];
             std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));
@@ -572,11 +568,12 @@ int sketch_by_seq_main(int argc, char *argv[]) {
         case WIDE_HLL: SKETCH_BY_SEQ_CORE(sketch::WideHyperLogLogHasher<>); break;
         case BLOOM_FILTER: SKETCH_BY_SEQ_CORE(bf::bf_t); break;
         case RANGE_MINHASH: SKETCH_BY_SEQ_CORE(BKHash64); break;
+<<<<<<< HEAD
         case COUNTING_RANGE_MINHASH: SKETCH_BY_SEQ_CORE(mh::CountingRangeMinHash<uint64_t>); break;
+=======
+>>>>>>> 522d52a7b0bf187d2329a9ae8b953be81adb23dd
         case BB_MINHASH: SKETCH_BY_SEQ_CORE(mh::BBitMinHasher<uint64_t>); break;
-        case BB_SUPERMINHASH: SKETCH_BY_SEQ_CORE(SuperMinHashType); break;
         case FULL_KHASH_SET: SKETCH_BY_SEQ_CORE(khset64_t); break;
-        case HYPERMINHASH: SKETCH_BY_SEQ_CORE(sketch::HyperMinHash); break;
         default: {
             char buf[128];
             std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));

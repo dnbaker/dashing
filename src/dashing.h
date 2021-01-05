@@ -39,7 +39,7 @@
     LO_FLAG("wj-exact", 145, gargs.exact_weighted, true)\
     LO_FLAG("use-wide-hll", 144, sketch_type, WIDE_HLL) \
     LO_FLAG("defer-hll", 146, gargs.defer_hll_creation, true)\
-    LO_FLAG("use-hyperminhash", 147, sketch_type, HYPERMINHASH)\
+    /*LO_FLAG("use-hyperminhash", 147, sketch_type, HYPERMINHASH)*/\
 
 
 using BKHash64 = sketch::minhash::BottomKHasher<sketch::WangHash, uint64_t>;
@@ -81,13 +81,11 @@ static option_struct dist_long_options[] = {\
     LO_ARG("suffix", 'x')\
     LO_ARG("window-size", 'w')\
     LO_ARG("help", 'h')\
-    LO_ARG("mkdist", 1337)\
+    /*LO_ARG("mkdist", 1337)*/\
     LO_FLAG("use-range-minhash", 128, sketch_type, RANGE_MINHASH)\
-    LO_FLAG("use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)\
     LO_FLAG("use-full-khash-sets", 130, sketch_type, FULL_KHASH_SET)\
     LO_FLAG("full-containment-dist", 133, result_type, FULL_CONTAINMENT_DIST) \
     LO_FLAG("use-bloom-filter", 134, sketch_type, BLOOM_FILTER)\
-    LO_FLAG("use-super-minhash", 135, sketch_type, BB_SUPERMINHASH)\
     LO_FLAG("use-nthash", 136, enct, NTHASH)\
     LO_FLAG("containment-index", 131, result_type, CONTAINMENT_INDEX) \
     LO_FLAG("containment-dist", 132, result_type, CONTAINMENT_DIST) \
