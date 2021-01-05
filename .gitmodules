@@ -7,6 +7,3 @@
 [submodule "zlib"]
 	path = zlib
 	url = https://github.com/madler/zlib
-[submodule "distmat"]
-	path = distmat
-	url = https://github.com/dnbaker/distmat
