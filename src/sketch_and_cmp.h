@@ -519,15 +519,18 @@ INLINE void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_
             if(use_filter.size() && use_filter[i]) {
                 auto &cm = cms[tid];
                 auto lfunc = [&](u64 kmer){if(cm.addh(kmer) >= mincount) h.add(kmer);};
+                auto hlfunc = [&](u64 kmer){if(cm.addh(kmer) >= mincount) h.addh(kmer);};
 #define FOR_EACH_FUNC(wrapperfunc) for_each_substr([&](const char *s) {wrapperfunc(lfunc, s, &kseqs[tid]);}, path, FNAME_SEP)
+#define FOR_EACH_HASH_FUNC(wrapperfunc) for_each_substr([&](const char *s) {wrapperfunc(hlfunc, s, &kseqs[tid]);}, path, FNAME_SEP)
                 if(enct == NTHASH)      FOR_EACH_FUNC(enc.for_each_hash);
-                else if(enct == BONSAI) FOR_EACH_FUNC(enc.for_each);
+                else if(enct == BONSAI) FOR_EACH_HASH_FUNC(enc.for_each);
                 else                    FOR_EACH_FUNC(rolling_hasher.for_each_hash);
                 cm.clear();
             } else {
                 auto lfunc = [&](u64 kmer){h.add(kmer);};
+                auto hlfunc = [&](u64 kmer){h.addh(kmer);};
                 if(enct == NTHASH)      FOR_EACH_FUNC(enc.for_each_hash);
-                else if(enct == BONSAI) FOR_EACH_FUNC(enc.for_each);
+                else if(enct == BONSAI) FOR_EACH_HASH_FUNC(enc.for_each);
                 else                    FOR_EACH_FUNC(rolling_hasher.for_each_hash);
             }
 #undef FOR_EACH_FUNC
