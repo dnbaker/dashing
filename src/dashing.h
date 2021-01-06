@@ -123,6 +123,7 @@ struct SeededHash {
     uint64_t operator()(uint64_t x) const {return wh_(x ^ seed_);}
 };
 
+
 #if DASHING_USE_HK
 #define DASHING_COUNTING_SKETCH ::sketch::hk::HeavyKeeper<6, 10, SeededHash<sketch::common::WangHash>>
 #else
@@ -555,6 +556,32 @@ inline auto symmetric_containment_func(const T &x, const T &y) {
     return tmp[2] / (std::min(tmp[0], tmp[1]) + tmp[2]);
 }
 
+template<typename ST>
+float result_cmp(const ST &lhs, const ST &rhs, EmissionType result_type, double ksinv) {
+    double ret;
+    switch(result_type) {
+        case FULL_MASH_DIST: case MASH_DIST: case JI: {
+            ret = similarity<const ST>(lhs, rhs);
+            if(result_type == MASH_DIST) ret = dist_index(ret, ksinv);
+            else if(result_type == FULL_MASH_DIST) ret = full_dist_index(ret, ksinv);
+        } break;
+        case SYMMETRIC_CONTAINMENT_DIST: case SYMMETRIC_CONTAINMENT_INDEX: case SIZES: case FULL_CONTAINMENT_DIST: case CONTAINMENT_INDEX: case CONTAINMENT_DIST: {
+            const auto triple = set_triple(lhs, rhs);
+            ret = triple[2];
+            if(result_type == SYMMETRIC_CONTAINMENT_INDEX || result_type == SYMMETRIC_CONTAINMENT_DIST) {
+                ret /= (std::min(triple[0], triple[1]) + triple[2]);
+                if(result_type == SYMMETRIC_CONTAINMENT_DIST) ret = dist_index(ret, ksinv);
+            } else if(result_type == FULL_CONTAINMENT_DIST || result_type == CONTAINMENT_DIST || result_type == CONTAINMENT_INDEX) {
+                ret /= (triple[0] + triple[1] + triple[2]);
+                if(result_type == CONTAINMENT_DIST) ret = dist_index(ret, ksinv);
+                else if(result_type == FULL_CONTAINMENT_DIST) ret = full_dist_index(ret, ksinv);
+            } // else, result_type is (SIZES), and we return ret
+        } break;
+        default: __builtin_unreachable();
+    }
+    return static_cast<float>(ret);
+}
+
 template<typename SketchType>
 void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, const size_t buffer_flush_size,
                    size_t nq)
@@ -574,37 +601,10 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
     for(auto &b: buffers) b.resize(4 * nr);
     for(size_t qi = nr; qi < inpaths.size(); ++qi) {
         size_t qind =  qi - nr;
-        switch(result_type) {
-
-
-#define dist_sim(x, y) dist_index(similarity(x, y), ksinv)
-#define fulldist_sim(x, y) full_dist_index(similarity(x, y), ksinv)
-#define fullcont_sim(x, y) full_containment_dist(containment_index(x, y), ksinv)
-#define cont_sim(x, y) containment_dist(containment_index(x, y), ksinv)
-#define sym_cont_dist(x, y) containment_dist(symmetric_containment_func(x, y), ksinv)
-#define DO_LOOP(name, func)\
-                case name: \
-                OMP_PFOR_DYN \
-                for(size_t j = 0; j < nr; ++j) {\
-                    arr[qind * nr + j] = func(hlls[j], hlls[qi]);\
-                } \
-                break;
-
-            DO_LOOP(MASH_DIST, dist_sim);
-            DO_LOOP(FULL_MASH_DIST, fulldist_sim);
-            DO_LOOP(JI, similarity);
-            DO_LOOP(SIZES, us::intersection_size);
-            DO_LOOP(CONTAINMENT_INDEX, containment_index);
-            DO_LOOP(CONTAINMENT_DIST, cont_sim);
-            DO_LOOP(FULL_CONTAINMENT_DIST, fullcont_sim);
-            DO_LOOP(SYMMETRIC_CONTAINMENT_INDEX, symmetric_containment_func)
-            DO_LOOP(SYMMETRIC_CONTAINMENT_DIST, sym_cont_dist);
-            default: UNRECOVERABLE_ERROR("Value not found");
-#undef DO_LOOP
-//#undef dist_sim
-//#undef cont_sim
-//#undef fulldist_sim
-//#undef fullcont_sim
+        auto &hq = hlls[qi];
+        OMP_PFOR_DYN
+        for(size_t j = 0; j < nr; ++j) {
+            arr[qind * nr + j] = result_cmp(hlls[j], hq, result_type, ksinv);
         }
         switch(emit_fmt) {
             case BINARY:
@@ -657,7 +657,6 @@ int dist_main(int argc, char *argv[]);
 int print_binary_main(int argc, char *argv[]);
 int mkdist_main(int argc, char *argv[]);
 int flatten_main(int argc, char *argv[]);
-int setdist_main(int argc, char *argv[]);
 int hll_main(int argc, char *argv[]);
 int union_main(int argc, char *argv[]);
 int view_main(int argc, char *argv[]);

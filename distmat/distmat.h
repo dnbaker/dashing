@@ -187,8 +187,26 @@ public:
     pointer_type       data()       {return data_;}
     const_pointer_type data() const {return data_;}
     DistanceMatrix(DistanceMatrix &&other) = default;
-    DistanceMatrix(const char *path, size_t nelem=0, ArithType default_value=DEFAULT_VALUE, ArithType *prevdat=nullptr, bool forcestream=false): nelem_(nelem), default_value_(default_value) {
-        this->read(path, prevdat, forcestream);
+    DistanceMatrix(const char *path, size_t nelem=0, ArithType default_value=DEFAULT_VALUE, ArithType *prevdat=nullptr, bool forcestream=false):
+        nelem_(nelem), default_value_(default_value)
+    {
+        //std::fprintf(stderr, "path: %s. nelem: %zu. defv: %g\n", path, nelem_, double(default_value_));
+         if(::access(path, F_OK) == -1 && nelem > 0) {
+            num_entries_ = (nelem_ * (nelem_ - 1)) >> 1;
+            //std::fprintf(stderr, "File does not exist, so create it. nelem = %zu, num entries = %zu\n", nelem_, num_entries_);
+            // If file does not exist,
+            // open a new file on disk and resize it.
+            std::FILE *ofp = std::fopen(path, "wb");
+            const size_t nb = 1 + sizeof(num_entries_) + sizeof(ArithType) * num_entries_;
+            std::fputc(magic_number(), ofp);
+            if(std::fwrite(&nelem_, sizeof(nelem_), 1, ofp) != 1) throw std::runtime_error("Failed to write nelem to disk");
+            // Resize
+            //std::fprintf(stderr, "Resized to %zu bytes for %zu entries\n", nb, num_entries_);
+            ::ftruncate(::fileno(ofp), nb);
+            std::fclose(ofp);
+            mfbp_.reset(new mio::mmap_sink(path));
+            data_ = reinterpret_cast<ArithType *>((*mfbp_).data() + 1 + sizeof(nelem_));
+        } else read(path, prevdat, forcestream);
     }
     auto nelem() const {return nelem_;}
     DistanceMatrix(const DistanceMatrix &other, ArithType *prevdat=static_cast<ArithType *>(nullptr)):
@@ -344,19 +362,19 @@ public:
         int fn = fileno(fp);
         size_t ret = 1;
         if(::write(fn, &nelem_, sizeof(nelem_)) != sizeof(nelem_)) {
-            std::fprintf(stderr, "Wrote wrong nelem\n");
             throw std::system_error(errno, std::system_category(), ::strerror(errno));
         }
         ret += sizeof(nelem_);
         const ssize_t nb =  sizeof(ArithType) * num_entries_;
         if(::write(fn, data_, nb) != nb) {
-            std::fprintf(stderr, "Wrote wrong\n");
             throw std::system_error(errno, std::system_category(), ::strerror(errno));
         }
         ret += sizeof(ArithType) * num_entries_;
         return ret;
     }
     void read(const char *path, ArithType *prevdat=static_cast<ArithType *>(nullptr), bool forcestream=false) {
+        // Else, open from file on disk
+        //std::fprintf(stderr, "Starting read with path = %s, fs = %d, and nelem = %zu\n", path, forcestream, nelem_);
         using more_magic::MagicNumber;
         path = std::strcmp(path, "-") ? path: "/dev/stdin";
         std::FILE *fp = std::fopen(path, "r");
@@ -377,40 +395,32 @@ public:
         }
         gzread(gzfp, &nelem_, sizeof(nelem_));
         num_entries_ = ((nelem_ - 1) * nelem_) >> 1;
-        const bool is_uncompressed_file = fc == magic;
-        if(isstream || !is_uncompressed_file) {
-            // If this is streaming, or the file is compressed,
-            // copy the memory out
-            if(prevdat) data_ = prevdat;
-            else {
-                dup_.reset(new ArithType[num_entries_]);
-                data_ = dup_.get();
-            }
-            gzread(gzfp, data_, sizeof(ArithType) * num_entries_);
-            gzclose(gzfp);
-        } else {
-            if(::access(path, F_OK) == -1) {
-                // If file does not exist,
-                // open a new file on disk and resize it.
-                std::FILE *ofp = std::fopen(path, "wb");
-                const size_t nb = 1 + sizeof(num_entries_) + sizeof(ArithType) * num_entries_;
-                std::fputc(magic_number(), ofp);
-                if(std::fwrite(&nelem_, sizeof(nelem_), 1, ofp) != 1) throw std::runtime_error("Failed to write nelem to disk");
-                // Resize
-                ::ftruncate(::fileno(ofp), nb);
-                std::fclose(ofp);
-            }
-            mfbp_.reset(new mio::mmap_sink(path));
-            data_ = reinterpret_cast<ArithType *>((*mfbp_).data() + 1 + sizeof(nelem_));
+        // If this is streaming, or the file is compressed,
+        // copy the memory out
+        if(prevdat) data_ = prevdat;
+        else {
+            dup_.reset(new ArithType[num_entries_]);
+            data_ = dup_.get();
         }
+        gzread(gzfp, data_, sizeof(ArithType) * num_entries_);
+        gzclose(gzfp);
         std::fclose(fp);
     }
     size_t size() const {return nelem_;}
     size_t rows() const {return nelem_;}
     size_t columns() const {return nelem_;}
+#if 0
+    DistanceMatrix &operator=(DistanceMatrix &&o) = default;
+    DistanceMatrix &operator=(const DistanceMatrix &o) {
+        if(!data_) throw std::runtime_error("data is null");
+        std::memcpy(data_, o.data_, num_entries_ * sizeof(ArithType));
+    }
+#endif
     bool operator==(const DistanceMatrix &o) const {
+        //std::fprintf(stderr, "data_: %p. o.data: %p. nelems: %zu, %zu\n", data_, o.data_, nelem_, o.nelem_);
         return nelem_ == o.nelem_ &&
-            (std::memcmp(data_, o.data_, num_entries_ * sizeof(ArithType)) == 0);
+            (data_ && o.data_ ? (std::memcmp(data_, o.data_, num_entries_ * sizeof(ArithType)) == 0)
+                              : data_ == o.data_);
     }
 };
 
