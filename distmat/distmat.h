@@ -190,10 +190,10 @@ public:
     DistanceMatrix(const char *path, size_t nelem=0, ArithType default_value=DEFAULT_VALUE, ArithType *prevdat=nullptr, bool forcestream=false):
         nelem_(nelem), default_value_(default_value)
     {
-        //std::fprintf(stderr, "path: %s. nelem: %zu. defv: %g\n", path, nelem_, double(default_value_));
-         if(::access(path, F_OK) == -1 && nelem > 0) {
+        std::fprintf(stderr, "path: %s. nelem: %zu. defv: %g\n", path, nelem_, double(default_value_));
+        if(!forcestream && ::access(path, F_OK) == -1 && nelem > 0) {
             num_entries_ = (nelem_ * (nelem_ - 1)) >> 1;
-            //std::fprintf(stderr, "File does not exist, so create it. nelem = %zu, num entries = %zu\n", nelem_, num_entries_);
+            std::fprintf(stderr, "File does not exist, so create it. nelem = %zu, num entries = %zu\n", nelem_, num_entries_);
             // If file does not exist,
             // open a new file on disk and resize it.
             std::FILE *ofp = std::fopen(path, "wb");
@@ -206,6 +206,7 @@ public:
             std::fclose(ofp);
             mfbp_.reset(new mio::mmap_sink(path));
             data_ = reinterpret_cast<ArithType *>((*mfbp_).data() + 1 + sizeof(nelem_));
+            std::fprintf(stderr, "Created new file of %zu bytes, %zu nelem, and %zu entries\n", nb, nelem_, num_entries_);
         } else read(path, prevdat, forcestream);
     }
     auto nelem() const {return nelem_;}

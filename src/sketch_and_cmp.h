@@ -848,22 +848,26 @@ void dist_loop(std::FILE *&ofp, std::string ofp_name, SketchType *sketches, cons
             ::ftruncate(::fileno(ofp), 1 + sizeof(uint64_t) + ((nsketches * (nsketches - 1)) >> 1));
             std::fclose(ofp);
             ofp = nullptr;
-            std::fprintf(stderr, "Setting up distance matrix on disk");
+            std::fprintf(stderr, "Setting up distance matrix on disk, with %zu sketches\n", nsketches);
             // Modify in-place
             dm::DistanceMatrix<float> dm(ofp_name.data(), nsketches, defv);
+            std::fprintf(stderr, "Created dm. %zu elem and %zu entrie\n", size_t(dm.nelem()), size_t(dm.num_entries()));
             float *dmp = dm.data();
             for(size_t i = 0; i < nsketches - 1; ++i) {
                 auto span = dm.row_span(i);
+                std::fprintf(stderr, "Row %zu has ptr %p and %zu\n", i, (void *)span.first, span.second);
                 std::unique_ptr<float[]> subrow(new float[span.second]);
                 auto sp = subrow.get();
+                auto &s1 = sketches[i];
                 OMP_PFOR_DYN
                 for(size_t j = i + 1; j < nsketches; ++j) {
-                    sp[j - i - 1] = cmp(sketches[j], sketches[i]);
+                    sp[j - i - 1] = cmp(sketches[j], s1);
                 }
                 if(i) submitter.get();
                 submitter = std::async(std::launch::async, [n=span.second,ofp,sp,&dmp]() -> size_t {
                     std::memcpy(dmp, sp, n * sizeof(float));
                     dmp += n;
+                    assert(dmp <= dm.data() + dm.num_entries());
                     return n * sizeof(float);
                 });
             }
