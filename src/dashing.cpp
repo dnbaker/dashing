@@ -397,9 +397,9 @@ int sketch_main(int argc, char *argv[]) {
         case WIDE_HLL: SKETCH_CORE(sketch::WideHyperLogLogHasher<>); break;
         case BLOOM_FILTER: SKETCH_CORE(bf::bf_t); break;
         case RANGE_MINHASH: SKETCH_CORE(BKHash64); break;
-        case COUNTING_RANGE_MINHASH: SKETCH_CORE(mh::CountingRangeMinHash<uint64_t>); break;
+        // case COUNTING_RANGE_MINHASH: SKETCH_CORE(mh::CountingRangeMinHash<uint64_t>); break;
         case BB_MINHASH: SKETCH_CORE(mh::BBitMinHasher<uint64_t>); break;
-        case BB_SUPERMINHASH: SKETCH_CORE(SuperMinHashType); break;
+        //case BB_SUPERMINHASH: SKETCH_CORE(SuperMinHashType); break;
         case FULL_KHASH_SET: SKETCH_CORE(khset64_t); break;
         default: {
             char buf[128];
