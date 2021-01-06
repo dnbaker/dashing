@@ -23,7 +23,7 @@ int main(int argc, char *argv[]) {
 {
     {"sketch", sketch_main},
     {"union", union_main},
-    {"setdist", setdist_main},
+    {"setdist", dist_main},
     {"dist", dist_main},
     {"cmp", dist_main},
     {"hll", hll_main},

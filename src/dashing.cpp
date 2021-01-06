@@ -456,26 +456,6 @@ int print_binary_main(int argc, char *argv[]) {
 }
 
 
-#if 0
-void flatten_usage() {
-    std::fprintf(stderr, "Usage: dashing flatten <output.bin> [in1.bin in2.bin...]\n");
-    std::exit(1);
-}
-
-int flatten_main(int argc, char *argv[]) {
-    if(argc < 3 || std::find_if(argv, argv + argc, [](auto x){return std::strcmp(x, "-h") == 0;}) != argv + argc) flatten_usage();
-    std::vector<std::string> fpaths(argv + 2, argv + argc);
-    std::vector<unsigned> ks(fpaths.size(), -1);
-    omp_set_num_threads(std::thread::hardware_concurrency());
-    return flatten_all(fpaths, fpaths.size(), argv[1], ks);
-}
-#endif
-
-int setdist_main(int argc, char *argv[]) {
-    UNRECOVERABLE_ERROR("setdist_main was deprecated and has ben removed. Instead, call `dashing dist` with --use-full-khash-sets to use hash sets instead of sketches.\n");
-    return 1;
-}
-
 void union_usage [[noreturn]] (char *ex) {
     std::fprintf(stderr, "Usage: %s genome1 <genome2>...\n"
                          "Flags:\n"
@@ -565,7 +545,7 @@ int sketch_by_seq_main(int argc, char *argv[]) {
         case HLL: if(gargs.defer_hll_creation) SKETCH_BY_SEQ_CORE(hll::hll_t);
                   else                         SKETCH_BY_SEQ_CORE(HLLH);
         break;
-        case WIDE_HLL: SKETCH_BY_SEQ_CORE(sketch::WideHyperLogLogHasher<>); break;
+        // case WIDE_HLL: SKETCH_BY_SEQ_CORE(sketch::WideHyperLogLogHasher<>); break;
         case BLOOM_FILTER: SKETCH_BY_SEQ_CORE(bf::bf_t); break;
         case RANGE_MINHASH: SKETCH_BY_SEQ_CORE(BKHash64); break;
         case BB_MINHASH: SKETCH_BY_SEQ_CORE(mh::BBitMinHasher<uint64_t>); break;
