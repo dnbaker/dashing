@@ -107,12 +107,13 @@ struct is_map<std::unordered_map<Key, T, Hash, Compare, Allocator>> {static cons
         return *this;\
     }
 
-
 #define DECLARE_KHSET(name, nbits) \
 struct khset##nbits##_t: EmptyKhSet, khash_t(name) {\
     using base_type = khash_t(name);\
     using key_type = typename std::decay<decltype(*keys)>::type;\
     void zero() {*reinterpret_cast<base_type *>(this) = base_type{0,0,0,0,0,0,0};}\
+    khint_t &size_ref() {return khash_t(name)::size;}\
+    const khint_t &size_ref() const {return khash_t(name)::size;}\
     khset##nbits##_t() {zero();}\
     khset##nbits##_t(size_t reserve_size) {zero(); reserve(reserve_size);}\
     ~khset##nbits##_t() {\
