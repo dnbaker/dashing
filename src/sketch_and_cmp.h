@@ -852,7 +852,10 @@ void dist_loop(std::FILE *&ofp, std::string ofp_name, SketchType *sketches, cons
             // Modify in-place
             dm::DistanceMatrix<float> dm(ofp_name.data(), nsketches, defv);
             std::fprintf(stderr, "Created dm. %zu elem and %zu entrie\n", size_t(dm.nelem()), size_t(dm.num_entries()));
+            dm::parallel_fill(dm, nsketches, [&cmp,sketches](size_t i, size_t j) {return cmp(sketches[i], sketches[j]);});
             float *dmp = dm.data();
+            if(int rc = ::madvise(static_cast<void *>(dmp), dm.num_entries() * sizeof(float), MADV_SEQUENTIAL))
+                std::fprintf(stderr, "Note: madvise call returned %d/%s, inessential\n", rc, std::strerrr(rc));
             for(size_t i = 0; i < nsketches - 1; ++i) {
                 auto span = dm.row_span(i);
                 std::fprintf(stderr, "Row %zu has ptr %p and %zu\n", i, (void *)span.first, span.second);
@@ -864,8 +867,8 @@ void dist_loop(std::FILE *&ofp, std::string ofp_name, SketchType *sketches, cons
                     sp[j - i - 1] = cmp(sketches[j], s1);
                 }
                 if(i) submitter.get();
-                submitter = std::async(std::launch::async, [n=span.second,ofp,sp,&dmp]() -> size_t {
-                    std::memcpy(dmp, sp, n * sizeof(float));
+                submitter = std::async(std::launch::async, [n=span.second,ofp,sp=std::move(subrow),&dmp]() -> size_t {
+                    std::memcpy(dmp, sp.get(), n * sizeof(float));
                     dmp += n;
                     assert(dmp <= dm.data() + dm.num_entries());
                     return n * sizeof(float);
