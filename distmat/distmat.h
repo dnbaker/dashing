@@ -392,7 +392,11 @@ public:
             std::sprintf(buf, "Wrong magic number read from file (%d/%s), expected (%d/%s)\n", magic, more_magic::arr[magic], magic_number(), magic_string());
             throw std::runtime_error(buf);
         }
-        gzread(gzfp, &nelem_, sizeof(nelem_));
+        if(int rc = gzread(gzfp, &nelem_, sizeof(nelem_)) != sizeof(nelem_)) {
+            int gret;
+            const char *os = gzerror(gzfp, &gret);
+            throw std::runtime_error(std::string("Could not read nelem from path") + std::to_string(rc) + ":" + os);
+        }
         num_entries_ = ((nelem_ - 1) * nelem_) >> 1;
         std::fprintf(stderr, "Parsed from file: %zu nelem, %zu entries\n", nelem_, num_entries_);
         // If this is streaming, or the file is compressed,
