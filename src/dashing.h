@@ -651,6 +651,7 @@ void sketch_by_seq_usage(const char *arg);
 void flatten_usage();
 void union_usage [[noreturn]] (char *ex);
 int sketch_main(int argc, char *argv[]);
+int fold_main(int argc, char *argv[]);
 int card_main(int argc, char *argv[]);
 int panel_main(int argc, char *argv[]);
 int dist_main(int argc, char *argv[]);

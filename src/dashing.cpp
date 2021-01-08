@@ -564,6 +564,33 @@ int view_main(int argc, char *argv[]) {
     for(int i = 1; i < argc; hll::hll_t(argv[i++]).printf(stdout));
     return 0;
 }
+void fold_usage() {
+     std::fprintf(stderr, "Usage: dashing fold <flags> [in1.hll]\n-o: Write to <path> instead of stdout\n"
+                          "-p: set destination p [must be smaller than the input sketch\n");
+     std::exit(EXIT_FAILURE);
+}
+
+int fold_main(int argc, char **argv) {
+    std::string out = "/dev/stdout", in = "/dev/stdin";
+    int destp = -1;
+    for(int c;(c = getopt(argc, argv, "p:o:h?")) >= 0;) { switch(c){
+        case 'o': out = optarg; break;
+        case 'p': destp = std::atoi(optarg); break;
+        case '?': case 'h':
+        default: fold_usage();
+    }}
+    switch(argc - optind) {
+        case 0: break;
+        case 1: in = argv[optind]; break;
+        default: fold_usage();
+    }
+    hll_t h(in);
+    if(out == "-") out = "/dev/stdout";
+    if(in  == "-") in  = "/dev/stdin";
+    if(destp <= 0) destp = h.p() - 1;
+    h.compress(destp).write(out);
+    return EXIT_SUCCESS;
+}
 
 } // namespace bns
 
