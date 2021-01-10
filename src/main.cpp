@@ -29,7 +29,6 @@ int main(int argc, char *argv[]) {
     {"hll", hll_main},
     {"view", view_main},
     {"panel", panel_main},
-    {"mkdist", mkdist_main},
     {"card", card_main},
     {"printmat", print_binary_main},
     {"dist_by_seq", dist_by_seq_main},
@@ -51,7 +50,7 @@ int main(int argc, char *argv[]) {
                              "Subcommands:\tsketch\tdist\thll\tunion\tprintmat\tview\tflatten\t"
                              "sketch_by_seq\tdist_by_seq\tpanel"
                              "\ncmp is also now a synonym for dist, which will be deprecated in the future.\n"
-                             "mkdist, which is simply a wrapper around dist which runs the computation for multiple 'k' and organizes them into one result.\n"
+                             //"mkdist, which is simply a wrapper around dist which runs the computation for multiple 'k' and organizes them into one result.\n"
                              "\npanel is experimental; please don't use it.\n"
                      , *argv, *argv);
         UNRECOVERABLE_ERROR(std::string("Invalid subcommand ") + argv[1] + " provided.");
