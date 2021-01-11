@@ -598,7 +598,6 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
     std::array<ks::string, 2> buffers;
     for(auto &b: buffers) b.resize(4 * nr);
     for(size_t qi = nr; qi < inpaths.size(); ++qi) {
-        size_t qind =  qi - nr;
         auto &hq = hlls[qi];
         std::unique_ptr<float[]> arr(new float[nr]);
         OMP_PFOR_DYN
