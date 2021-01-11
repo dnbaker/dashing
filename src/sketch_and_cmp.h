@@ -12,34 +12,25 @@ using namespace sketch;
 
 namespace bns {
 
-template<typename FType, typename=typename std::enable_if<std::is_floating_point<FType>::value>::type>
+
+template<typename FType=float, typename=typename std::enable_if<std::is_floating_point<FType>::value>::type>
 size_t submit_emit_dists(int pairfi, const FType *ptr, u64 hs, size_t index, ks::string &str, const std::vector<std::string> &inpaths, EmissionFormat emit_fmt, bool use_scientific, const size_t buffer_flush_size=BUFFER_FLUSH_SIZE) {
-    if(emit_fmt & BINARY) {
-        const ssize_t nbytes = sizeof(FType) * (hs - index - 1);
-        LOG_DEBUG("Writing %zd bytes for %zu items\n", nbytes, (hs - index - 1));
-        ssize_t i = ::write(pairfi, ptr, nbytes);
-        if(i != nbytes) {
-            std::fprintf(stderr, "WARNING: written %zd bytes instead of expected %zd. Something is likely wrong.\n", i, nbytes);
+    auto &strref = inpaths[index];
+    str += strref;
+    constexpr const char *fmt = "\t%.6g";
+    if(emit_fmt == UT_TSV) {
+        {
+            u64 k;
+            for(k = 0; k < index + 1;  ++k, kputsn_("\t-", 2, reinterpret_cast<kstring_t *>(&str)));
+            for(k = 0; k < hs - index - 1; str.sprintf(fmt, ptr[k++]));
         }
-    } else {
-        auto &strref = inpaths[index];
-        str += strref;
-        if(emit_fmt == UT_TSV) {
-            constexpr const char *fmt = "\t%.6g";
-            {
-                u64 k;
-                for(k = 0; k < index + 1;  ++k, kputsn_("\t-", 2, reinterpret_cast<kstring_t *>(&str)));
-                for(k = 0; k < hs - index - 1; str.sprintf(fmt, ptr[k++]));
-            }
-        } else { // emit_fmt == UPPER_TRIANGULAR
-            constexpr const char *fmt = "\t%.6g";
-            if(strref.size() < 9)
-                str.append(9 - strref.size(), ' ');
-            for(u64 k = 0; k < hs - index - 1; str.sprintf(fmt, ptr[k++]));
-        }
-        str.putc_('\n');
-        str.flush(pairfi);
+    } else { // emit_fmt == UPPER_TRIANGULAR
+        if(strref.size() < 9)
+            str.append(9 - strref.size(), ' ');
+        for(u64 k = 0; k < hs - index - 1; str.sprintf(fmt, ptr[k++]));
     }
+    str.putc_('\n');
+    str.flush(pairfi);
     return index;
 }
 template<typename SketchType>
@@ -220,7 +211,7 @@ void size_sketch_and_emit(std::vector<std::string> &inpaths, std::vector<Countin
                         else                    for_each_substr([&](const char *s) {rolling_hasher.for_each_hash(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
                         cm.clear();
                     }
-                    CONST_IF(!samesketch) new(final_sketches + i) final_type(std::move(sketch)); 
+                    CONST_IF(!samesketch) new(final_sketches + i) final_type(std::move(sketch));
                     CONST_IF(samesketch) {
                         if(cache_sketch && !isf) sketch.write(fpath);
                     } else if(cache_sketch) final_sketches[i].write(fpath);
@@ -372,7 +363,7 @@ void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<Counting
                         else                    for_each_substr([&](const char *s) {rolling_hasher.for_each_hash(lfunc, s, &kseqs[tid]);}, inpaths[i], FNAME_SEP);
                         cm.clear();
                     }
-                    CONST_IF(!samesketch) new(final_sketches + i) final_type(std::move(sketch)); 
+                    CONST_IF(!samesketch) new(final_sketches + i) final_type(std::move(sketch));
                     CONST_IF(samesketch) {
                         if(cache_sketch && !isf) sketch.write(fpath);
                     } else if(cache_sketch) final_sketches[i].write(fpath);
@@ -472,12 +463,15 @@ INLINE void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_
                         int sketchflags, uint32_t mincount, EncodingType enct, std::string output_file)
 {
     const auto canon = sketchflags & CANONICALIZE, skip_cached = sketchflags & SKIP_CACHED, entropy_minimization = sketchflags & ENTROPY_MIN;
-    std::vector<SketchType> sketches;
+    std::vector<SketchType> sketches, sketchdest;
     uint32_t sketch_size = bytesl2_to_arg(ssarg, SketchEnum<SketchType>::value);
-    if(output_file.empty()) {
-        while(sketches.size() < (u32)nthreads) sketches.push_back(construct<SketchType>(sketch_size)), set_estim_and_jestim(sketches.back(), estim, jestim);
-    } else {
-        while(sketches.size() < inpaths.size()) sketches.push_back(construct<SketchType>(sketch_size)), set_estim_and_jestim(sketches.back(), estim, jestim);
+    while(sketches.size() < (u32)nthreads) sketches.push_back(construct<SketchType>(sketch_size)), set_estim_and_jestim(sketches.back(), estim, jestim);
+    if(output_file.size()) {
+        sketchdest.reserve(inpaths.size());
+        for(size_t i = 0, e = inpaths.size(); i < e; ++i) {
+            sketchdest.push_back(construct<SketchType>(sketch_size));
+            set_estim_and_jestim(sketchdest.back(), estim, jestim);
+        }
     }
     std::vector<std::string> fnames(nthreads);
     RollingHasher<uint64_t> rolling_hasher(k, canon);
@@ -535,23 +529,25 @@ INLINE void sketch_core(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_
             }
 #undef FOR_EACH_FUNC
             sketch_finalize(h);
-            if(!outputfp) h.write(fname.data()), h.clear();
+            if(!outputfp) { // Write the sketch to disk
+                h.write(fname.data());
+                h.clear();
+            } else {        // Copy to sketchdest before writing
+                sketchdest[i] = h;
+                h.reset();
+            }
         }
         if(outputfp) {
-#ifndef NDEBUG
-            size_t i = 0;
-            auto it = inpaths.cbegin();
-#endif
-            for(const auto &sketch: sketches) {
-#ifndef NDEBUG
-                std::fprintf(stderr, "Writing sketch %zu/%zu from path %s to file\n", i++, inpaths.size(), (it++)->data());
-#endif
+            DBG_ONLY(size_t i = 0; auto it = inpaths.cbegin();)
+            for(const auto &sketch: sketchdest) {
+                DBG_ONLY(std::fprintf(stderr, "Writing sketch %zu/%zu from path %s to file\n", i++, inpaths.size(), (it++)->data());)
                 sketch.write(outputfp);
             }
             gzclose(outputfp);
         }
     }
 }
+
 template<typename SketchType>
 INLINE void sketch_by_seq_core(uint32_t ssarg, uint32_t nthreads, const Spacer &sp,
                         const std::string &inpath, const std::string &outpath,
@@ -633,35 +629,45 @@ INLINE void lock_update(float val, validx_t *ptr,
         }
     }
 }
-template<typename Cmp>
+
 INLINE void lockfree_update(float val, validx_t *ptr,
                             unsigned nneighbors,
-                            size_t j, const Cmp &cmp)
+                            size_t j, bool is_greater)
 {
-    if(cmp(val, ptr->first)) {
-        std::pop_heap (ptr, ptr + nneighbors, cmp);
-        ptr[nneighbors - 1] = validx_t(val, j);
-        std::push_heap(ptr, ptr + nneighbors, cmp);
+    if(is_greater) {
+        if(val > ptr->first) {
+            std::pop_heap (ptr, ptr + nneighbors, std::greater<>());
+            ptr[nneighbors - 1] = validx_t(val, j);
+            std::push_heap(ptr, ptr + nneighbors, std::greater<>());
+        }
+    } else {
+        if(val < ptr->first) {
+            std::pop_heap (ptr, ptr + nneighbors, std::less<>());
+            ptr[nneighbors - 1] = validx_t(val, j);
+            std::push_heap(ptr, ptr + nneighbors, std::less<>());
+        }
     }
 }
 
 
-template<typename SketchType, typename Cmp, typename Func>
+template<typename SketchType, typename Func>
 void perform_nns(validx_t *neighbors,
                  SketchType *sketches, const std::vector<std::string> &inpaths,
                  const unsigned k, const EmissionType result_type,
                  size_t nq,
                  unsigned nneighbors,
-                 const Cmp &cmp, const Func &func) {
-    float default_value = std::numeric_limits<float>::max();
-    if(std::is_same<Cmp, std::greater<>>::value)
-        default_value = -default_value;
+                 const bool is_similarity, const Func &func)
+{
     const size_t n = nq ? nq: inpaths.size();
-    std::fprintf(stderr, "default value: %g\n", default_value);
-    OMP_PFOR
-    for(size_t i = 0; i < n; ++i)
-        std::fill_n(&neighbors[i * nneighbors], nneighbors,
-                  validx_t(default_value, uint32_t(-1)));
+    {
+        const validx_t empty_val(is_similarity ? -std::numeric_limits<float>::max(): std::numeric_limits<float>::max(),
+                                 uint32_t(-1));
+        OMP_PFOR
+        for(size_t i = 0; i < n; ++i) {
+            std::fill_n(&neighbors[i * nneighbors], nneighbors,
+                        empty_val);
+        }
+    }
     if(nq == 0) {
         auto mutexes = std::make_unique<std::mutex[]>(n);
         OMP_PFOR_DYN
@@ -670,9 +676,14 @@ void perform_nns(validx_t *neighbors,
             const auto &h1 = sketches[i];
             for(size_t j = i + 1; j < n; ++j) {
                 auto rhptr = &neighbors[j * nneighbors];
-                const float distval = func(sketches[j], h1);
-                lock_update(distval, lhptr, nneighbors, j, mutexes[i], cmp);
-                lock_update(distval, rhptr, nneighbors, i, mutexes[j], cmp);
+                const float val = func(sketches[j], h1);
+                if(is_similarity) {
+                    lock_update(val, lhptr, nneighbors, j, mutexes[i], std::greater<>());
+                    lock_update(val, rhptr, nneighbors, i, mutexes[j], std::greater<>());
+                } else {
+                    lock_update(val, lhptr, nneighbors, j, mutexes[i], std::less<>());
+                    lock_update(val, rhptr, nneighbors, i, mutexes[j], std::less<>());
+                }
             }
         }
     } else {
@@ -683,7 +694,7 @@ void perform_nns(validx_t *neighbors,
             const auto srcptr = &neighbors[qind * nneighbors];
             const auto &h1 = sketches[qi];
             for(size_t j = 0; j < nr; ++j) {
-                lockfree_update(func(sketches[j], h1), srcptr, nneighbors, j, cmp);
+                lockfree_update(func(sketches[j], h1), srcptr, nneighbors, j, is_similarity);
             }
         }
     }
@@ -691,31 +702,22 @@ void perform_nns(validx_t *neighbors,
     OMP_PFOR
     for(size_t i = 0; i < n; ++i) {
         auto start = neighbors + (i * nneighbors), end = start + nneighbors;
-        std::sort(start, end, cmp);
-#if VERBOSE_AF
-        for(auto it = start; it < end; ++it) {
-            std::fprintf(stderr, "%zu/%u/%g\n", i, it->second, it->first);
-        }
-#endif
+        is_similarity ? std::sort(start, end, std::greater<>())
+                      : std::sort(start, end, std::less<>());
     }
-#ifndef NDEBUG
-    if(std::find_if(neighbors, neighbors + nneighbors * n, [](auto x) {return x.second == uint32_t(-1);}) != neighbors + nneighbors * n)
-        throw std::runtime_error("Empty\n");
-#endif
 }
 
-template<typename SketchType, typename T, typename Func>
-inline void perform_core_op(T &dists, size_t nsketches, SketchType *sketches, const Func &func, size_t i, bool multithreaded) {
+template<bool MT=true, typename SketchType, typename T, typename Func>
+inline void perform_core_op(T *dists, size_t nsketches, SketchType *sketches, const Func &func, size_t i) {
     auto &h1 = sketches[i];
-    if(multithreaded) {
+#define compute_j(j) do {dists[j - i - 1] = func(sketches[j], h1);} while(0)
+    if(MT) {
         OMP_PFOR_DYN
-        for(size_t j = i + 1; j < nsketches; ++j)
-            dists[j - i - 1] = func(sketches[j], h1);
+        for(size_t j = i + 1; j < nsketches; ++j) compute_j(j);
     } else {
-        for(size_t j = i + 1; j < nsketches; ++j)
-            dists[j - i - 1] = func(sketches[j], h1);
+        for(size_t j = i + 1; j < nsketches; ++j) compute_j(j);
     }
-    //h1.free();
+#undef compute_j
 }
 
 template<typename SketchType>
@@ -736,38 +738,9 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
     auto neighbors = std::make_unique<validx_t[]>(ntups);
     std::fprintf(stderr, "made %zu pairs with %zu nq, %u neighbors and %zu tups\n", npairs, nq, nneighbors, ntups);
     const double ksinv = 1./ k;
-#define INDEX_FUNC(index, func, cmp) \
-        case index: \
-            perform_nns(neighbors.get(), sketches, inpaths, k, result_type, nq, nneighbors, cmp,\
-                        [ksinv](const auto &x, const auto &y) {return func(x, y);}); \
-        break;
+    auto call_cmp = [result_type, ksinv](const auto &x, const auto &y) {return result_cmp(x, y, result_type, ksinv);};
 
-#define ALL_INDEXES(cmp) \
-    switch(result_type) {\
-        INDEX_FUNC(CONTAINMENT_DIST, cont_sim, cmp) \
-        INDEX_FUNC(CONTAINMENT_INDEX, containment_index, cmp) \
-        INDEX_FUNC(FULL_CONTAINMENT_DIST, fullcont_sim, cmp) \
-        INDEX_FUNC(FULL_MASH_DIST, fulldist_sim, cmp) \
-        INDEX_FUNC(JI, similarity, cmp) \
-        INDEX_FUNC(MASH_DIST, dist_sim, cmp) \
-        INDEX_FUNC(SIZES, us::intersection_size, cmp) \
-        INDEX_FUNC(SYMMETRIC_CONTAINMENT_DIST, sym_cont_dist, cmp) \
-        default: {\
-            char buf[256];\
-            std::sprintf(buf, "Not supported: %d/%s\n", int(result_type), emt2str(result_type));\
-            UNRECOVERABLE_ERROR(buf);\
-        }\
-    }
-
-    if(emt2nntype(result_type) == SIMILARITY_MEASURE) {
-        std::fprintf(stderr, "Performing nn under similarity measure\n");
-        ALL_INDEXES(std::greater<>())
-    } else {
-        std::fprintf(stderr, "Performing nn under dissimilarity measure\n");
-        ALL_INDEXES(std::less<>())
-    }
-#undef ALL_INDEXES
-#undef INDEX_FUNC
+    perform_nns(neighbors.get(), sketches, inpaths, k, result_type, nq, nneighbors, emt2nntype(result_type) == SIMILARITY_MEASURE, call_cmp);
     if(emit_fmt & BINARY) {
         uint32_t n = inpaths.size();
         std::fwrite(&n, sizeof(n), 1, ofp);
@@ -820,41 +793,9 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
     }
 }
 
-#define CORE_ITER(mt) do {\
-        switch(result_type) {\
-            case MASH_DIST: {\
-                perform_core_op(dists, nsketches, sketches, [ksinv](const auto &x, const auto &y) {return dist_index(similarity<const SketchType>(x, y), ksinv);}, i, mt);\
-                break;\
-            }\
-            case JI: {\
-            perform_core_op(dists, nsketches, sketches, similarity<const SketchType>, i, mt);\
-                break;\
-            }\
-            case SIZES: {\
-            perform_core_op(dists, nsketches, sketches, us::intersection_size<SketchType>, i, mt);\
-                break;\
-            }\
-            case FULL_MASH_DIST:\
-                perform_core_op(dists, nsketches, sketches, [ksinv](const auto &x, const auto &y) {return full_dist_index(similarity<const SketchType>(x, y), ksinv);}, i, mt);\
-                break;\
-            case SYMMETRIC_CONTAINMENT_DIST:\
-                perform_core_op(dists, nsketches, sketches, [ksinv](const auto &x, const auto &y) { \
-                    const auto triple = set_triple(x, y);\
-                    auto ret = triple[2] / (std::min(triple[0], triple[1]) + triple[2]);\
-                    return dist_index(ret, ksinv);\
-                }, i, mt);\
-                break;\
-            case SYMMETRIC_CONTAINMENT_INDEX:\
-                perform_core_op(dists, nsketches, sketches, [&](const auto &x, const auto &y) {\
-                    const auto triple = set_triple(x, y);\
-                    return triple[2] / (std::min(triple[0], triple[1]) + triple[2]);\
-                }, i, mt);\
-                break;\
-            default: __builtin_unreachable();\
-        } } while(0)
-
 template<typename SketchType>
-void dist_loop(std::FILE *&ofp, std::string ofp_name, SketchType *sketches, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int, const size_t buffer_flush_size, size_t nq) {
+void dist_loop(std::FILE *&ofp, std::string ofp_name, SketchType *sketches, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, int, const size_t buffer_flush_size, size_t nq)
+{
     if(nq) {
         partdist_loop<SketchType>(ofp, sketches, inpaths, use_scientific, k, result_type, emit_fmt, buffer_flush_size, nq);
         return;
@@ -867,51 +808,67 @@ void dist_loop(std::FILE *&ofp, std::string ofp_name, SketchType *sketches, cons
     const float ksinv = 1./ k;
     const int pairfi = fileno(ofp);
     const size_t nsketches = inpaths.size();
+    std::future<size_t> submitter;
+    auto cmp = [ksinv,result_type](const auto &x, const auto &y) {return result_cmp(x, y, result_type, ksinv);};
     if((emit_fmt & BINARY) == 0) {
-        std::future<size_t> submitter;
+        // FULL_TSV, and UPPER_TRIANGULAR
         std::array<std::vector<float>, 2> dps;
         dps[0].resize(nsketches - 1);
         dps[1].resize(std::max(ssize_t(nsketches) - 2, ssize_t(1)));
         ks::string str;
         for(size_t i = 0; i < nsketches; ++i) {
-            std::vector<float> &dists = dps[i & 1];
-            CORE_ITER(true);
-            //LOG_DEBUG("Finished chunk %zu of %zu\n", i + 1, nsketches);
+            auto distp = dps[i & 1].data();
+            perform_core_op<true>(distp, nsketches, sketches, cmp, i);
             if(i) submitter.get();
-            submitter = std::async(std::launch::async, submit_emit_dists<float>,
-                                   pairfi, dists.data(), nsketches, i,
+            submitter = std::async(std::launch::async, submit_emit_dists<>,
+                                   pairfi, distp, nsketches, i,
                                    std::ref(str), std::ref(inpaths), emit_fmt, use_scientific, buffer_flush_size);
         }
         submitter.get();
     } else {
         const float defv = static_cast<float>(emt2nntype(result_type) == SIMILARITY_MEASURE);
         // 1. for the diagonal for similarity, 0 for dissimilarity
-        auto fill_matrix = [&](dm::DistanceMatrix<float> &dm) {
-            OMP_PFOR
-            for(size_t i = 0; i < nsketches - 1; ++i) {
-                auto span = dm.row_span(i);
-                auto &dists = span.first;
-                CORE_ITER(false);
-            }
-        };
         if(emit_fmt == FULL_TSV || ::isatty(::fileno(ofp))) {
-            dm::DistanceMatrix<float> dm(nsketches, defv);
-            fill_matrix(dm);
-            if(emit_fmt == FULL_TSV)
+            if(emit_fmt & BINARY) {
+                std::thread sub;
+                uint64_t ns = nsketches;
+                std::fputc('\0', ofp), std::fwrite(&ns, sizeof(ns), 1, ofp);
+                for(size_t i = 0; i < nsketches - 1; ++i) {
+                    std::unique_ptr<float[]> dat(new float[nsketches - i - 1]);
+                    OMP_PFOR
+                    for(size_t j = i + 1; j < nsketches; ++j)
+                        dat[j - i - 1] = cmp(sketches[i], sketches[j]);
+                    if(sub.joinable()) sub.join();
+                    sub = std::thread([dat=std::move(dat),n=nsketches - i - 1,ofp,i]() {
+                        if(std::fwrite(dat.get(), sizeof(float), n, ofp) != n)
+                            throw std::runtime_error(std::string("Failed to write row ") + std::to_string(i) + " to disk");
+                    });
+                }
+                sub.join();
+            } else {
+                // TODO: put together more memory-efficient version for FULLTSV
+                dm::DistanceMatrix<float> dm(nsketches);
+                OMP_PFOR_DYN
+                for(size_t i = 0; i < nsketches - 1; ++i) {
+                    perform_core_op<false>(dm.row_ptr(i), nsketches, sketches, cmp, i);
+                }
                 dm.printf(ofp, use_scientific, &inpaths);
-            else
-                dm.write(ofp);
+            }
         } else {
             // Resize file
+            std::rewind(ofp);
+            std::fputc('\0', ofp);
+            uint64_t nelem = nsketches;
+            if(std::fwrite(&nelem, sizeof(nelem), 1, ofp) != 1) throw std::runtime_error("Failure");
             ::ftruncate(::fileno(ofp), 1 + sizeof(uint64_t) + ((nsketches * (nsketches - 1)) >> 1));
             std::fclose(ofp);
-            ofp = stdout;
+            ofp = nullptr;
             // Modify in-place
-            dm::DistanceMatrix<float> dm(ofp_name.data());
-            fill_matrix(dm);
+            dm::DistanceMatrix<float> dm(ofp_name.data(), nsketches, defv);
+            dm::parallel_fill(dm, nsketches, [&cmp,sketches](size_t i, size_t j) {return cmp(sketches[i], sketches[j]);});
         }
     }
-}
+} // dist_loop
 #define DECSKETCHCORE(DS) \
   template void sketch_core<DS>(uint32_t ssarg, uint32_t nthreads,\
                                 uint32_t wsz, uint32_t k, const Spacer &sp,\
