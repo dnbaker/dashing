@@ -8,31 +8,44 @@ void show(const std::vector<std::string> &p) {
 }
 
 template<typename T>
-void union_core(std::vector<std::string> &paths, gzFile ofp) {
-    T ret(paths.back().data());
+void union_core(std::vector<std::string> &paths, gzFile ofp, size_t nthreads) {
+    // Read from disk
+    size_t np = paths.size();
+    char *p = new char[sizeof(T) * np] + (sizeof(T) - 1);
+    char *ap = p;
+    while(reinterpret_cast<uint64_t>(ap) % sizeof(T)) ++ap;
+    T *oh = reinterpret_cast<T *>(ap);
+    new(oh) T(paths.front().data());
     paths.pop_back();
-    for(const auto &path: paths) {
-        T tmp(path.data());
-        ret += tmp;
-    }
-    ret.write(ofp);
-}
+    if(paths.empty()) return;
 
-template<>
-void union_core<sketch::hll_t>(std::vector<std::string> &paths, gzFile ofp) {
-    sketch::hll_t fs(paths[0]);
-    fs.sum();
-    char *p = new char[sizeof(sketch::hll_t) * (paths.size() - 1)];
-    hll_t *oh = reinterpret_cast<hll_t *>(p);
     OMP_PFOR
-    for(size_t i = 1; i < paths.size(); ++i) {
-        new(oh + i - 1) hll_t(paths[i].data());
+    for(size_t i = 0; i < std::min(nthreads, np); ++i) {
+        new(oh) T(paths[i].data());
     }
-    for(size_t i = 1; i < paths.size(); ++i) {
-        fs += oh[i - 1];
+    if(np > nthreads) {
+        OMP_PFOR
+        for(size_t i = nthreads; i < np; ++i) {
+            oh[omp_get_thread_num()] += T(paths[i].data());
+        }
     }
-    for(size_t i = 1; i < paths.size(); ++i) oh[i].~hll_t();
-    fs.write(ofp);
+    if(nthreads > 1) {
+        const size_t nloops = std::ceil(std::log2(nthreads));
+        for(size_t i = 0; i < nloops; ++i) {
+            size_t step = 1ull << i, block_size = step << 1;
+            size_t nblocks = (np + block_size - 1) / block_size;
+            OMP_PFOR
+            for(size_t j = 0; j < nblocks; ++j) {
+                auto base = step * j, oidx = base + step;
+                if(oidx < nthreads) oh[base] += oh[oidx];
+            }
+        }
+    }
+    oh[0].write(ofp);
+    OMP_PFOR
+    for(size_t i = 0; i < nthreads; ++i) {
+        oh[i].~T();
+    }
 }
 
 int union_main(int argc, char *argv[]) {
@@ -41,11 +54,11 @@ int union_main(int argc, char *argv[]) {
        != argc + argv)
         union_usage(*argv);
     bool compress = false;
-    int compression_level = 6;
+    int compression_level = 6, nthreads = 1;
     const char *opath = "/dev/stdout";
     std::vector<std::string> paths;
     Sketch sketch_type = HLL;
-    for(int c;(c = getopt(argc, argv, "b:o:F:zZ:h?")) >= 0;) {
+    for(int c;(c = getopt(argc, argv, "p:b:o:F:zZ:h?")) >= 0;) {
         switch(c) {
             case 'h': union_usage(*argv);
             case 'Z': compression_level = std::atoi(optarg); [[fallthrough]];
@@ -55,6 +68,7 @@ int union_main(int argc, char *argv[]) {
             case 'r': sketch_type = RANGE_MINHASH; break;
             case 'H': sketch_type = FULL_KHASH_SET; break;
             case 'b': sketch_type = BLOOM_FILTER; break;
+            case 'p': nthreads = std::atoi(optarg); break;
         }
     }
     if(argc == optind && paths.empty()) union_usage(*argv);
@@ -68,11 +82,11 @@ int union_main(int argc, char *argv[]) {
     if(!ofp) throw std::runtime_error(std::string("Could not open file at ") + opath);
     using sketch::whll::wh119_t;
     switch(sketch_type) {
-        case HLL: union_core<hll::hll_t>(paths, ofp); break;
-        case WIDE_HLL: union_core<wh119_t>(paths, ofp); break;
-        case BLOOM_FILTER: union_core<bf::bf_t>(paths, ofp); break;
-        case FULL_KHASH_SET: union_core<khset64_t>(paths, ofp); break;
-        case RANGE_MINHASH: union_core<mh::FinalRMinHash<uint64_t>>(paths, ofp); break;
+        case HLL: union_core<hll::hll_t>(paths, ofp, nthreads); break;
+        case WIDE_HLL: union_core<wh119_t>(paths, ofp, nthreads); break;
+        case BLOOM_FILTER: union_core<bf::bf_t>(paths, ofp, nthreads); break;
+        case FULL_KHASH_SET: union_core<khset64_t>(paths, ofp, nthreads); break;
+        case RANGE_MINHASH: union_core<mh::FinalRMinHash<uint64_t>>(paths, ofp, nthreads); break;
         default: throw NotImplementedError(ks::sprintf("Union not implemented for %s\n", sketch_names[sketch_type]).data());
     }
     gzclose(ofp);
