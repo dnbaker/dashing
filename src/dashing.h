@@ -591,8 +591,6 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
         UNRECOVERABLE_ERROR(ks::sprintf("Wrong number of query/references. (ip size: %zu, nq: %zu\n", inpaths.size(), nq).data());
     }
     size_t nr = inpaths.size() - nq;
-    float *arr = static_cast<float *>(std::malloc(nr * nq * sizeof(float)));
-    if(!arr) throw std::bad_alloc();
 #if TIMING
     auto start = std::chrono::high_resolution_clock::now();
 #endif
@@ -602,29 +600,28 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
     for(size_t qi = nr; qi < inpaths.size(); ++qi) {
         size_t qind =  qi - nr;
         auto &hq = hlls[qi];
+        std::unique_ptr<float[]> arr(new float[nr]);
         OMP_PFOR_DYN
         for(size_t j = 0; j < nr; ++j) {
-            arr[qind * nr + j] = result_cmp(hlls[j], hq, result_type, ksinv);
+            arr[j] = result_cmp(hlls[j], hq, result_type, ksinv);
         }
         switch(emit_fmt) {
             case BINARY:
                 if(write_future.valid()) write_future.get();
-                write_future = std::async(std::launch::async, [ptr=arr + (qi - nr) * nq, nb=sizeof(float) * nr](const int fn) {
-                    if(unlikely(::write(fn, ptr, nb) != ssize_t(nb))) UNRECOVERABLE_ERROR("Error writing to binary file");
-                }, ::fileno(ofp));
+                write_future = std::async(std::launch::async, [arr=std::move(arr), nr,ofp]() {
+                    if(unlikely(std::fwrite(arr.get(), sizeof(float), nr, ofp) != nr))
+                    UNRECOVERABLE_ERROR("Error writing to binary file");
+                });
                 break;
             case UT_TSV: case UPPER_TRIANGULAR: default:
                 // UNRECOVERABLE_ERROR(std::string("Illegal output format. numeric: ") + std::to_string(int(emit_fmt)));
             case FULL_TSV:
                 if(fmt_future.valid()) fmt_future.get();
-                fmt_future = std::async(std::launch::async, [nr,qi,ofp,ind=qi-nr,&inpaths,use_scientific,arr,&buffers,&write_future]() {
+                fmt_future = std::async(std::launch::async, [nr,qi,ofp,ind=qi-nr,&inpaths,use_scientific,arr=std::move(arr),&buffers,&write_future]() {
                     auto &buffer = buffers[qi & 1];
                     buffer += inpaths[qi];
-                    const char *fmt = use_scientific ? "\t%e": "\t%f";
-                    float *aptr = arr + ind * nr;
-                    for(size_t i = 0; i < nr; ++i) {
-                        buffer.sprintf(fmt, aptr[i]);
-                    }
+                    for(size_t i = 0; i < nr; ++i)
+                        buffer.sprintf("\t%g", arr[i]);
                     buffer.putc_('\n');
                     if(write_future.valid()) write_future.get();
                     write_future = std::async(std::launch::async, [ofp,&buffer]() {buffer.flush(::fileno(ofp));});
@@ -636,8 +633,8 @@ void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::stri
     if(write_future.valid()) write_future.get();
 #if TIMING
     auto end = std::chrono::high_resolution_clock::now();
+    std::fprintf(stderr, "partdist (%zu by %zu) took %gms\n", nr, nq, std::chrono::duration<double, std::milli>(end - start).count());
 #endif
-    std::free(arr);
 }
 
 static const char *executable = nullptr;
