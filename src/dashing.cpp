@@ -397,9 +397,9 @@ int sketch_main(int argc, char *argv[]) {
         case WIDE_HLL: SKETCH_CORE(sketch::WideHyperLogLogHasher<>); break;
         case BLOOM_FILTER: SKETCH_CORE(bf::bf_t); break;
         case RANGE_MINHASH: SKETCH_CORE(BKHash64); break;
-        case COUNTING_RANGE_MINHASH: SKETCH_CORE(mh::CountingRangeMinHash<uint64_t>); break;
+        // case COUNTING_RANGE_MINHASH: SKETCH_CORE(mh::CountingRangeMinHash<uint64_t>); break;
         case BB_MINHASH: SKETCH_CORE(mh::BBitMinHasher<uint64_t>); break;
-        case BB_SUPERMINHASH: SKETCH_CORE(SuperMinHashType); break;
+        //case BB_SUPERMINHASH: SKETCH_CORE(SuperMinHashType); break;
         case FULL_KHASH_SET: SKETCH_CORE(khset64_t); break;
         default: {
             char buf[128];
@@ -455,26 +455,6 @@ int print_binary_main(int argc, char *argv[]) {
     return EXIT_SUCCESS;
 }
 
-
-#if 0
-void flatten_usage() {
-    std::fprintf(stderr, "Usage: dashing flatten <output.bin> [in1.bin in2.bin...]\n");
-    std::exit(1);
-}
-
-int flatten_main(int argc, char *argv[]) {
-    if(argc < 3 || std::find_if(argv, argv + argc, [](auto x){return std::strcmp(x, "-h") == 0;}) != argv + argc) flatten_usage();
-    std::vector<std::string> fpaths(argv + 2, argv + argc);
-    std::vector<unsigned> ks(fpaths.size(), -1);
-    omp_set_num_threads(std::thread::hardware_concurrency());
-    return flatten_all(fpaths, fpaths.size(), argv[1], ks);
-}
-#endif
-
-int setdist_main(int argc, char *argv[]) {
-    UNRECOVERABLE_ERROR("setdist_main was deprecated and has ben removed. Instead, call `dashing dist` with --use-full-khash-sets to use hash sets instead of sketches.\n");
-    return 1;
-}
 
 void union_usage [[noreturn]] (char *ex) {
     std::fprintf(stderr, "Usage: %s genome1 <genome2>...\n"
@@ -565,7 +545,7 @@ int sketch_by_seq_main(int argc, char *argv[]) {
         case HLL: if(gargs.defer_hll_creation) SKETCH_BY_SEQ_CORE(hll::hll_t);
                   else                         SKETCH_BY_SEQ_CORE(HLLH);
         break;
-        case WIDE_HLL: SKETCH_BY_SEQ_CORE(sketch::WideHyperLogLogHasher<>); break;
+        // case WIDE_HLL: SKETCH_BY_SEQ_CORE(sketch::WideHyperLogLogHasher<>); break;
         case BLOOM_FILTER: SKETCH_BY_SEQ_CORE(bf::bf_t); break;
         case RANGE_MINHASH: SKETCH_BY_SEQ_CORE(BKHash64); break;
         case BB_MINHASH: SKETCH_BY_SEQ_CORE(mh::BBitMinHasher<uint64_t>); break;
@@ -583,6 +563,33 @@ int view_main(int argc, char *argv[]) {
     if(argc < 2) UNRECOVERABLE_ERROR("Usage: dashing view f1.hll [f2.hll ...]. Only HLLs currently supported.");
     for(int i = 1; i < argc; hll::hll_t(argv[i++]).printf(stdout));
     return 0;
+}
+void fold_usage() {
+     std::fprintf(stderr, "Usage: dashing fold <flags> [in1.hll]\n-o: Write to <path> instead of stdout\n"
+                          "-p: set destination p [must be smaller than the input sketch\n");
+     std::exit(EXIT_FAILURE);
+}
+
+int fold_main(int argc, char **argv) {
+    std::string out = "/dev/stdout", in = "/dev/stdin";
+    int destp = -1;
+    for(int c;(c = getopt(argc, argv, "p:o:h?")) >= 0;) { switch(c){
+        case 'o': out = optarg; break;
+        case 'p': destp = std::atoi(optarg); break;
+        case '?': case 'h':
+        default: fold_usage();
+    }}
+    switch(argc - optind) {
+        case 0: break;
+        case 1: in = argv[optind]; break;
+        default: fold_usage();
+    }
+    hll_t h(in);
+    if(out == "-") out = "/dev/stdout";
+    if(in  == "-") in  = "/dev/stdin";
+    if(destp <= 0) destp = h.p() - 1;
+    h.compress(destp).write(out);
+    return EXIT_SUCCESS;
 }
 
 } // namespace bns

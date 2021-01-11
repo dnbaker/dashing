@@ -5,6 +5,7 @@
 namespace bns {
 struct khset64_t: public kh::khset64_t {
     // TODO: change to sorted hash sets for faster comparisons, implement parallel merge sort.
+    using base = kh::khset64_t;
     using final_type = khset64_t;
     void addh(uint64_t v) {this->insert(v);}
     void add(uint64_t v) {this->insert(v);}
@@ -12,6 +13,8 @@ struct khset64_t: public kh::khset64_t {
         return this->size();
     }
     khset64_t(): kh::khset64_t() {}
+    //khset64_t(khset64_t &&o) = default;
+    khset64_t(const khset64_t &o) = default;
     khset64_t(size_t reservesz): kh::khset64_t(reservesz) {}
     khset64_t(gzFile fp): kh::khset64_t(fp) {}
     khset64_t(std::string s) {
@@ -20,6 +23,21 @@ struct khset64_t: public kh::khset64_t {
         this->flags = 0;
         this->vals = 0;
         this->read(s);
+    }
+    void reset() {
+        if(flags) {
+            std::memset(flags, 0xaa, __ac_fsize(n_buckets) * sizeof(uint32_t));
+            size_ref() = n_occupied = 0;
+        }
+    }
+    khset64_t(khset64_t &&o) {
+        this->n_occupied = o.n_occupied;
+        this->n_buckets = o.n_buckets;
+        o.n_occupied = o.n_buckets = o.size_ref() = 0;
+        this->upper_bound =    o.upper_bound;
+        this->keys = o.keys;   o.keys = nullptr;
+        this->vals = nullptr;   o.vals = nullptr;
+        this->flags = o.flags; o.flags = nullptr;
     }
     void cvt2shs() {
         if(this->flags == nullptr) return;
@@ -110,6 +128,10 @@ struct khset64_t: public kh::khset64_t {
     double symmetric_containment_index(const khset64_t &other) const {
         auto cmps = full_set_comparison(other);
         return double(cmps[2]) / (std::min(cmps[0], cmps[1]) + 1e-20 + cmps[2]);
+    }
+    khset64_t &operator=(const khset64_t &o) {
+        static_cast<kh::khset64_t *>(this)->operator=(static_cast<kh::khset64_t>(o));
+        return *this;
     }
     khset64_t &operator+=(const khset64_t &o) {
         throw NotImplementedError("This shouldn't be called.");
