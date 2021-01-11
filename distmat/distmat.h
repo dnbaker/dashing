@@ -376,7 +376,6 @@ public:
         std::FILE *fp = std::fopen(path, "r");
         if(fp == nullptr) throw std::runtime_error(std::string("Could not open file at ") + path);
         int fd = ::fileno(fp);
-        const bool isstream = ::isatty(fd) || forcestream;
         const auto fc = std::fgetc(fp);
         std::ungetc(fc, fp);
         std::fclose(fp);
