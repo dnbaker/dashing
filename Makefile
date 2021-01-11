@@ -214,14 +214,14 @@ linux_release:
 	+rm -f $(ALLSIMDS) rm release/linux/dashing_s* && \
 		$(MAKE) $(ALLSIMDS) && \
 		cp $(ALLSIMDS) release/linux && \
-		cd release/linux && (zstd -22 --ultra $(ALLSIMDS) || echo "zstd failed") && gzip -f9 $(ALLSIMDS)
+		cd release/linux && gzip -f9 $(ALLSIMDS)
 osx_release:
 	+rm -f $(ALLSIMDS) && \
 		$(MAKE) $(ALLSIMDS) && \
         rm -f release/osx/dashing_s* && \
 		cp $(ALLSIMDS) release/osx && \
 		cd release/osx && \
-		(zstd -22 --ultra $(ALLSIMDS) || echo "zstd failed") && gzip -f9 $(ALLSIMDS)
+		gzip -f9 $(ALLSIMDS)
 clean:
 	rm -f $(EX) $(D_EX) libzstd.a bonsai/clhash.o clhash.o \
 	bonsai/klib/kthread.o bonsai/klib/kstring.o libgomp.a \

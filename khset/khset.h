@@ -97,27 +97,6 @@ struct is_map<std::unordered_map<Key, T, Hash, Compare, Allocator>> {static cons
         } else zero();\
     }
 
-#if 0
-        if(std::addressof(other) == this) return *this;\
-        n_buckets = other.n_buckets;\
-        auto memsz = other.capacity() * sizeof(*keys);\
-        auto tmpkeys = keys;\
-        auto tmpflags = flags;\
-        std::memcpy(this, &other, sizeof(*this));\
-        keys = tmpkeys;\
-        flags = tmpflags;\
-        keys = static_cast<decltype(keys)>(std::realloc(keys, memsz));\
-        std::memcpy(keys, other.keys, sizeof(*keys) * other.n_buckets);\
-        if(other.vals) {\
-            vals = static_cast<decltype(vals)>(std::realloc(vals, sizeof(*vals) * n_buckets));\
-            std::memcpy(vals, other.vals, sizeof(*vals) * other.n_buckets);\
-        }\
-        flags = static_cast<decltype(flags)>(std::realloc(flags, __ac_fsize(other.capacity() * sizeof(uint32_t))));\
-        std::memcpy(flags, other.flags, sizeof(*flags) * other.n_buckets);\
-        return *this;\
-    }
-#endif
-
 #define KH_ASSIGN_DEC(t) \
     t &operator=(const t &other) = delete;\
     t &operator=(t &&other) {\
@@ -128,12 +107,13 @@ struct is_map<std::unordered_map<Key, T, Hash, Compare, Allocator>> {static cons
         return *this;\
     }
 
-
 #define DECLARE_KHSET(name, nbits) \
 struct khset##nbits##_t: EmptyKhSet, khash_t(name) {\
     using base_type = khash_t(name);\
     using key_type = typename std::decay<decltype(*keys)>::type;\
     void zero() {*reinterpret_cast<base_type *>(this) = base_type{0,0,0,0,0,0,0};}\
+    khint_t &size_ref() {return khash_t(name)::size;}\
+    const khint_t &size_ref() const {return khash_t(name)::size;}\
     khset##nbits##_t() {zero();}\
     khset##nbits##_t(size_t reserve_size) {zero(); reserve(reserve_size);}\
     ~khset##nbits##_t() {\
