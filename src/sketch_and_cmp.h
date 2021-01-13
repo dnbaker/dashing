@@ -409,7 +409,7 @@ void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<Counting
         std::fflush(pairofp);
     }
     if(emit_fmt & NEAREST_NEIGHBOR_TABLE) {
-        std::fprintf(stderr, "[%s] About to make nn table with result type = %s. Number inpaths: %zu. \n", __PRETTY_FUNCTION__, emt2str(result_type), inpaths.size());
+        DBG_ONLY(std::fprintf(stderr, "[%s] About to make nn table with result type = %s. Number inpaths: %zu. \n", __PRETTY_FUNCTION__, emt2str(result_type), inpaths.size());)
         nndist_loop(pairofp, final_sketches, inpaths, k, result_type, emit_fmt, nq);
     } else {
         dist_loop<final_type>(pairofp, outpath, final_sketches, inpaths, use_scientific, k, result_type, emit_fmt, nthreads, BUFFER_FLUSH_SIZE, nq);
@@ -828,9 +828,10 @@ void dist_loop(std::FILE *&ofp, std::string ofp_name, SketchType *sketches, cons
     } else {
         const float defv = static_cast<float>(emt2nntype(result_type) == SIMILARITY_MEASURE);
         // 1. for the diagonal for similarity, 0 for dissimilarity
-        if(emit_fmt == FULL_TSV || ::isatty(::fileno(ofp))) {
-            if(emit_fmt & BINARY) {
+        if(emit_fmt == BINARY) {
+            if(::isatty(::fileno(ofp))) {
                 std::thread sub;
+                std::fprintf(stderr, "emit_fmt %d is binary\n", emit_fmt);
                 uint64_t ns = nsketches;
                 std::fputc('\0', ofp), std::fwrite(&ns, sizeof(ns), 1, ofp);
                 for(size_t i = 0; i < nsketches - 1; ++i) {
@@ -846,26 +847,45 @@ void dist_loop(std::FILE *&ofp, std::string ofp_name, SketchType *sketches, cons
                 }
                 sub.join();
             } else {
-                // TODO: put together more memory-efficient version for FULLTSV
-                dm::DistanceMatrix<float> dm(nsketches);
-                OMP_PFOR_DYN
-                for(size_t i = 0; i < nsketches - 1; ++i) {
-                    perform_core_op<false>(dm.row_ptr(i), nsketches, sketches, cmp, i);
-                }
-                dm.printf(ofp, use_scientific, &inpaths);
+                // Resize file
+                std::rewind(ofp);
+                std::fputc('\0', ofp);
+                uint64_t nelem = nsketches;
+                if(std::fwrite(&nelem, sizeof(nelem), 1, ofp) != 1) throw std::runtime_error("Failure");
+                ::ftruncate(::fileno(ofp), 1 + sizeof(uint64_t) + ((nsketches * (nsketches - 1)) >> 1));
+                std::fclose(ofp);
+                ofp = nullptr;
+                // Modify in-place
+                dm::DistanceMatrix<float> dm(ofp_name.data(), nsketches, defv);
+                dm::parallel_fill(dm, nsketches, [&cmp,sketches](size_t i, size_t j) {return cmp(sketches[i], sketches[j]);});
             }
         } else {
-            // Resize file
-            std::rewind(ofp);
-            std::fputc('\0', ofp);
-            uint64_t nelem = nsketches;
-            if(std::fwrite(&nelem, sizeof(nelem), 1, ofp) != 1) throw std::runtime_error("Failure");
-            ::ftruncate(::fileno(ofp), 1 + sizeof(uint64_t) + ((nsketches * (nsketches - 1)) >> 1));
-            std::fclose(ofp);
-            ofp = nullptr;
-            // Modify in-place
-            dm::DistanceMatrix<float> dm(ofp_name.data(), nsketches, defv);
-            dm::parallel_fill(dm, nsketches, [&cmp,sketches](size_t i, size_t j) {return cmp(sketches[i], sketches[j]);});
+            if(emit_fmt != FULL_TSV) throw std::runtime_error("Invalid emit_fmt");
+            // TODO: put together more memory-efficient version for FULLTSV
+            std::fputs("#Names", ofp);
+            for(size_t i = 0; i < inpaths.size(); ++i) {
+                std::fputs(inpaths[i].data(), ofp);
+                std::fputc(i == inpaths.size() - 1 ? '\n': '\t', ofp);
+            }
+            std::thread sub;
+            for(size_t i = 0; i < nsketches; ++i) {
+                std::unique_ptr<float[]> dat(new float[nsketches]);
+                OMP_PFOR_DYN
+                for(size_t j = 0; j < nsketches; ++j) {
+                    if(j == i) dat[j] = 0.;
+                    else       dat[j] = cmp(sketches[i], sketches[j]);
+                }
+                if(sub.joinable()) sub.join();
+                sub = std::thread([dat=std::move(dat),nsketches,ofp,i,name=inpaths[i].data()]() {
+                    std::fprintf(ofp, "%s\t", name);
+                    size_t j;
+                    for(j = 0; j < nsketches - 1; ++j) {
+                        std::fprintf(ofp, "%0.6g\t", dat[j]);
+                    }
+                    std::fprintf(ofp, "%0.6g\n", dat[j]);
+                });
+            }
+            if(sub.joinable()) sub.join();
         }
     }
 } // dist_loop
