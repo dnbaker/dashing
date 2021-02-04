@@ -10,42 +10,14 @@ void show(const std::vector<std::string> &p) {
 template<typename T>
 void union_core(std::vector<std::string> &paths, gzFile ofp, size_t nthreads) {
     // Read from disk
-    size_t np = paths.size();
-    char *p = new char[sizeof(T) * np] + (sizeof(T) - 1);
-    char *ap = p;
-    while(reinterpret_cast<uint64_t>(ap) % sizeof(T)) ++ap;
-    T *oh = reinterpret_cast<T *>(ap);
-    new(oh) T(paths.front().data());
-    paths.pop_back();
-    if(paths.empty()) return;
-
-    OMP_PFOR
-    for(size_t i = 0; i < std::min(nthreads, np); ++i) {
-        new(oh) T(paths[i].data());
+    if(paths.size() < 1) {
+        std::fprintf(stderr, "require >= 1 paths. See usage.\n");
+        std::exit(1);
     }
-    if(np > nthreads) {
-        OMP_PFOR
-        for(size_t i = nthreads; i < np; ++i) {
-            oh[omp_get_thread_num()] += T(paths[i].data());
-        }
-    }
-    if(nthreads > 1) {
-        const size_t nloops = std::ceil(std::log2(nthreads));
-        for(size_t i = 0; i < nloops; ++i) {
-            size_t step = 1ull << i, block_size = step << 1;
-            size_t nblocks = (np + block_size - 1) / block_size;
-            OMP_PFOR
-            for(size_t j = 0; j < nblocks; ++j) {
-                auto base = step * j, oidx = base + step;
-                if(oidx < nthreads) oh[base] += oh[oidx];
-            }
-        }
-    }
-    oh[0].write(ofp);
-    OMP_PFOR
-    for(size_t i = 0; i < nthreads; ++i) {
-        oh[i].~T();
-    }
+    T u(paths.front().data());
+    for(size_t i = 1; i < paths.size(); ++i)
+        u += T(paths[i]);
+    u.write(ofp);
 }
 
 int union_main(int argc, char *argv[]) {
