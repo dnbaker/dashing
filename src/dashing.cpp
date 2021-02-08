@@ -459,6 +459,7 @@ int print_binary_main(int argc, char *argv[]) {
 void union_usage [[noreturn]] (char *ex) {
     std::fprintf(stderr, "Usage: %s genome1 <genome2>...\n"
                          "Flags:\n"
+                         "-p: Perform compression parallel with [int] threads (0)\n"
                          "-o: Write union sketch to file [/dev/stdout]\n"
                          "-z: Emit compressed sketch\n"
                          "-Z: Set gzip compression level\n"
