@@ -8,16 +8,51 @@ void show(const std::vector<std::string> &p) {
 }
 
 template<typename T>
+void reduce(T *x, size_t n) {
+    for(size_t i = 1; i < n; ++i)
+        *x += x[i];
+}
+
+template<typename T>
+void par_reduce(T *x, size_t n) {
+    const unsigned int ln = static_cast<int>(std::ceil(std::log2(n)));
+    for(size_t i = 0; i < ln; ++i) {
+        const size_t step_size = 1 << i;
+        const size_t sweep_size = (i + 1) << 1;
+        const size_t nsweeps = (n + (sweep_size - 1)) / sweep_size;
+        OMP_PFOR
+        for(size_t j = 0; j < nsweeps; ++j) {
+            const auto lh = j * sweep_size, rh = lh + step_size;
+            if(rh < n)
+                x[lh] += x[rh];
+        }
+    }
+}
+
+template<typename T>
 void union_core(std::vector<std::string> &paths, gzFile ofp, size_t nthreads) {
-    // Read from disk
     if(paths.size() < 1) {
         std::fprintf(stderr, "require >= 1 paths. See usage.\n");
         std::exit(1);
     }
-    T u(paths.front().data());
-    for(size_t i = 1; i < paths.size(); ++i)
-        u += T(paths[i]);
-    u.write(ofp);
+    T *items = nullptr;
+    const size_t cap = std::min(paths.size(), nthreads);
+    if(posix_memalign((void **)&items, 64, sizeof(T) * cap))
+        throw std::bad_alloc();
+    OMP_PFOR
+    for(size_t i = 0; i < cap; ++i)
+        new(&items[i]) T(paths[i].data());
+    if(cap < paths.size()) {
+        OMP_PFOR
+        for(size_t i = cap; i < paths.size(); ++i) {
+            items[omp_get_thread_num()] += T(paths[i].data());
+        }
+    }
+    par_reduce(items, cap);
+    items[0].write(ofp);
+    OMP_PFOR
+    for(size_t i = 0; i < cap; ++i) items[i].~T();
+    std::free(items);
 }
 
 int union_main(int argc, char *argv[]) {
