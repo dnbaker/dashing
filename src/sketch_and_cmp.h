@@ -831,7 +831,6 @@ void dist_loop(std::FILE *&ofp, std::string ofp_name, SketchType *sketches, cons
         if(emit_fmt == BINARY) {
             if(::isatty(::fileno(ofp))) {
                 std::thread sub;
-                std::fprintf(stderr, "emit_fmt %d is binary\n", emit_fmt);
                 uint64_t ns = nsketches;
                 std::fputc('\0', ofp), std::fwrite(&ns, sizeof(ns), 1, ofp);
                 for(size_t i = 0; i < nsketches - 1; ++i) {
