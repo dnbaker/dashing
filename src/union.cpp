@@ -8,44 +8,45 @@ void show(const std::vector<std::string> &p) {
 }
 
 template<typename T>
-void union_core(std::vector<std::string> &paths, gzFile ofp, size_t nthreads) {
-    // Read from disk
-    size_t np = paths.size();
-    char *p = new char[sizeof(T) * np] + (sizeof(T) - 1);
-    char *ap = p;
-    while(reinterpret_cast<uint64_t>(ap) % sizeof(T)) ++ap;
-    T *oh = reinterpret_cast<T *>(ap);
-    new(oh) T(paths.front().data());
-    paths.pop_back();
-    if(paths.empty()) return;
-
-    OMP_PFOR
-    for(size_t i = 0; i < std::min(nthreads, np); ++i) {
-        new(oh) T(paths[i].data());
-    }
-    if(np > nthreads) {
+void par_reduce(T *x, size_t n) {
+    const unsigned int ln = static_cast<int>(std::ceil(std::log2(n)));
+    for(size_t i = 0; i < ln; ++i) {
+        const size_t step_size = 1 << i;
+        const size_t sweep_size = (i + 1) << 1;
+        const size_t nsweeps = (n + (sweep_size - 1)) / sweep_size;
         OMP_PFOR
-        for(size_t i = nthreads; i < np; ++i) {
-            oh[omp_get_thread_num()] += T(paths[i].data());
+        for(size_t j = 0; j < nsweeps; ++j) {
+            const auto lh = j * sweep_size, rh = lh + step_size;
+            if(rh < n)
+                x[lh] += x[rh];
         }
     }
-    if(nthreads > 1) {
-        const size_t nloops = std::ceil(std::log2(nthreads));
-        for(size_t i = 0; i < nloops; ++i) {
-            size_t step = 1ull << i, block_size = step << 1;
-            size_t nblocks = (np + block_size - 1) / block_size;
-            OMP_PFOR
-            for(size_t j = 0; j < nblocks; ++j) {
-                auto base = step * j, oidx = base + step;
-                if(oidx < nthreads) oh[base] += oh[oidx];
-            }
-        }
+}
+
+template<typename T>
+void union_core(std::vector<std::string> &paths, gzFile ofp, size_t nthreads) {
+    if(paths.size() < 1) {
+        std::fprintf(stderr, "require >= 1 paths. See usage.\n");
+        std::exit(1);
     }
-    oh[0].write(ofp);
+    T *items = nullptr;
+    const size_t cap = std::min(paths.size(), nthreads);
+    if(posix_memalign((void **)&items, 64, sizeof(T) * cap))
+        throw std::bad_alloc();
     OMP_PFOR
-    for(size_t i = 0; i < nthreads; ++i) {
-        oh[i].~T();
+    for(size_t i = 0; i < cap; ++i)
+        new(&items[i]) T(paths[i].data());
+    if(cap < paths.size()) {
+        OMP_PFOR
+        for(size_t i = cap; i < paths.size(); ++i) {
+            items[omp_get_thread_num()] += T(paths[i].data());
+        }
     }
+    par_reduce(items, cap);
+    items[0].write(ofp);
+    OMP_PFOR
+    for(size_t i = 0; i < cap; ++i) items[i].~T();
+    std::free(items);
 }
 
 int union_main(int argc, char *argv[]) {
