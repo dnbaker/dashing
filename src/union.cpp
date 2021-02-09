@@ -8,12 +8,6 @@ void show(const std::vector<std::string> &p) {
 }
 
 template<typename T>
-void reduce(T *x, size_t n) {
-    for(size_t i = 1; i < n; ++i)
-        *x += x[i];
-}
-
-template<typename T>
 void par_reduce(T *x, size_t n) {
     const unsigned int ln = static_cast<int>(std::ceil(std::log2(n)));
     for(size_t i = 0; i < ln; ++i) {
