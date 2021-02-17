@@ -34,8 +34,10 @@ void union_core(std::vector<std::string> &paths, gzFile ofp, size_t nthreads) {
     if(posix_memalign((void **)&items, 64, sizeof(T) * cap))
         throw std::bad_alloc();
     OMP_PFOR
-    for(size_t i = 0; i < cap; ++i)
+    for(size_t i = 0; i < cap; ++i) {
         new(&items[i]) T(paths[i].data());
+        std::fprintf(stderr, "Loaded from path %zu/%zu %s of size %d\n", i, cap, paths[i].data(), items[i].size());
+    }
     if(cap < paths.size()) {
         OMP_PFOR
         for(size_t i = cap; i < paths.size(); ++i) {
@@ -72,8 +74,11 @@ int union_main(int argc, char *argv[]) {
             case 'p': nthreads = std::atoi(optarg); break;
         }
     }
+    nthreads = std::max(nthreads, 1);
+    omp_set_num_threads(nthreads);
     if(argc == optind && paths.empty()) union_usage(*argv);
     std::for_each(argv + optind, argv + argc, [&](const char *s){paths.emplace_back(s);});
+    for(const auto &p: paths) std::fprintf(stderr, "path %s\n", p.data());
     char mode[6];
     if(compress && compression_level)
         std::sprintf(mode, "wb%d", compression_level % 23);
