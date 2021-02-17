@@ -440,11 +440,10 @@ void parallel_fill(DistanceMatrix<T, defv> &dm, size_t nitems, const Func &oracl
         }
     } else {
         const size_t nbatches = (nitems + nperbatch - 1) / nperbatch;
-        std::fprintf(stderr, "%zu batches of %zu\n", nbatches, nperbatch);
         for(size_t bi = 0; bi < nbatches; ++bi) {
             const size_t first_row = bi * nperbatch;
             const size_t end_row = std::min(first_row + nperbatch, nitems); // one-past
-            const size_t batch_size = end_row - first_row;
+            //const size_t batch_size = end_row - first_row;
             auto fptr = dm.row_ptr(first_row), eptr = dm.row_ptr(end_row);
             const size_t nelem = eptr - fptr;
 #ifndef NDEBUG
