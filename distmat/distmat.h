@@ -416,25 +416,58 @@ public:
 };
 
 template<typename T, typename Func, size_t defv>
-void parallel_fill(DistanceMatrix<T, defv> &dm, size_t nitems, const Func &oracle) {
+void parallel_fill(DistanceMatrix<T, defv> &dm, size_t nitems, const Func &oracle, size_t nperbatch=1) {
+    nperbatch = std::max(nperbatch, size_t(1));
     T *dmp = dm.data();
-    if(int rc = ::madvise(static_cast<void *>(dmp), dm.num_entries() * sizeof(float), MADV_SEQUENTIAL))
+    if(int rc = ::madvise(static_cast<void *>(dmp), dm.num_entries() * sizeof(T), MADV_SEQUENTIAL))
         throw std::system_error(errno, std::system_category(), std::strerror(rc));
     std::thread sub;
-    for(size_t i = 0; i < nitems - 1; ++i) {
-        auto s = dm.row_span(i);
-        auto up = std::make_unique<T[]>(s.second);
-#ifdef _OPENMP
-        #pragma omp parallel for schedule(dynamic)
-#endif
-        for(size_t idx = 0; idx < s.second; ++idx) {
-            up[idx] = oracle(idx + i + 1, i);
+    if(nperbatch <= 1) {
+        for(size_t i = 0; i < nitems - 1; ++i) {
+            auto s = dm.row_span(i);
+            auto up = std::make_unique<T[]>(s.second);
+    #ifdef _OPENMP
+            #pragma omp parallel for schedule(dynamic)
+    #endif
+            for(size_t idx = 0; idx < s.second; ++idx) {
+                up[idx] = oracle(idx + i + 1, i);
+            }
+            if(sub.joinable()) sub.join();
+            sub = std::thread([up=std::move(up),&dmp,n=s.second]() {
+                std::memcpy(dmp, up.get(), sizeof(T) * n);
+                dmp += n;
+            });
         }
-        if(sub.joinable()) sub.join();
-        sub = std::thread([up=std::move(up),&dmp,n=s.second]() {
-            std::memcpy(dmp, up.get(), sizeof(T) * n);
-            dmp += n;
-        });
+    } else {
+        const size_t nbatches = (nitems + nperbatch - 1) / nperbatch;
+        std::fprintf(stderr, "%zu batches of %zu\n", nbatches, nperbatch);
+        for(size_t bi = 0; bi < nbatches; ++bi) {
+            const size_t first_row = bi * nperbatch;
+            const size_t end_row = std::min(first_row + nperbatch, nitems); // one-past
+            const size_t batch_size = end_row - first_row;
+            auto fptr = dm.row_ptr(first_row), eptr = dm.row_ptr(end_row);
+            const size_t nelem = eptr - fptr;
+#ifndef NDEBUG
+            size_t nsum = 0;
+            for(size_t i = first_row; i < end_row; ++i) nsum += dm.row_span(i).second;
+            assert(nelem == nsum);
+#endif
+            auto up = std::make_unique<T[]>(nelem);
+#ifdef  _OPENMP
+    #pragma omp parallel for schedule(dynamic)
+#endif
+            for(size_t j = first_row; j < end_row; ++j) {
+                auto myptr = &up[dm.row_ptr(j) - fptr];
+                for(size_t k = j + 1; k < nitems; ++k) {
+                    myptr[k - j - 1] = oracle(k, j);
+                }
+            }
+            if(sub.joinable()) sub.join();
+            sub = std::thread([up=std::move(up),&dmp,nelem]() {
+                std::memcpy(dmp, up.get(), sizeof(T) * nelem);
+                dmp += nelem;
+            });
+        }
     }
     sub.join();
 }
