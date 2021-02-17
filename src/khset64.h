@@ -65,7 +65,7 @@ struct khset64_t: public kh::khset64_t {
             UNRECOVERABLE_ERROR("Failure to read");
         static_assert(sizeof(*this->keys) == sizeof(uint64_t), "must be same");
         if((this->keys = static_cast<khint64_t *>(std::realloc(this->keys, nelem * sizeof(uint64_t)))) == nullptr)
-            std::bad_alloc();
+            throw std::bad_alloc();
         if(gzread(fp, this->keys, nelem * sizeof(uint64_t)) != ssize_t(nelem * sizeof(uint64_t)))
             UNRECOVERABLE_ERROR("Failure to read");
     }

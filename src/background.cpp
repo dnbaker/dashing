@@ -82,7 +82,7 @@ double jukes_cantor_p(const std::vector<unsigned> &ks, const float *values,
     std::unique_ptr<double[]> lvals(new double[nk]);
     for(unsigned i = 0; i < nk; ++i) {
         const auto k = ks[i];
-        auto corrected_size = [k](auto len, auto ns) {return len - (k - 1) * ns;};
+        auto corrected_size = [k](auto len, auto ns) {return len - uint64_t(k - 1) * ns;};
         auto lhc = corrected_size(lhsz, lhns), rhc = corrected_size(rhsz, rhns);
         lvals[i] = std::log(values[i] - std::pow(background, k) * 4 * lhc * rhc);
     }
