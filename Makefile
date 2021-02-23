@@ -168,9 +168,6 @@ dashing_512bw: $(ALL_ZOBJS) $(DEPS) $(DASHINGSRC)
 dashing_128: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(DASHINGSRC) $(ALL_ZOBJS) -mno-avx512dq -mno-avx512vl -mno-avx -mno-avx512bw -mno-avx2 -msse2 -msse4.1 -DNDEBUG src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)
 
-zlib/configure.log:
-	cd zlib && ./configure && cd ..
-
 libgomp.a:
 	ln -sf $(STATIC_GOMP)
 
