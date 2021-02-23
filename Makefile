@@ -61,8 +61,8 @@ ZFLAGS=-DZWRAP_USE_ZSTD=1
 ZCOMPILE_FLAGS= $(ZFLAGS) -lzstd
 ZW_OBJS=$(patsubst %.c,%.o,bonsai/zstd/zlibWrapper/gzclose.c  bonsai/zstd/zlibWrapper/gzlib.c  bonsai/zstd/zlibWrapper/gzread.c  bonsai/zstd/zlibWrapper/gzwrite.c  bonsai/zstd/zlibWrapper/zstd_zlibwrapper.c) libzstd.a
 ALL_ZOBJS=$(ZOBJS) $(ZW_OBJS) bonsai/clhash.o bonsai/klib/kthread.o bonsai/zlib/libz.a
-INCLUDE=-Ibonsai/clhash/include -I.  -Ibonsai/zlib -Isketch/libpopcnt -Iinclude -Ibonsai/circularqueue $(ZSTD_INCLUDE) $(INCPLUS) -Isketch/vec -Ibonsai -Ibonsai/include/ \
-    -Isketch/include -Isketch -Isketch/include/sketch -Isketch/vec
+INCLUDE=-Ibonsai/clhash/include -I.  -Ibonsai/zlib -Ibonsai/hll/libpopcnt -Iinclude -Ibonsai/circularqueue $(ZSTD_INCLUDE) $(INCPLUS) -Ibonsai/hll/vec -Ibonsai -Ibonsai/include/ \
+    -Ibonsai/hll/include -Ibonsai/hll -Ibonsai/hll/include/sketch -Ibonsai/hll/vec
 
 EX=$(patsubst src/%.cpp,%,$(wildcard src/*.cpp))
 D_EX=$(patsubst src/%.cpp,%_d,$(wildcard src/*.cpp))
@@ -84,7 +84,7 @@ bonsai/clhash.o:
 
 OBJ=bonsai/klib/kstring.o bonsai/klib/kthread.o bonsai/clhash.o
 
-DEPS=sketch/include/sketch/cbf.h sketch/include/sketch/bf.h sketch/include/sketch/hll.h sketch/include/sketch/hk.h sketch/include/sketch/ccm.h sketch/include/sketch/bbmh.h
+DEPS=bonsai/hll/include/sketch/cbf.h bonsai/hll/include/sketch/bf.h bonsai/hll/include/sketch/hll.h bonsai/hll/include/sketch/hk.h bonsai/hll/include/sketch/ccm.h bonsai/hll/include/sketch/bbmh.h
 
 test/%.o: test/%.cpp
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) -c $< -o $@ $(LIB)
