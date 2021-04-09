@@ -98,7 +98,7 @@ static option_struct dist_long_options[] = {\
     LO_FLAG("wj", 142, weighted_jaccard, true)\
     LO_ARG("nearest-neighbors", 143)\
     SHARED_OPTS \
-    LO_ARG("nperbatch", 148)
+    LO_ARG("nperbatch", 148)\
     {0,0,0,0}\
 };
 
