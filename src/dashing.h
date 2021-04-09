@@ -98,6 +98,7 @@ static option_struct dist_long_options[] = {\
     LO_FLAG("wj", 142, weighted_jaccard, true)\
     LO_ARG("nearest-neighbors", 143)\
     SHARED_OPTS \
+    LO_ARG("nperbatch", 148)\
     {0,0,0,0}\
 };
 
@@ -112,7 +113,7 @@ size_t posix_fsizes(const std::string &path, const char sep=FNAME_SEP);
 using namespace sketch;
 using namespace hll;
 using option_struct = struct option;
-using sketch::common::WangHash;
+using sketch::WangHash;
 using CRMFinal = mh::FinalCRMinHash<uint64_t, uint32_t>;
 using RMFinal = mh::FinalRMinHash<uint64_t, sketch::common::Allocator<uint64_t>>;
 template<typename BaseHash>
@@ -251,6 +252,7 @@ struct GlobalArgs {
     uint32_t weighted_jaccard_nhashes = 10;
     uint32_t bbnbits = 16;
     uint32_t number_neighbors = 0; // set to 0 signifies that the option is not activated.
+    size_t nperbatch = 16;
     bool exact_weighted = false;
     bool defer_hll_creation = false;
     void show() const {
