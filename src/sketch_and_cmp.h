@@ -856,7 +856,7 @@ void dist_loop(std::FILE *&ofp, std::string ofp_name, SketchType *sketches, cons
                 ofp = nullptr;
                 // Modify in-place
                 dm::DistanceMatrix<float> dm(ofp_name.data(), nsketches, defv);
-                dm::parallel_fill(dm, nsketches, [&cmp,sketches](size_t i, size_t j) {return cmp(sketches[i], sketches[j]);});
+                dm::parallel_fill(dm, nsketches, [&cmp,sketches](size_t i, size_t j) {return cmp(sketches[i], sketches[j]);}, gargs.nperbatch);
             }
         } else {
             if(emit_fmt != FULL_TSV) throw std::runtime_error("Invalid emit_fmt");

@@ -121,10 +121,6 @@ b-bit minhashing:             --use-bb-minhash
 
 bottom-k minhashing:          --use-range-minhash
 
-weighted bottom-k minhashing: --use-counting-range-minhash
-
-SuperMinHash:                 --use-super-minhash
-
 hash sets:                    --use-full-khash-sets
 
 bloom filters:                --use-bloom-filter
