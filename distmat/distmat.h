@@ -188,19 +188,58 @@ public:
     DistanceMatrix(const char *path, size_t nelem=0, ArithType default_value=DEFAULT_VALUE, ArithType *prevdat=nullptr, bool forcestream=false):
         nelem_(nelem), default_value_(default_value)
     {
-        if(!forcestream && ::access(path, F_OK) == -1 && nelem > 0) {
-            num_entries_ = (nelem_ * (nelem_ - 1)) >> 1;
-            // If file does not exist,
-            // open a new file on disk and resize it.
-            std::FILE *ofp = std::fopen(path, "wb");
-            const size_t nb = 1 + sizeof(num_entries_) + sizeof(ArithType) * num_entries_;
-            std::fputc(magic_number(), ofp);
-            if(std::fwrite(&nelem_, sizeof(nelem_), 1, ofp) != 1) throw std::runtime_error("Failed to write nelem to disk");
-            // Resize
-            ::ftruncate(::fileno(ofp), nb);
-            std::fclose(ofp);
-            mfbp_.reset(new mio::mmap_sink(path));
-            data_ = reinterpret_cast<ArithType *>((*mfbp_).data() + 1 + sizeof(nelem_));
+        if(!forcestream) {
+            const auto exists = ::access(path, F_OK) != -1;
+            if(!exists && nelem_ > 0) {
+                num_entries_ = (nelem_ * (nelem_ - 1)) >> 1;
+                // If file does not exist,
+                // open a new file on disk and resize it.
+                std::FILE *ofp = std::fopen(path, "wb");
+                const size_t nb = 1 + sizeof(num_entries_) + sizeof(ArithType) * num_entries_;
+                std::fputc(magic_number(), ofp);
+                if(std::fwrite(&nelem_, sizeof(nelem_), 1, ofp) != 1) throw std::runtime_error("Failed to write nelem to disk");
+                // Resize
+                ::ftruncate(::fileno(ofp), nb);
+                std::fclose(ofp);
+                std::fprintf(stderr, "Closing file\n");
+                mfbp_.reset(new mio::mmap_sink(path));
+                std::fprintf(stderr, "Set mmap\n");
+                data_ = reinterpret_cast<ArithType *>((*mfbp_).data() + 1 + sizeof(nelem_));
+                return;
+            } else if(exists && nelem_ > 0) {
+                num_entries_ = (nelem_ * (nelem_ - 1)) >> 1;
+                // If file does not exist,
+                // open a new file on disk and resize it.
+                std::FILE *ofp = std::fopen(path, "ab");
+                int fd = ::fileno(ofp);
+                struct stat st;
+                ::fstat(fd, &st);
+                if(size_t(st.st_size) == (num_entries_) * sizeof(ArithType) + 1 + sizeof(num_entries_)) {
+                    // If it's the right size, just re-use it.
+                    std::fclose(ofp);
+                    mfbp_.reset(new mio::mmap_sink(path));
+                    data_ = reinterpret_cast<ArithType *>((*mfbp_).data() + 1 + sizeof(nelem_));
+                } else {
+                    // Else, resize, and then use it.
+                    std::rewind(ofp);
+                    const size_t nb = 1 + sizeof(num_entries_) + sizeof(ArithType) * num_entries_;
+                    std::fputc(magic_number(), ofp);
+                    if(std::fwrite(&nelem_, sizeof(nelem_), 1, ofp) != 1) throw std::runtime_error("Failed to write nelem to disk");
+                    ::ftruncate(::fileno(ofp), nb);
+                    std::fclose(ofp);
+                    mfbp_.reset(new mio::mmap_sink(path));
+                    data_ = reinterpret_cast<ArithType *>((*mfbp_).data() + 1 + sizeof(nelem_));
+                }
+            } else if(!exists) {
+                throw std::invalid_argument("Cannot create distance matrix from non-existant file and no provided size.");
+            } else {
+                mfbp_.reset(new mio::mmap_sink(path));
+                data_ = reinterpret_cast<ArithType *>((*mfbp_).data() + 1 + sizeof(nelem_));
+                nelem_ = *(uint64_t *)((uint8_t *)data_ + 1);
+                num_entries_ = (nelem_ * (nelem_ - 1)) >> 1;
+                assert(num_entries_ * sizeof(T) + 9 == mfbp_->size());
+                return;
+            }
         } else {
             read(path, prevdat, forcestream);
         }
@@ -419,8 +458,7 @@ template<typename T, typename Func, size_t defv>
 void parallel_fill(DistanceMatrix<T, defv> &dm, size_t nitems, const Func &oracle, size_t nperbatch=1) {
     nperbatch = std::max(nperbatch, size_t(1));
     T *dmp = dm.data();
-    if(int rc = ::madvise(static_cast<void *>(dmp), dm.num_entries() * sizeof(T), MADV_SEQUENTIAL))
-        throw std::system_error(errno, std::system_category(), std::strerror(rc));
+    ::madvise(static_cast<void *>(dmp), dm.num_entries() * sizeof(T), MADV_SEQUENTIAL);
     std::thread sub;
     if(nperbatch <= 1) {
         for(size_t i = 0; i < nitems - 1; ++i) {

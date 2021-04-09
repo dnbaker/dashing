@@ -84,10 +84,12 @@ int dist_main(int argc, char *argv[]) {
                 gargs.weighted_jaccard_cmsize  = std::atoi(optarg); weighted_jaccard = true; break;
             case 141:
                 gargs.weighted_jaccard_nhashes = std::atoi(optarg); weighted_jaccard = true; break;
+            case 148:
+                gargs.nperbatch = std::max(std::strtoull(optarg, nullptr, 10), static_cast<unsigned long long>(1)); break;
             case 143:
                 gargs.number_neighbors = std::atoi(optarg);
                 BNS_REQUIRE(gargs.number_neighbors > 0);
-                std::fprintf(stderr, "gargs.number_neighbors: %u\n", gargs.number_neighbors);
+                std::fprintf(stderr, "Calculating %u nearest neighbors\n", gargs.number_neighbors);
                 break;
             case 145:
                 gargs.exact_weighted = true; break;
