@@ -88,13 +88,22 @@ void dist_usage(const char *arg) {
                          "-p, --nthreads\tSet number of threads [1]\n"
                          "-Q, --query-paths\tSets query paths to use for performing query against reference paths\n"
                          "                 \tParticularly for asymmetric distances or panel queries.\n"
-                         "For use with option -F.\n"
+                         "                 \tFor use only with option -F.\n"
+                         "By default (if paths are specified only with -F or positional arguments),"
+                         "the emitted distance matrix is upper-triangular."
+                         "Enabling -Q changes the shape to rectangular (|F| by |Q|).\n"
+                         "For asymmetric distances (like containment), you will need to use -Q to generate comparisons in both directions\n"
+                         "--nperbatch\tDuring pairwise distance computation, performance can be improved by batching sketch comparisons\n"
+                         "           \tRaising this number (defaulting to 1) may improve performance by helping cache locality.\n" 
+                         "           \tDefault: 16\n"
                          "--presketched\tTreat provided paths as pre-made sketches.\n"
                          "-P, --prefix\tSet prefix for sketch file locations [empty]\n"
                          "-x, --suffix\tSet suffix in sketch file names [empty]\n"
                          "--avoid-sorting\tAvoid sorting files by genome sizes. This avoids a computational step, but can result in degraded load-balancing.\n\n\n"
                          "===Emission Formats===\n\n"
-                         "-b, --emit-binary\tEmit distances in binary (default: human-readable, upper-triangular)\n"
+                         "-b, --emit-binary\tEmit distances in binary (float32) (default: human-readable, upper-triangular)\n"
+                         "For default (symmetric) distance computation, this is packed upper-triangular format, like scipy.spatial.distance.squareform.\n"
+                         "In asymmetric distance mode (IE, -Q is enabled), this is rectangular in shape\n"
                          "-U, --phylip\tEmit distances in PHYLIP upper triangular format(default: human-readable, upper-triangular)\n"
                          "between bases repeated the second integer number of times\n"
                          "-T, --full-tsv\tpostprocess binary format to human-readable TSV (not upper triangular) [Square matrix]\n\n\n"
@@ -176,8 +185,6 @@ void sketch_usage(const char *arg) {
                          "--use-bb-minhash/-8\tCreate b-bit minhash sketches\n"
                          "--use-bloom-filter\tCreate bloom filter sketches\n"
                          "--use-range-minhash\tCreate range minhash sketches\n"
-                         "--use-super-minhash\tCreate b-bit super minhash sketches\n"
-                         "--use-counting-range-minhash\tCreate range minhash sketches\n"
                          "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n"
                          "\n\n"
                          "===Streaming Weighted Jaccard===\n"
@@ -231,8 +238,6 @@ void sketch_by_seq_usage(const char *arg) {
                          "--use-bb-minhash/-8\tCreate b-bit minhash sketches\n"
                          "--use-bloom-filter\tCreate bloom filter sketches\n"
                          "--use-range-minhash\tCreate range minhash sketches\n"
-                         "--use-super-minhash\tCreate b-bit super minhash sketches\n"
-                         "--use-counting-range-minhash\tCreate range minhash sketches\n"
                          "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n"
                          "\n\n"
                          "===Count-min-based Streaming Weighted Jaccard===\n"
@@ -283,7 +288,6 @@ static option_struct sketch_long_options[] = {\
     /*LO_FLAG("use-counting-range-minhash", 129, sketch_type, COUNTING_RANGE_MINHASH)*/\
     LO_FLAG("use-full-khash-sets", 130, sketch_type, FULL_KHASH_SET)\
     LO_FLAG("use-bloom-filter", 131, sketch_type, BLOOM_FILTER)\
-    /*LO_FLAG("use-super-minhash", 132, sketch_type, BB_SUPERMINHASH)*/\
     LO_FLAG("use-nthash", 133, enct, NTHASH)\
     LO_FLAG("use-cyclic-hash", 134, enct, NTHASH)\
     LO_FLAG("avoid-sorting", 135, avoid_fsorting, true)\
