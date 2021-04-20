@@ -237,7 +237,9 @@ public:
                 data_ = reinterpret_cast<ArithType *>((*mfbp_).data() + 1 + sizeof(nelem_));
                 nelem_ = *(uint64_t *)((uint8_t *)data_ + 1);
                 num_entries_ = (nelem_ * (nelem_ - 1)) >> 1;
-                assert(num_entries_ * sizeof(T) + 9 == mfbp_->size());
+                if(num_entries_ * sizeof(ArithType) + 9 != mfbp_->size()) {
+                    throw std::runtime_error(std::string("size ") + std::to_string(num_entries_ * sizeof(ArithType) + 9) + " is not " + std::to_string(mfbp_->size()));
+                }
                 return;
             }
         } else {

@@ -112,6 +112,7 @@ namespace detail {void sort_paths_by_fsize(std::vector<std::string> &paths);}
 size_t posix_fsizes(const std::string &path, const char sep=FNAME_SEP);
 using namespace sketch;
 using namespace hll;
+using sketch::BBitMinHasher;
 using option_struct = struct option;
 using sketch::WangHash;
 using CRMFinal = mh::FinalCRMinHash<uint64_t, uint32_t>;
@@ -343,8 +344,8 @@ FINAL_OVERLOAD2(wj::WeightedSketcher<HyperMinHash, wj::ExactCountingAdapter>);
 template<typename T>struct SketchFileSuffix {static constexpr const char *suffix = ".sketch";};
 #define SSS(type, suf) \
     template<> struct SketchFileSuffix<type> {static constexpr const char *suffix = suf;};\
-    template<> struct SketchFileSuffix<wj::WeightedSketcher<type>> {static constexpr const char *suffix = ".wj." suf;};\
-    template<> struct SketchFileSuffix<wj::WeightedSketcher<type, wj::ExactCountingAdapter>> {static constexpr const char *suffix = ".wj.exact." suf;}
+    template<> struct SketchFileSuffix<wj::WeightedSketcher<type>> {static constexpr const char *suffix = ".wj" suf;};\
+    template<> struct SketchFileSuffix<wj::WeightedSketcher<type, wj::ExactCountingAdapter>> {static constexpr const char *suffix = ".wj.exact" suf;}
 
 SSS(mh::CountingRangeMinHash<uint64_t>, ".crmh");
 SSS(mh::RangeMinHash<uint64_t>, ".rmh");
@@ -457,11 +458,24 @@ template<typename T> struct Constructor<T, false> {
         return T(ssarg);
     }
 };
+template<> struct Constructor<BBitMinHasher<uint64_t>, false> {
+    static auto create(size_t ssarg) {
+        return BBitMinHasher<uint64_t>(ssarg, gargs.bbnbits);
+    }
+};
 template<typename T> struct Constructor<T, true> {
     static auto create(size_t ssarg) {
         using base_type = typename T::base_type;
         using cm_type = typename T::cm_type;
         return T(cm_type(16, gargs.weighted_jaccard_cmsize, gargs.weighted_jaccard_nhashes), construct<base_type>(ssarg));
+    }
+};
+template<template<typename> typename Adapter> struct Constructor<Adapter<BBitMinHasher<uint64_t>>, true> {
+    using Type = Constructor<Adapter<BBitMinHasher<uint64_t>>, true>;
+    static auto create(size_t ssarg) {
+        using base_type = typename Type::base_type;
+        using cm_type = typename Type::cm_type;
+        return Type(cm_type(16, gargs.weighted_jaccard_cmsize, gargs.weighted_jaccard_nhashes), construct<base_type>(ssarg, gargs.bbnbits));
     }
 };
 
