@@ -285,9 +285,7 @@ int dist_by_seq_main(int argc, char *argv[]) {
         if(tmp <= 0) tmp = 31; // Just guess
         k = tmp;
     }
-    std::fprintf(stderr, "Writing to %s\n", outpath.data());
     std::FILE *ofp = std::fopen(outpath.data(), "wb");
-    std::fprintf(stderr, "Prepared everything. Now calling dist_by_seq\n");
 #define DBS(sketch)  \
     dist_by_seq<sketch>(labels, argv[optind], ofp, outpath, \
                         k, estim, jestim, result_type, emit_fmt, nthreads, otherpath); \
