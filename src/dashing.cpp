@@ -47,7 +47,7 @@ extern template void sketch_by_seq_core<mh::BBitMinHasher<uint64_t>>(uint32_t ss
 
 
 void main_usage(char **argv) {
-    std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options. [Subcommands: sketch, cmp, hll, mkdist, union, view, flatten, printmat.]\[cmp was formerly dist]\n",
+    std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options. [Subcommands: sketch, cmp, hll, mkdist, union, view, flatten, printmat.]\[dist is an alias for cmp]\n",
                  *argv, *argv);
     std::exit(EXIT_FAILURE);
 }
