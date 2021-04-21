@@ -22,7 +22,7 @@ DISTEXT(bf::bf_t)
 DISTEXT(BKHash64)
 DISTEXT(mh::CountingRangeMinHash<uint64_t>)
 DISTEXT(khset64_t)
-DISTEXT(SuperMinHashType)
+//DISTEXT(SuperMinHashType)
 DISTEXT(mh::BBitMinHasher<uint64_t>)
 #undef DISTEXT
 int dist_main(int argc, char *argv[]) {
