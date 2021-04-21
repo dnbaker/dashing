@@ -852,7 +852,7 @@ void dist_loop(std::FILE *&ofp, std::string ofp_name, SketchType *sketches, cons
                 uint64_t nelem = nsketches;
                 if(std::fwrite(&nelem, sizeof(nelem), 1, ofp) != 1) throw std::runtime_error("Failure");
                 const size_t fsz = 1 + sizeof(uint64_t) + ((nsketches * (nsketches - 1)) >> 1) * sizeof(float);
-                ::ftruncate(::fileno(ofp), 1 + sizeof(uint64_t) + fsz);
+                ::ftruncate(::fileno(ofp), fsz);
                 std::fclose(ofp);
                 ofp = nullptr;
                 // Modify in-place

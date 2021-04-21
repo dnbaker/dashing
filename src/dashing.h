@@ -150,7 +150,6 @@ template<typename FType1, typename FType2,
           >::type
          >
 typename std::common_type<FType1, FType2>::type dist_index(FType1 ji, FType2 ksinv) {
-    // Adapter from Mash https://github.com/Marbl/Mash
     return ji ? -std::log(2. * ji / (1. + ji)) * ksinv: 1.;
 }
 
@@ -160,7 +159,6 @@ template<typename FType1, typename FType2,
           >::type
          >
 typename std::common_type<FType1, FType2>::type containment_dist(FType1 containment, FType2 ksinv) {
-    // Adapter from Mash https://github.com/Marbl/Mash
     return containment ? -std::log(containment) * ksinv: 1.;
 }
 
@@ -574,7 +572,7 @@ inline auto symmetric_containment_func(const T &x, const T &y) {
 
 template<typename ST>
 float result_cmp(const ST &lhs, const ST &rhs, EmissionType result_type, double ksinv) {
-    double ret;
+    double ret = std::numeric_limits<double>::infinity();
     switch(result_type) {
         case FULL_MASH_DIST: case MASH_DIST: case JI: {
             ret = similarity<const ST>(lhs, rhs);
@@ -586,11 +584,11 @@ float result_cmp(const ST &lhs, const ST &rhs, EmissionType result_type, double 
             ret = triple[2];
             if(result_type == SYMMETRIC_CONTAINMENT_INDEX || result_type == SYMMETRIC_CONTAINMENT_DIST) {
                 ret /= (std::min(triple[0], triple[1]) + triple[2]);
-                if(result_type == SYMMETRIC_CONTAINMENT_DIST) ret = dist_index(ret, ksinv);
+                if(result_type == SYMMETRIC_CONTAINMENT_DIST) ret = containment_dist(ret, ksinv);
             } else if(result_type == FULL_CONTAINMENT_DIST || result_type == CONTAINMENT_DIST || result_type == CONTAINMENT_INDEX) {
                 ret /= (triple[0] + triple[1] + triple[2]);
-                if(result_type == CONTAINMENT_DIST) ret = dist_index(ret, ksinv);
-                else if(result_type == FULL_CONTAINMENT_DIST) ret = full_dist_index(ret, ksinv);
+                if(result_type == CONTAINMENT_DIST) ret = containment_dist(ret, ksinv);
+                else if(result_type == FULL_CONTAINMENT_DIST) ret = full_containment_dist(ret, ksinv);
             } // else, result_type is (SIZES), and we return ret
         } break;
         default: __builtin_unreachable();
