@@ -308,13 +308,8 @@ void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<Counting
         gzFile ifp = gzopen(inpaths[0].data(), "rb");
         if(!ifp) UNRECOVERABLE_ERROR("Failed to open file.");
         for(;;) {
-            try {
-                //TD<decltype(raii_final_sketches)> td;
-                raii_final_sketches->emplace_back(ifp);
-                set_estim_and_jestim(raii_final_sketches->back(), estim, jestim);
-            } catch(...) {
-                break;
-            }
+            raii_final_sketches->emplace_back(ifp);
+            set_estim_and_jestim(raii_final_sketches->back(), estim, jestim);
         }
         final_sketches = raii_final_sketches->data();
         while(inpaths.size() < raii_final_sketches->size())
@@ -333,7 +328,6 @@ void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<Counting
                     sketch.read(path);
                     set_estim_and_jestim(sketch, estim, jestim); // HLL is the only type that needs this, and it's the same
                 } else {
-                    //TD<final_type> td;
                     new(final_sketches + i) final_type(path.data()); // Read from path
                 }
             } else {
