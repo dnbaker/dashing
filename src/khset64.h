@@ -4,13 +4,13 @@
 
 namespace bns {
 struct khset64_t: public kh::khset64_t {
-    // TODO: change to sorted hash sets for faster comparisons, implement parallel merge sort.
+    static_assert(sizeof(std::declval<khset64_t>().keys) == sizeof(uint64_t), "must be same");
     using base = kh::khset64_t;
     using final_type = khset64_t;
     void addh(uint64_t v) {this->insert(v);}
     void add(uint64_t v) {this->insert(v);}
     double cardinality_estimate() const {
-        return this->size();
+        return n_occupied;
     }
     khset64_t(): kh::khset64_t() {}
     //khset64_t(khset64_t &&o) = default;
@@ -52,6 +52,7 @@ struct khset64_t: public kh::khset64_t {
         std::free(this->flags);
         this->flags = nullptr;
         kx::radix_sort(newp, newp + i);
+        this->keys = newp;
     }
     void read(const std::string &s) {read(s.data());}
     void read(const char *s) {
@@ -60,14 +61,14 @@ struct khset64_t: public kh::khset64_t {
         gzclose(fp);
     }
     void read(gzFile fp) {
-        uint64_t nelem;
-        if(gzread(fp, &nelem, sizeof(nelem)) != sizeof(nelem))
+        if(gzread(fp, &n_occupied, sizeof(n_occupied)) != sizeof(n_occupied))
             UNRECOVERABLE_ERROR("Failure to read");
-        static_assert(sizeof(*this->keys) == sizeof(uint64_t), "must be same");
-        if((this->keys = static_cast<khint64_t *>(std::realloc(this->keys, nelem * sizeof(uint64_t)))) == nullptr)
+        kh::khash_t(set64)::size = n_occupied;
+        if((this->keys = static_cast<khint64_t *>(std::realloc(this->keys, n_occupied * sizeof(uint64_t)))) == nullptr)
             throw std::bad_alloc();
-        if(gzread(fp, this->keys, nelem * sizeof(uint64_t)) != ssize_t(nelem * sizeof(uint64_t)))
+        if(gzread(fp, this->keys, n_occupied * sizeof(uint64_t)) != ssize_t(n_occupied * sizeof(uint64_t)))
             UNRECOVERABLE_ERROR("Failure to read");
+        kx::radix_sort(this->keys, this->keys + this->n_occupied);
     }
     void free() {
         auto ptr = reinterpret_cast<kh::khash_t(set64) *>(this);
@@ -82,16 +83,23 @@ struct khset64_t: public kh::khset64_t {
         gzclose(fp);
     }
     void write(gzFile fp) const {
-        uint64_t nelem = this->n_occupied;
-        std::vector<uint64_t> tmp(nelem);
-        auto it = tmp.begin();
-        for(khiter_t ki = 0; ki != this->n_buckets; ++ki)
-            if(kh_exist(this, ki))
-                *it++ = kh_key(this, ki);
-        kx::radix_sort(tmp.begin(), tmp.end());
-        if(gzwrite(fp, &nelem, sizeof(nelem)) != sizeof(nelem)) UNRECOVERABLE_ERROR("Failed to write khash set to disk.");
-        if(gzwrite(fp, this->keys, sizeof(*this->keys) * nelem) != ssize_t(sizeof(*this->keys) * nelem))
-            UNRECOVERABLE_ERROR("Failed to write khash set to disk.");
+        if(flags) {
+            uint64_t nelem = this->n_occupied;
+            std::vector<uint64_t> tmp(nelem);
+            auto it = tmp.begin();
+            for(khiter_t ki = 0; ki != this->n_buckets; ++ki)
+                if(kh_exist(this, ki))
+                    *it++ = kh_key(this, ki);
+            kx::radix_sort(tmp.begin(), tmp.end());
+            if(gzwrite(fp, &nelem, sizeof(nelem)) != sizeof(nelem)) UNRECOVERABLE_ERROR("Failed to write khash set to disk.");
+            if(gzwrite(fp, tmp.data(), tmp.size() * sizeof(uint64_t)) != ssize_t(nelem * sizeof(uint64_t)))
+                UNRECOVERABLE_ERROR("Failed to write khash set to disk.");
+       } else {
+            if(gzwrite(fp, &this->n_occupied, sizeof(this->n_occupied)) != 8u)
+                UNRECOVERABLE_ERROR("Failed to write hash set to disk.");
+            if(gzwrite(fp, this->keys, this->n_occupied * sizeof(*this->keys)) != int64_t(this->n_occupied * sizeof(*this->keys)))
+                UNRECOVERABLE_ERROR("Failed to write hash set keys to disk.");
+       }
     }
     struct Counter
     {
@@ -110,7 +118,7 @@ struct khset64_t: public kh::khset64_t {
         std::set_intersection(this->keys, this->keys + this->n_occupied,
                               other.keys, other.keys + other.n_occupied,
                               std::back_inserter(c));
-        double is = c.count;
+        const double is = c.count;
         return std::array<double, 3>{{this->n_occupied - is, other.n_occupied - is, is}};
     }
     size_t intersection_size(const khset64_t &other) const {

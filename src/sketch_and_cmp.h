@@ -130,7 +130,6 @@ void size_sketch_and_emit(std::vector<std::string> &inpaths, std::vector<Countin
     //       for convenience, we will perform our comparisons (all-p) against (all-q) [remainder]
     //       and use the same guts for all portions of the process
     //       except for the final comparison and output.
-    assert(nq <= inpaths.size());
     using final_type = typename FinalSketch<SketchType>::final_type;
     static_assert(!sketch::wj::is_weighted_sketch<final_type>::value, "Can't have a weighted sketch be a final type");
     auto buf(std::make_unique<uint8_t[]>(inpaths.size() * sizeof(SketchType)));
@@ -768,7 +767,7 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
             assert(nameind < inpaths.size());
             buf += inpaths[nameind];
             for(unsigned j = 0; j < nneighbors; ++j) {
-                assert(nptr + j < neighbors.get() + ntups || std::fprintf(stderr, "i = %zu, j = %zu, offset = %zu\n", i, j, i * nneighbors + j));
+                assert(nptr + j < neighbors.get() + ntups || std::fprintf(stderr, "i = %zu, j = %zu, offset = %zu\n", i, size_t(j), i * nneighbors + j));
                 const auto ndat = nptr[j];
                 buf.putc_('\t');
                 buf.putw_(ndat.second);

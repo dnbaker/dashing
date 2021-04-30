@@ -107,7 +107,9 @@ void dist_usage(const char *arg) {
                          "--use-bb-minhash/-8\tCreate b-bit minhash sketches\n"
                          "--use-bloom-filter\tCreate bloom filter sketches\n"
                          "--use-range-minhash\tCreate range minhash sketches\n"
-                         "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n\n\n"
+                         "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n"
+                         "Shorter synonyms include --use-hash-sets\n"
+                         "\n\n"
                          "===Sketch-specific Options===\n\n"
                          "-I, --improved      \tUse Ertl's Improved Estimator for HLL\n"
                          "-E, --original      \tUse Ertl's Original Estimator for HLL\n"
@@ -174,7 +176,6 @@ void sketch_usage(const char *arg) {
                          "--min-count/-n\tProvide minimum expected count for fastq data. If unspecified, all kmers are passed.\n"
                          "--seed/-R\tSet seed for seeds for count-min sketches\n\n\n"
                          "Sketch Type Options --\n\n"
-                         "--use-hyperminhash\tUse HyperMinHash. Defaults to 16-bit registers. Use --bbits/-B bits to modify remainder size to 8, 16, 32, or 64.\n"
                          "--use-bb-minhash/-8\tCreate b-bit minhash sketches\n"
                          "--use-bloom-filter\tCreate bloom filter sketches\n"
                          "--use-range-minhash\tCreate range minhash sketches\n"
@@ -227,7 +228,6 @@ void sketch_by_seq_usage(const char *arg) {
                          "--min-count/-n\tProvide minimum expected count for fastq data. If unspecified, all kmers are passed.\n"
                          "--seed/-R\tSet seed for seeds for count-min sketches\n\n\n"
                          "Sketch Type Options --\n\n"
-                         "--use-hyperminhash\tUse HyperMinHash. Defaults to 16-bit registers. Use --bbits/-B bits to modify remainder size to 8, 16, 32, or 64.\n"
                          "--use-bb-minhash/-8\tCreate b-bit minhash sketches\n"
                          "--use-bloom-filter\tCreate bloom filter sketches\n"
                          "--use-range-minhash\tCreate range minhash sketches\n"
@@ -282,7 +282,7 @@ static option_struct sketch_long_options[] = {\
     LO_FLAG("use-full-khash-sets", 130, sketch_type, FULL_KHASH_SET)\
     LO_FLAG("use-bloom-filter", 131, sketch_type, BLOOM_FILTER)\
     LO_FLAG("use-nthash", 133, enct, NTHASH)\
-    LO_FLAG("use-cyclic-hash", 134, enct, NTHASH)\
+    LO_FLAG("use-cyclic-hash", 134, enct, CYCLIC)\
     LO_FLAG("avoid-sorting", 135, avoid_fsorting, true)\
     LO_FLAG("wj", 138, weighted_jaccard, true)\
     SHARED_OPTS \

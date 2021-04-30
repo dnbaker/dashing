@@ -84,6 +84,9 @@ static option_struct dist_long_options[] = {\
     /*LO_ARG("mkdist", 1337)*/\
     LO_FLAG("use-range-minhash", 128, sketch_type, RANGE_MINHASH)\
     LO_FLAG("use-full-khash-sets", 130, sketch_type, FULL_KHASH_SET)\
+    LO_FLAG("use-full-hash-sets", 1000, sketch_type, FULL_KHASH_SET)\
+    LO_FLAG("use-hash-sets", 1000, sketch_type, FULL_KHASH_SET)\
+    LO_FLAG("use-full-sets", 1000, sketch_type, FULL_KHASH_SET)\
     LO_FLAG("full-containment-dist", 133, result_type, FULL_CONTAINMENT_DIST) \
     LO_FLAG("use-bloom-filter", 134, sketch_type, BLOOM_FILTER)\
     LO_FLAG("use-nthash", 136, enct, NTHASH)\
@@ -92,7 +95,7 @@ static option_struct dist_long_options[] = {\
     LO_FLAG("mash-dist", 'M', result_type, MASH_DIST)\
     LO_FLAG("symmetric-containment-index", 137, result_type, SYMMETRIC_CONTAINMENT_INDEX) \
     LO_FLAG("symmetric-containment-dist", 138, result_type, SYMMETRIC_CONTAINMENT_DIST) \
-    LO_FLAG("use-cyclic-hash", 139, enct, NTHASH)\
+    LO_FLAG("use-cyclic-hash", 139, enct, CYCLIC)\
     LO_ARG("wj-cm-sketch-size", 140)\
     LO_ARG("wj-cm-nhashes", 141)\
     LO_FLAG("wj", 142, weighted_jaccard, true)\
@@ -226,7 +229,7 @@ enum Sketch: int {
     COUNTING_RANGE_MINHASH,
     BB_MINHASH,
     BB_SUPERMINHASH,
-    COUNTING_BB_MINHASH, // TODO make this work.
+    COUNTING_BB_MINHASH,
     WIDE_HLL,
     HYPERMINHASH,
     HMH = HYPERMINHASH
