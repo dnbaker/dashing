@@ -52,7 +52,6 @@ struct khset64_t: public kh::khset64_t {
         std::free(this->flags);
         this->flags = nullptr;
         kx::radix_sort(newp, newp + i);
-        this->keys = newp;
     }
     void read(const std::string &s) {read(s.data());}
     void read(const char *s) {

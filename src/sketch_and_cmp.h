@@ -155,14 +155,11 @@ void size_sketch_and_emit(std::vector<std::string> &inpaths, std::vector<Countin
         raii_final_sketches.reset(new std::vector<final_type>);
         gzFile ifp = gzopen(inpaths[0].data(), "rb");
         if(!ifp) UNRECOVERABLE_ERROR("Failed to open file.");
-        for(;;) {
+        for(;!gzeof(ifp);) {
             try {
-                //TD<decltype(raii_final_sketches)> td;
                 raii_final_sketches->emplace_back(ifp);
                 set_estim_and_jestim(raii_final_sketches->back(), estim, jestim);
-            } catch(...) {
-                break;
-            }
+            } catch(...) {break;}
         }
         final_sketches = raii_final_sketches->data();
         while(inpaths.size() < raii_final_sketches->size())
