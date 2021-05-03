@@ -126,8 +126,6 @@ int card_main(int argc, char *argv[]) {
         std::fprintf(stderr, "Use nthash's rolling hash for kmers. This comes at the expense of reversibility\n");
 
     switch(sketch_type) {
-        //case BB_MINHASH:      CALL_SIZE_MAIN(mh::BBitMinHasher<uint64_t>); break;
-        //case BB_SUPERMINHASH: CALL_SIZE_MAIN(SuperMinHashType); break;
         case HLL:      if(gargs.defer_hll_creation) CALL_SIZE_MAIN(HyperLogLogHasher<>);
                        else                         CALL_SIZE_MAIN(hll::hll_t);
         break;

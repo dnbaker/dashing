@@ -35,19 +35,10 @@ extern template void sketch_core<wj::WeightedSketcher<bf::bf_t, wj::ExactCountin
 extern template void sketch_core<wj::WeightedSketcher<khset64_t, wj::ExactCountingAdapter>>(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, int sketch_flags, uint32_t mincount, EncodingType enct, std::string);
 extern template void sketch_core<wj::WeightedSketcher<mh::BBitMinHasher<uint64_t>, wj::ExactCountingAdapter>>(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, int sketch_flags, uint32_t mincount, EncodingType enct, std::string);
 // sketch_by_seq_core forward declaration
-#if 0
-extern template void sketch_by_seq_core<BKHash64>(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, int sketch_flags, uint32_t mincount, EncodingType enct);
-extern template void sketch_by_seq_core<mh::CountingRangeMinHash<uint64_t>>(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, int sketch_flags, uint32_t mincount, EncodingType enct);
-extern template void sketch_by_seq_core<SuperMinHashType>(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, int sketch_flags, uint32_t mincount, EncodingType enct);
-extern template void sketch_by_seq_core<hll::hll_t>(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, int sketch_flags, uint32_t mincount, EncodingType enct);
-extern template void sketch_by_seq_core< bf::bf_t>(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, int sketch_flags, uint32_t mincount, EncodingType enct);
-extern template void sketch_by_seq_core<khset64_t>(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, int sketch_flags, uint32_t mincount, EncodingType enct);
-extern template void sketch_by_seq_core<mh::BBitMinHasher<uint64_t>>(uint32_t ssarg, uint32_t nthreads, uint32_t wsz, uint32_t k, const Spacer &sp, const std::vector<std::string> &inpaths, const std::string &suffix, const std::string &prefix, std::vector<CountingSketch> &counting_sketches, EstimationMethod estim, JointEstimationMethod jestim, KSeqBufferHolder &kseqs, const std::vector<bool> &use_filter, const std::string &spacing, int sketch_flags, uint32_t mincount, EncodingType enct);
-#endif
 
 
 void main_usage(char **argv) {
-    std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options. [Subcommands: sketch, cmp, hll, mkdist, union, view, flatten, printmat.]\[cmp was formerly dist]\n",
+    std::fprintf(stderr, "Usage: %s <subcommand> [options...]. Use %s <subcommand> for more options. [Subcommands: sketch, cmp, hll, mkdist, union, view, flatten, printmat.]\[dist is an alias for cmp]\n",
                  *argv, *argv);
     std::exit(EXIT_FAILURE);
 }
@@ -116,7 +107,9 @@ void dist_usage(const char *arg) {
                          "--use-bb-minhash/-8\tCreate b-bit minhash sketches\n"
                          "--use-bloom-filter\tCreate bloom filter sketches\n"
                          "--use-range-minhash\tCreate range minhash sketches\n"
-                         "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n\n\n"
+                         "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n"
+                         "Shorter synonyms include --use-hash-sets\n"
+                         "\n\n"
                          "===Sketch-specific Options===\n\n"
                          "-I, --improved      \tUse Ertl's Improved Estimator for HLL\n"
                          "-E, --original      \tUse Ertl's Original Estimator for HLL\n"
@@ -183,11 +176,11 @@ void sketch_usage(const char *arg) {
                          "--min-count/-n\tProvide minimum expected count for fastq data. If unspecified, all kmers are passed.\n"
                          "--seed/-R\tSet seed for seeds for count-min sketches\n\n\n"
                          "Sketch Type Options --\n\n"
-                         "--use-hyperminhash\tUse HyperMinHash. Defaults to 16-bit registers. Use --bbits/-B bits to modify remainder size to 8, 16, 32, or 64.\n"
                          "--use-bb-minhash/-8\tCreate b-bit minhash sketches\n"
                          "--use-bloom-filter\tCreate bloom filter sketches\n"
                          "--use-range-minhash\tCreate range minhash sketches\n"
                          "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n"
+                         "--use-hash-sets and --use-full-hash-sets are slightly shorter aliases for the same option.\n"
                          "\n\n"
                          "===Streaming Weighted Jaccard===\n"
                          "--wj               \tEnable weighted jaccard adapter using the count-min sketch\n"
@@ -236,7 +229,6 @@ void sketch_by_seq_usage(const char *arg) {
                          "--min-count/-n\tProvide minimum expected count for fastq data. If unspecified, all kmers are passed.\n"
                          "--seed/-R\tSet seed for seeds for count-min sketches\n\n\n"
                          "Sketch Type Options --\n\n"
-                         "--use-hyperminhash\tUse HyperMinHash. Defaults to 16-bit registers. Use --bbits/-B bits to modify remainder size to 8, 16, 32, or 64.\n"
                          "--use-bb-minhash/-8\tCreate b-bit minhash sketches\n"
                          "--use-bloom-filter\tCreate bloom filter sketches\n"
                          "--use-range-minhash\tCreate range minhash sketches\n"
@@ -291,7 +283,7 @@ static option_struct sketch_long_options[] = {\
     LO_FLAG("use-full-khash-sets", 130, sketch_type, FULL_KHASH_SET)\
     LO_FLAG("use-bloom-filter", 131, sketch_type, BLOOM_FILTER)\
     LO_FLAG("use-nthash", 133, enct, NTHASH)\
-    LO_FLAG("use-cyclic-hash", 134, enct, NTHASH)\
+    LO_FLAG("use-cyclic-hash", 134, enct, CYCLIC)\
     LO_FLAG("avoid-sorting", 135, avoid_fsorting, true)\
     LO_FLAG("wj", 138, weighted_jaccard, true)\
     SHARED_OPTS \
@@ -403,9 +395,7 @@ int sketch_main(int argc, char *argv[]) {
         case WIDE_HLL: SKETCH_CORE(sketch::WideHyperLogLogHasher<>); break;
         case BLOOM_FILTER: SKETCH_CORE(bf::bf_t); break;
         case RANGE_MINHASH: SKETCH_CORE(BKHash64); break;
-        // case COUNTING_RANGE_MINHASH: SKETCH_CORE(mh::CountingRangeMinHash<uint64_t>); break;
         case BB_MINHASH: SKETCH_CORE(mh::BBitMinHasher<uint64_t>); break;
-        //case BB_SUPERMINHASH: SKETCH_CORE(SuperMinHashType); break;
         case FULL_KHASH_SET: SKETCH_CORE(khset64_t); break;
         default: {
             char buf[128];

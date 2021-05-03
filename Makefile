@@ -116,10 +116,10 @@ dashing.a: src/dashing.o  libzstd.a bonsai/klib/kthread.o bonsai/clhash.o $(ALL_
 	ar r dashing.a src/dashing.o  libzstd.a $(ALL_ZOBJS) bonsai/klib/kthread.o bonsai/clhash.o
 
 BACKUPOBJ=src/main.o src/union.o src/hllmain.o src/mkdistmain.o src/finalizers.o src/cardests.o src/distmain.o src/construct.o src/flatten_all.o \
-        $(patsubst %.cpp,%.o,$(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp)) src/background.o src/panel.o src/cardmain.o
+        $(patsubst %.cpp,%.o,$(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp)) src/background.o src/panel.o src/cardmain.o src/distbyseq.cpp
 CARDCMPO=src/cardmain.o src/finalizers.o src/dashing.o
 DASHINGSRC=src/main.cpp src/union.cpp src/hllmain.cpp src/mkdistmain.cpp src/finalizers.cpp src/cardests.cpp src/distmain.cpp src/construct.cpp src/flatten_all.cpp \
-        $(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp) src/background.cpp src/panel.cpp src/cardmain.cpp
+        $(wildcard src/sketchcmp*.cpp) $(wildcard src/sketchcore*.cpp) src/background.cpp src/panel.cpp src/cardmain.cpp src/distbyseq.cpp
 
 
 bonsai/zstd/zlibWrapper/%.o: bonsai/zstd/zlibWrapper/%.c
@@ -154,7 +154,7 @@ sparse%: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 
 %_d: src/%.cpp $(ALL_ZOBJS) $(DEPS) src/main.o
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g src/main.o \
-    $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -O1 -fno-inline # -fsanitize=undefined -fsanitize=address
+    $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -O1 -fno-inline -lz # -fsanitize=undefined -fsanitize=address
 
 dashing_256: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(DASHINGSRC) $(ALL_ZOBJS) -march=native -mno-avx512dq -mno-avx512vl -mno-avx512bw -mavx -mavx2 -msse4.1 -msse2 -DNDEBUG src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)

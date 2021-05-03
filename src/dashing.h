@@ -84,6 +84,10 @@ static option_struct dist_long_options[] = {\
     /*LO_ARG("mkdist", 1337)*/\
     LO_FLAG("use-range-minhash", 128, sketch_type, RANGE_MINHASH)\
     LO_FLAG("use-full-khash-sets", 130, sketch_type, FULL_KHASH_SET)\
+    LO_FLAG("use-full-hash-sets", 1000, sketch_type, FULL_KHASH_SET)\
+    LO_FLAG("use-hash-sets", 1000, sketch_type, FULL_KHASH_SET)\
+    LO_FLAG("hash-sets", 10001, sketch_type, FULL_KHASH_SET)\
+    LO_FLAG("use-full-sets", 1000, sketch_type, FULL_KHASH_SET)\
     LO_FLAG("full-containment-dist", 133, result_type, FULL_CONTAINMENT_DIST) \
     LO_FLAG("use-bloom-filter", 134, sketch_type, BLOOM_FILTER)\
     LO_FLAG("use-nthash", 136, enct, NTHASH)\
@@ -92,7 +96,7 @@ static option_struct dist_long_options[] = {\
     LO_FLAG("mash-dist", 'M', result_type, MASH_DIST)\
     LO_FLAG("symmetric-containment-index", 137, result_type, SYMMETRIC_CONTAINMENT_INDEX) \
     LO_FLAG("symmetric-containment-dist", 138, result_type, SYMMETRIC_CONTAINMENT_DIST) \
-    LO_FLAG("use-cyclic-hash", 139, enct, NTHASH)\
+    LO_FLAG("use-cyclic-hash", 139, enct, CYCLIC)\
     LO_ARG("wj-cm-sketch-size", 140)\
     LO_ARG("wj-cm-nhashes", 141)\
     LO_FLAG("wj", 142, weighted_jaccard, true)\
@@ -150,7 +154,6 @@ template<typename FType1, typename FType2,
           >::type
          >
 typename std::common_type<FType1, FType2>::type dist_index(FType1 ji, FType2 ksinv) {
-    // Adapter from Mash https://github.com/Marbl/Mash
     return ji ? -std::log(2. * ji / (1. + ji)) * ksinv: 1.;
 }
 
@@ -160,7 +163,6 @@ template<typename FType1, typename FType2,
           >::type
          >
 typename std::common_type<FType1, FType2>::type containment_dist(FType1 containment, FType2 ksinv) {
-    // Adapter from Mash https://github.com/Marbl/Mash
     return containment ? -std::log(containment) * ksinv: 1.;
 }
 
@@ -228,7 +230,7 @@ enum Sketch: int {
     COUNTING_RANGE_MINHASH,
     BB_MINHASH,
     BB_SUPERMINHASH,
-    COUNTING_BB_MINHASH, // TODO make this work.
+    COUNTING_BB_MINHASH,
     WIDE_HLL,
     HYPERMINHASH,
     HMH = HYPERMINHASH
@@ -574,7 +576,7 @@ inline auto symmetric_containment_func(const T &x, const T &y) {
 
 template<typename ST>
 float result_cmp(const ST &lhs, const ST &rhs, EmissionType result_type, double ksinv) {
-    double ret;
+    double ret = std::numeric_limits<double>::infinity();
     switch(result_type) {
         case FULL_MASH_DIST: case MASH_DIST: case JI: {
             ret = similarity<const ST>(lhs, rhs);
@@ -586,11 +588,11 @@ float result_cmp(const ST &lhs, const ST &rhs, EmissionType result_type, double 
             ret = triple[2];
             if(result_type == SYMMETRIC_CONTAINMENT_INDEX || result_type == SYMMETRIC_CONTAINMENT_DIST) {
                 ret /= (std::min(triple[0], triple[1]) + triple[2]);
-                if(result_type == SYMMETRIC_CONTAINMENT_DIST) ret = dist_index(ret, ksinv);
+                if(result_type == SYMMETRIC_CONTAINMENT_DIST) ret = containment_dist(ret, ksinv);
             } else if(result_type == FULL_CONTAINMENT_DIST || result_type == CONTAINMENT_DIST || result_type == CONTAINMENT_INDEX) {
                 ret /= (triple[0] + triple[1] + triple[2]);
-                if(result_type == CONTAINMENT_DIST) ret = dist_index(ret, ksinv);
-                else if(result_type == FULL_CONTAINMENT_DIST) ret = full_dist_index(ret, ksinv);
+                if(result_type == CONTAINMENT_DIST) ret = containment_dist(ret, ksinv);
+                else if(result_type == FULL_CONTAINMENT_DIST) ret = full_containment_dist(ret, ksinv);
             } // else, result_type is (SIZES), and we return ret
         } break;
         default: __builtin_unreachable();

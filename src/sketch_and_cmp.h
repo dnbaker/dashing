@@ -130,7 +130,6 @@ void size_sketch_and_emit(std::vector<std::string> &inpaths, std::vector<Countin
     //       for convenience, we will perform our comparisons (all-p) against (all-q) [remainder]
     //       and use the same guts for all portions of the process
     //       except for the final comparison and output.
-    assert(nq <= inpaths.size());
     using final_type = typename FinalSketch<SketchType>::final_type;
     static_assert(!sketch::wj::is_weighted_sketch<final_type>::value, "Can't have a weighted sketch be a final type");
     auto buf(std::make_unique<uint8_t[]>(inpaths.size() * sizeof(SketchType)));
@@ -156,14 +155,11 @@ void size_sketch_and_emit(std::vector<std::string> &inpaths, std::vector<Countin
         raii_final_sketches.reset(new std::vector<final_type>);
         gzFile ifp = gzopen(inpaths[0].data(), "rb");
         if(!ifp) UNRECOVERABLE_ERROR("Failed to open file.");
-        for(;;) {
+        for(;!gzeof(ifp);) {
             try {
-                //TD<decltype(raii_final_sketches)> td;
                 raii_final_sketches->emplace_back(ifp);
                 set_estim_and_jestim(raii_final_sketches->back(), estim, jestim);
-            } catch(...) {
-                break;
-            }
+            } catch(...) {break;}
         }
         final_sketches = raii_final_sketches->data();
         while(inpaths.size() < raii_final_sketches->size())
@@ -308,13 +304,8 @@ void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<Counting
         gzFile ifp = gzopen(inpaths[0].data(), "rb");
         if(!ifp) UNRECOVERABLE_ERROR("Failed to open file.");
         for(;;) {
-            try {
-                //TD<decltype(raii_final_sketches)> td;
-                raii_final_sketches->emplace_back(ifp);
-                set_estim_and_jestim(raii_final_sketches->back(), estim, jestim);
-            } catch(...) {
-                break;
-            }
+            raii_final_sketches->emplace_back(ifp);
+            set_estim_and_jestim(raii_final_sketches->back(), estim, jestim);
         }
         final_sketches = raii_final_sketches->data();
         while(inpaths.size() < raii_final_sketches->size())
@@ -333,7 +324,6 @@ void dist_sketch_and_cmp(std::vector<std::string> &inpaths, std::vector<Counting
                     sketch.read(path);
                     set_estim_and_jestim(sketch, estim, jestim); // HLL is the only type that needs this, and it's the same
                 } else {
-                    //TD<final_type> td;
                     new(final_sketches + i) final_type(path.data()); // Read from path
                 }
             } else {
@@ -774,7 +764,7 @@ void nndist_loop(std::FILE *ofp, SketchType *sketches,
             assert(nameind < inpaths.size());
             buf += inpaths[nameind];
             for(unsigned j = 0; j < nneighbors; ++j) {
-                assert(nptr + j < neighbors.get() + ntups || std::fprintf(stderr, "i = %zu, j = %zu, offset = %zu\n", i, j, i * nneighbors + j));
+                assert(nptr + j < neighbors.get() + ntups || std::fprintf(stderr, "i = %zu, j = %zu, offset = %zu\n", i, size_t(j), i * nneighbors + j));
                 const auto ndat = nptr[j];
                 buf.putc_('\t');
                 buf.putw_(ndat.second);
@@ -852,7 +842,7 @@ void dist_loop(std::FILE *&ofp, std::string ofp_name, SketchType *sketches, cons
                 uint64_t nelem = nsketches;
                 if(std::fwrite(&nelem, sizeof(nelem), 1, ofp) != 1) throw std::runtime_error("Failure");
                 const size_t fsz = 1 + sizeof(uint64_t) + ((nsketches * (nsketches - 1)) >> 1) * sizeof(float);
-                ::ftruncate(::fileno(ofp), 1 + sizeof(uint64_t) + fsz);
+                ::ftruncate(::fileno(ofp), fsz);
                 std::fclose(ofp);
                 ofp = nullptr;
                 // Modify in-place
