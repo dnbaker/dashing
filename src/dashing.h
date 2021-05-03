@@ -86,6 +86,7 @@ static option_struct dist_long_options[] = {\
     LO_FLAG("use-full-khash-sets", 130, sketch_type, FULL_KHASH_SET)\
     LO_FLAG("use-full-hash-sets", 1000, sketch_type, FULL_KHASH_SET)\
     LO_FLAG("use-hash-sets", 1000, sketch_type, FULL_KHASH_SET)\
+    LO_FLAG("hash-sets", 10001, sketch_type, FULL_KHASH_SET)\
     LO_FLAG("use-full-sets", 1000, sketch_type, FULL_KHASH_SET)\
     LO_FLAG("full-containment-dist", 133, result_type, FULL_CONTAINMENT_DIST) \
     LO_FLAG("use-bloom-filter", 134, sketch_type, BLOOM_FILTER)\

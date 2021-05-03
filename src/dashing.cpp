@@ -180,6 +180,7 @@ void sketch_usage(const char *arg) {
                          "--use-bloom-filter\tCreate bloom filter sketches\n"
                          "--use-range-minhash\tCreate range minhash sketches\n"
                          "--use-full-khash-sets\tUse full khash sets for comparisons, rather than sketches. This can take a lot of memory and time!\n"
+                         "--use-hash-sets and --use-full-hash-sets are slightly shorter aliases for the same option.\n"
                          "\n\n"
                          "===Streaming Weighted Jaccard===\n"
                          "--wj               \tEnable weighted jaccard adapter using the count-min sketch\n"
