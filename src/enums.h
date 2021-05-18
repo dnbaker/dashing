@@ -42,7 +42,7 @@ enum sketching_method: int {
 enum EncodingType {
     BONSAI,
     NTHASH,
-    RK,
+    //RK,
     CYCLIC
 };
 
