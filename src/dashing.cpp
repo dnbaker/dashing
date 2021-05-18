@@ -397,13 +397,13 @@ int sketch_main(int argc, char *argv[]) {
         case RANGE_MINHASH: SKETCH_CORE(BKHash64); break;
         case BB_MINHASH: SKETCH_CORE(mh::BBitMinHasher<uint64_t>); break;
         case FULL_KHASH_SET: SKETCH_CORE(khset64_t); break;
+#undef SKETCH_CORE
         default: {
             char buf[128];
             std::sprintf(buf, "Sketch %s not yet supported.\n", (size_t(sketch_type) >= (sizeof(sketch_names) / sizeof(char *)) ? "Not such sketch": sketch_names[sketch_type]));
             UNRECOVERABLE_ERROR(buf);
         }
     }
-#undef SKETCH_CORE
     LOG_INFO("Successfully finished sketching from %zu files\n", inpaths.size());
     return EXIT_SUCCESS;
 }
