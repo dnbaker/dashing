@@ -141,7 +141,7 @@ dashing: src/dashing.o $(ALL_ZOBJS) $(DEPS)  libzstd.a $(BACKUPOBJ)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) $(BACKUPOBJ)  -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -march=native -DNDEBUG -lz
 
 dashing_d: $(ALL_ZOBJS) $(DEPS) libzstd.a $(DASHINGSRC)
-	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) $(DASHINGSRC)  -O3 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -march=native src/dashing.cpp # -DNDEBUG
+	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) $(DASHINGSRC)  -O1 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -march=native src/dashing.cpp # -DNDEBUG
 
 %0: src/%.o $(ALL_ZOBJS) $(DEPS)  libzstd.a src/main.o
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) src/main.o  -O0 $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -march=native
@@ -154,7 +154,7 @@ sparse%: src/%.cpp $(ALL_ZOBJS) $(DEPS)
 
 %_d: src/%.cpp $(ALL_ZOBJS) $(DEPS) src/main.o
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(ALL_ZOBJS) -g src/main.o \
-    $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -O1 -fno-inline -lz # -fsanitize=undefined -fsanitize=address
+    $< -o $@ $(ZCOMPILE_FLAGS) $(LIB) -O1 -lz # -fsanitize=undefined -fsanitize=address
 
 dashing_256: $(DASHINGSRC) $(ALL_ZOBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS) $(DBG) $(INCLUDE) $(LD) $(DASHINGSRC) $(ALL_ZOBJS) -march=native -mno-avx512dq -mno-avx512vl -mno-avx512bw -mavx -mavx2 -msse4.1 -msse2 -DNDEBUG src/dashing.cpp -o $@ $(ZCOMPILE_FLAGS) $(LIB)

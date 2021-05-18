@@ -1,21 +1,32 @@
 #pragma once
-#include "dashing.h"
+#include <zlib.h>
+#include <cassert>
+#include "khset/khset.h"
+#include <array>
 #include "kxsort.h"
+#include "bonsai/util.h"
 
 namespace bns {
+using sketch::exception::NotImplementedError;
 struct khset64_t: public kh::khset64_t {
     static_assert(sizeof(std::declval<khset64_t>().keys) == sizeof(uint64_t), "must be same");
     using base = kh::khset64_t;
     using final_type = khset64_t;
-    void addh(uint64_t v) {this->insert(v);}
-    void add(uint64_t v) {this->insert(v);}
+    void addh(uint64_t v) {
+        //if(!flags) throw std::runtime_error("Expected non-null flags");
+        //if(!keys) throw std::runtime_error("Expected non-null keys");
+        //std::fprintf(stderr, "Adding key %zu to khset at %p with size %zu\n", size_t(v), (void *)this, size_t(this->n_occupied));
+        this->insert(v);
+    }
+    void add(uint64_t v) {this->addh(v);}
     double cardinality_estimate() const {
         return n_occupied;
     }
     khset64_t(): kh::khset64_t() {}
     //khset64_t(khset64_t &&o) = default;
     khset64_t(const khset64_t &o) = default;
-    khset64_t(size_t reservesz): kh::khset64_t(reservesz) {}
+    khset64_t(size_t reservesz): kh::khset64_t(reservesz) {
+    }
     khset64_t(gzFile fp): kh::khset64_t(fp) {}
     khset64_t(std::string s) {
         this->n_occupied = this->n_buckets = 0;
@@ -26,9 +37,17 @@ struct khset64_t: public kh::khset64_t {
     }
     void reset() {
         if(flags) {
+            //std::fprintf(stderr, "Flags are set\n");
             std::memset(flags, 0xaa, __ac_fsize(n_buckets) * sizeof(uint32_t));
             size_ref() = n_occupied = 0;
+        } else {
+            this->free();
+            this->reserve(2048);
+            assert(this->flags);
         }
+    }
+    void clear() {
+        this->reset();
     }
     khset64_t(khset64_t &&o) {
         this->n_occupied = o.n_occupied;
@@ -137,11 +156,18 @@ struct khset64_t: public kh::khset64_t {
         return double(cmps[2]) / (std::min(cmps[0], cmps[1]) + 1e-20 + cmps[2]);
     }
     khset64_t &operator=(const khset64_t &o) {
+        if(!o.flags && o.keys) {
+            this->keys = (khint64_t *)std::malloc(o.n_occupied * sizeof(uint64_t));
+            std::memcpy(this->keys, o.keys, o.n_occupied * sizeof(uint64_t));
+            n_occupied = o.n_occupied;
+            return *this;
+        }
         static_cast<kh::khset64_t *>(this)->operator=(static_cast<kh::khset64_t>(o));
         return *this;
     }
     khset64_t &operator+=(const khset64_t &o) {
         throw NotImplementedError("This shouldn't be called.");
+        return *this;
     }
     uint64_t union_size(const khset64_t &other) const {
         auto cmps = full_set_comparison(other);
