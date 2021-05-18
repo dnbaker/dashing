@@ -109,6 +109,7 @@ static option_struct dist_long_options[] = {\
 
 
 namespace bns {
+struct khset64_t;
 using sketch::mh::HyperLogLogHasher;
 using sketch::HyperMinHash;
 int flatten_all(const std::vector<std::string> &fpaths, const std::string outpath, std::vector<unsigned> &k_values);
