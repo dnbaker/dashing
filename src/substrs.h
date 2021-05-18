@@ -13,7 +13,7 @@ void for_each_substr(const F &func, const std::string &s, const int sep=' ') {
     }
     const char *p2 = s.data();
     std::string tmp(p2, p);
-    do {
+    for(;;) {
         func(tmp.data());
         std::swap(p2, ++p);
         if((p = std::strchr(p2, sep)) == nullptr) {
@@ -22,7 +22,7 @@ void for_each_substr(const F &func, const std::string &s, const int sep=' ') {
         }
         tmp = std::string(p2, p);
         if(std::all_of(tmp.begin(), tmp.end(), [](auto x) {return std::isspace(x);})) break;
-    } while(1);
+    }
 }
 
 #endif
