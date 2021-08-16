@@ -454,8 +454,13 @@ inline void set_estim_and_jestim(hll::hllbase_t<Hashstruct> &h, hll::EstimationM
     h.set_jestim(jestim);
 }
 template<typename T> inline T construct(size_t ssarg);
-template<typename T, bool is_weighted>
-struct Constructor;
+template<typename T, bool is_weighted> struct Constructor;
+template<typename T>
+inline T construct(size_t ssarg) {
+    Constructor<T, wj::is_weighted_sketch<T>::value> constructor;
+    return constructor.create(ssarg);
+}
+
 template<typename T> struct Constructor<T, false> {
     static auto create(size_t ssarg) {
         return T(ssarg);
@@ -474,19 +479,13 @@ template<typename T> struct Constructor<T, true> {
     }
 };
 template<template<typename> typename Adapter> struct Constructor<Adapter<BBitMinHasher<uint64_t>>, true> {
-    using Type = Constructor<Adapter<BBitMinHasher<uint64_t>>, true>;
+    using Type = Adapter<BBitMinHasher<uint64_t>>;
     static auto create(size_t ssarg) {
-        using base_type = typename Type::base_type;
-        using cm_type = typename Type::cm_type;
-        return Type(cm_type(16, gargs.weighted_jaccard_cmsize, gargs.weighted_jaccard_nhashes), construct<base_type>(ssarg, gargs.bbnbits));
+        using base_type = BBitMinHasher<uint64_t> /*typename Type::base_type*/;
+        using cm_type = typename Adapter<BBitMinHasher<uint64_t>>::cm_type;
+        return Type(cm_type(16, gargs.weighted_jaccard_cmsize, gargs.weighted_jaccard_nhashes), construct<base_type>(ssarg));
     }
 };
-
-template<typename T>
-inline T construct(size_t ssarg) {
-    Constructor<T, wj::is_weighted_sketch<T>::value> constructor;
-    return constructor.create(ssarg);
-}
 
 
 template<typename T>
