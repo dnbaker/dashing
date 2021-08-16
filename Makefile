@@ -30,7 +30,7 @@ else
 	OPT+=-fopenmp
 endif
 XXFLAGS=-fno-rtti
-CXXFLAGS=$(OPT) $(XXFLAGS) -std=c++14 $(WARNINGS) \
+CXXFLAGS=$(OPT) $(XXFLAGS) -std=c++17 $(WARNINGS) \
 	 -DDASHING_VERSION=\"$(GIT_VERSION)\"  -fdiagnostics-color=always
 CXXFLAGS_MINUS_OPENMP=$(OPT_MINUS_OPENMP) $(XXFLAGS) -std=c++1z $(WARNINGS) -Wno-cast-align -Wno-gnu-zero-variadic-macro-arguments \
 	 -DDASHING_VERSION=\"$(GIT_VERSION)\"
