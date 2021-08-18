@@ -37,7 +37,7 @@ int main(int argc, char *argv[]) {
     {"sketch_by_seq", sketch_by_seq_main},
     {"sbs", sketch_by_seq_main}
 };
-    
+
     std::fprintf(stderr, "Dashing version: %s\n", DASHING_VERSION);
     if(argc == 1) main_usage(argv);
     auto it = submap.find(argv[1]);
