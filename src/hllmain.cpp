@@ -1,6 +1,6 @@
 #include "dashing.h"
-
 namespace bns {
+
 int hll_main(int argc, char *argv[]) {
     int c, wsz(0), k(31), num_threads(-1), sketch_size(24);
     bool canon(true);

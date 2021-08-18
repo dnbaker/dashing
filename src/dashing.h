@@ -6,11 +6,8 @@
 #include "sketch/hmh.h"
 #include "sketch/mult.h"
 #include "sketch/hk.h"
-#include "khset/khset.h"
-#include "bonsai/util.h"
-#include "bonsai/database.h"
-#include "bonsai/bitmap.h"
-#include "bonsai/setcmp.h"
+#include "sketch/bf.h"
+#include "bonsai/encoder.h"
 #include "khset/khset.h"
 #include "distmat/distmat.h"
 #include <sstream>
@@ -496,9 +493,6 @@ template<> inline double cardinality_estimate(hll::hll_t &x) {return x.report();
 template<> inline double cardinality_estimate(mh::FinalBBitMinHash &x) {return x.est_cardinality_;}
 template<> inline double cardinality_estimate(mh::FinalDivBBitMinHash &x) {return x.est_cardinality_;}
 template<> inline double cardinality_estimate(sketch::HyperMinHash &x) {return x.getcard();}
-//extern template double cardinality_estimate(hll::hll_t &x);
-//extern template double cardinality_estimate(mh::FinalBBitMinHash &x);
-//extern template double cardinality_estimate(mh::FinalDivBBitMinHash &x);
 
 template<typename SketchType>
 static inline std::string make_fname(const char *path, size_t sketch_p, int wsz, int k, int csz, const std::string &spacing,
@@ -553,9 +547,6 @@ US_DEC(sketch::HyperMinHash)
 US_DEC(CRMFinal)
 US_DEC(khset64_t)
 #undef US_DEC
-//template<> inline double union_size<hll::hllbase_t<>>(const hll::hllbase_t<> &h1, const hll::hllbase_t<> &h2) {
-//    return h1.union_size(h2);
-//}
 template<> inline double intersection_size<hll::hllbase_t<>>(const hll::hllbase_t<> &h1, const hll::hllbase_t<> &h2) {
     return std::max(0., h1.creport() + h2.creport() - h1.union_size(h2));
 }
@@ -599,6 +590,72 @@ float result_cmp(const ST &lhs, const ST &rhs, EmissionType result_type, double 
     }
     return static_cast<float>(ret);
 }
+
+template<typename SketchType> inline hll::hll_t &get_hll(SketchType &s);
+template<> inline hll::hll_t &get_hll<hll::hll_t>(hll::hll_t &s) {return s;}
+template<typename SketchType> inline const hll::hll_t &get_hll(const SketchType &s);
+template<> inline const hll::hll_t &get_hll<hll::hll_t>(const hll::hll_t &s) {return s;}
+
+template<typename SketchType>
+struct est_helper {
+    const Spacer                      &sp_;
+    const std::vector<std::string> &paths_;
+    std::mutex                         &m_;
+    const u64                          np_;
+    const bool                      canon_;
+    void                            *data_;
+    std::vector<SketchType>         &hlls_;
+    kseq_t                            *ks_;
+};
+
+template<typename SketchType, typename ScoreType=score::Lex>
+void est_helper_fn(void *data_, long index, int tid) {
+    est_helper<SketchType> &h(*(est_helper<SketchType> *)(data_));
+    fill_lmers<ScoreType, SketchType>(h.hlls_[tid], h.paths_[index], h.sp_, h.canon_, h.data_, h.ks_ + tid);
+}
+
+template<typename SketchType, typename ScoreType=score::Lex>
+void fill_sketch(SketchType &ret, const std::vector<std::string> &paths,
+              unsigned k, uint16_t w, const spvec_t &spaces, bool canon=true,
+              void *data=nullptr, int num_threads=1, u64 np=23, kseq_t *ks=nullptr) {
+    // Default to using all available threads if num_threads is negative.
+    if(num_threads < 0) {
+        num_threads = std::thread::hardware_concurrency();
+        LOG_INFO("Number of threads was negative and has been adjusted to all available threads (%i).\n", num_threads);
+    }
+    const Spacer space(k, w, spaces);
+    if(num_threads <= 1) {
+        LOG_DEBUG("Starting serial\n");
+        for(u64 i(0); i < paths.size(); fill_lmers<ScoreType, SketchType>(ret, paths[i++], space, canon, data, ks));
+    } else {
+        LOG_DEBUG("Starting parallel\n");
+        std::mutex m;
+        KSeqBufferHolder kseqs(num_threads);
+        std::vector<SketchType> sketches;
+        while(sketches.size() < (unsigned)num_threads) sketches.emplace_back(ret.clone());
+        est_helper<SketchType> helper{space, paths, m, np, canon, data, sketches, kseqs.data()};
+        kt_for(num_threads, &est_helper_fn<SketchType, ScoreType>, &helper, paths.size());
+        auto &rhll = get_hll(ret);
+        for(auto &sketch: sketches) rhll += get_hll(sketch);
+    }
+
+}
+template<typename ScoreType=score::Lex>
+hll::hll_t make_hll(const std::vector<std::string> &paths,
+                unsigned k, uint16_t w, spvec_t spaces, bool canon=true,
+                void *data=nullptr, int num_threads=1, u64 np=23, kseq_t *ks=false, hll::EstimationMethod estim=hll::EstimationMethod::ERTL_MLE, uint16_t jestim=hll::JointEstimationMethod::ERTL_JOINT_MLE, bool clamp=true) {
+    hll::hll_t master(np, estim, (hll::JointEstimationMethod)jestim, 1, clamp);
+    fill_sketch<hll::hll_t, ScoreType>(master, paths, k, w, spaces, canon, data, num_threads, np, ks);
+    return master;
+}
+template<typename ScoreType=score::Lex>
+u64 estimate_cardinality(const std::vector<std::string> &paths,
+                            unsigned k, uint16_t w, spvec_t spaces, bool canon,
+                            void *data=nullptr, int num_threads=-1, u64 np=23, kseq_t *ks=nullptr, hll::EstimationMethod estim=hll::EstimationMethod::ERTL_MLE) {
+    auto tmp(make_hll<ScoreType>(paths, k, w, spaces, canon, data, num_threads, np, ks, estim));
+    return tmp.report();
+}
+
 
 template<typename SketchType>
 void partdist_loop(std::FILE *ofp, SketchType *hlls, const std::vector<std::string> &inpaths, const bool use_scientific, const unsigned k, const EmissionType result_type, EmissionFormat emit_fmt, const size_t buffer_flush_size,
