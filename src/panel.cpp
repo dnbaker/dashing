@@ -3,7 +3,7 @@ namespace bns {
 
 template<typename SketchType>
 void panel_query(const std::string &path, const std::vector<typename FinalSketch<SketchType>::final_type>, const std::vector<std::string> &labels, gzFile fp) {
-    
+
 }
 
 #undef UNRECOVERABLE_ERROR
