@@ -85,7 +85,7 @@ void dist_usage(const char *arg) {
                          "Enabling -Q changes the shape to rectangular (|F| by |Q|).\n"
                          "For asymmetric distances (like containment), you will need to use -Q to generate comparisons in both directions\n"
                          "--nperbatch\tDuring pairwise distance computation, performance can be improved by batching sketch comparisons\n"
-                         "           \tRaising this number (defaulting to 1) may improve performance by helping cache locality.\n" 
+                         "           \tRaising this number (defaulting to 1) may improve performance by helping cache locality.\n"
                          "           \tDefault: 16\n"
                          "--presketched\tTreat provided paths as pre-made sketches.\n"
                          "-P, --prefix\tSet prefix for sketch file locations [empty]\n"
