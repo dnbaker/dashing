@@ -203,7 +203,7 @@ void size_sketch_and_emit(std::vector<std::string> &inpaths, std::vector<Countin
                         case NTHASH:
                             for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, path, FNAME_SEP);
                             break;
-                        case CYCLIC: for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, path, FNAME_SEP);
+                        case RK: case CYCLIC: for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, path, FNAME_SEP);
                             break;
                         }
                     } else {
@@ -216,7 +216,7 @@ void size_sketch_and_emit(std::vector<std::string> &inpaths, std::vector<Countin
                         case NTHASH:
                             for_each_substr([&](const char *s) {enc.for_each_hash(lfunc, s, &kseqs[tid]);}, path, FNAME_SEP);
                         break;
-                        case CYCLIC: default:
+                        case RK: case CYCLIC: default:
                             for_each_substr([&](const char *s) {rolling_hasher.for_each_hash(lfunc, s, &kseqs[tid]);}, path, FNAME_SEP);
                         break;
                         }
