@@ -22,6 +22,12 @@ void par_reduce(T *x, size_t n) {
         }
     }
 }
+template<typename T> void perform_sum(T&) {}
+
+template<>
+void perform_sum(sketch::hll_t& hll) {
+    hll.sum();
+}
 
 template<typename T>
 void union_core(std::vector<std::string> &paths, gzFile ofp, size_t nthreads) {
@@ -44,7 +50,8 @@ void union_core(std::vector<std::string> &paths, gzFile ofp, size_t nthreads) {
         }
     }
     par_reduce(items, cap);
-    items[0].write(ofp);
+    perform_sum(*items);
+    items->write(ofp);
     OMP_PFOR
     for(size_t i = 0; i < cap; ++i) items[i].~T();
     std::free(items);
@@ -55,7 +62,6 @@ int union_main(int argc, char *argv[]) {
                     [](const char *s) {return std::strcmp(s, "--help") == 0 || std::strcmp(s, "-h") == 0;})
        != argc + argv)
         union_usage(*argv);
-    bool compress = false;
     int compression_level = 6, nthreads = 1;
     const char *opath = "/dev/stdout";
     std::vector<std::string> paths;
@@ -64,7 +70,6 @@ int union_main(int argc, char *argv[]) {
         switch(c) {
             case 'h': union_usage(*argv);
             case 'Z': compression_level = std::atoi(optarg); [[fallthrough]];
-            case 'z': compress = true; break;
             case 'o': opath = optarg; break;
             case 'F': paths = get_paths(optarg); break;
             case 'r': sketch_type = RANGE_MINHASH; break;
@@ -76,9 +81,9 @@ int union_main(int argc, char *argv[]) {
     nthreads = std::max(nthreads, 1);
     omp_set_num_threads(nthreads);
     if(argc == optind && paths.empty()) union_usage(*argv);
-    std::for_each(argv + optind, argv + argc, [&](const char *s){paths.emplace_back(s);});
+    std::copy(argv + optind, argv + argc, std::back_inserter(paths));
     char mode[6];
-    if(compress && compression_level)
+    if(compression_level)
         std::sprintf(mode, "wb%d", compression_level % 23);
     else
         std::sprintf(mode, "wT");
@@ -93,7 +98,10 @@ int union_main(int argc, char *argv[]) {
         case RANGE_MINHASH: union_core<mh::FinalRMinHash<uint64_t>>(paths, ofp, nthreads); break;
         default: throw NotImplementedError(ks::sprintf("Union not implemented for %s\n", sketch_names[sketch_type]).data());
     }
-    gzclose(ofp);
+    int rc = gzclose(ofp);
+    if(rc != 0) {
+        throw sketch::ZlibError(rc, "Failed to close ofp");
+    }
     return 0;
 }
 
