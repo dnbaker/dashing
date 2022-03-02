@@ -159,8 +159,12 @@ void size_sketch_and_emit(std::vector<std::string> &inpaths, std::vector<Countin
             try {
                 raii_final_sketches->emplace_back(ifp);
                 set_estim_and_jestim(raii_final_sketches->back(), estim, jestim);
-            } catch(...) {break;}
+            } catch(const std::exception& e) {
+                std::fprintf(stderr, "what: %s\n", e.what());
+                break;
+            }
         }
+        std::fprintf(stderr, "Number of sketches: %zu\n", raii_final_sketches->size());
         final_sketches = raii_final_sketches->data();
         while(inpaths.size() < raii_final_sketches->size())
             inpaths.emplace_back(std::to_string(inpaths.size()));
