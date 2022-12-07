@@ -6,8 +6,7 @@ Our paper is available [here](https://www.biorxiv.org/content/10.1101/501726v2) 
 
 # Use
 
-The easiest way to use dashing is to grab a binary release. These are located in `dashing/release/{osx,linux}/dashing_s{128,256,512}`, where `dashing_s128`, `dashing_s256`, and `dashing_s512`
-work, respectively, on systems supporting SSE2, AVX2, and AVX512BW. If these don't work, you'll need to build from source.
+The easiest way to use dashing is to download a binary release. These are located on the [release page of the `dashing-binaries` repo](https://github.com/dnbaker/dashing-binaries/tags).  These archives contain three versions per executable, called `dashing_s128`, `dashing_s256`, and `dashing_s512`.  These work, respectively, on systems supporting SSE2, AVX2, and AVX512BW instructions.  If a binary with a higher number after the `s` fails to work on your system, try one with a lower number.  Note also that the binaries are gzipped, so you may need to `gunzip *` in the appropriate binary directory first.
 
 # Build
 Clone this repository recursively, and use make.
