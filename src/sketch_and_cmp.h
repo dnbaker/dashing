@@ -144,92 +144,75 @@ void size_sketch_and_emit(std::vector<std::string> &inpaths, std::vector<Countin
     }
     static constexpr bool samesketch = std::is_same<SketchType, final_type>::value;
     final_type *final_sketches;
-    std::unique_ptr<std::vector<final_type>> raii_final_sketches;
 
     std::atomic<uint32_t> ncomplete;
     ncomplete.store(0);
     const unsigned k = sp.k_;
     const unsigned wsz = sp.w_;
     RollingHasher<uint64_t> rolling_hasher(k, canon);
-    if(npaths == 1 && presketched_only) {
-        raii_final_sketches.reset(new std::vector<final_type>);
-        gzFile ifp = gzopen(inpaths[0].data(), "rb");
-        if(!ifp) UNRECOVERABLE_ERROR("Failed to open file.");
-        for(;!gzeof(ifp);) {
-            try {
-                raii_final_sketches->emplace_back(ifp);
-                set_estim_and_jestim(raii_final_sketches->back(), estim, jestim);
-            } catch(...) {break;}
-        }
-        final_sketches = raii_final_sketches->data();
-        while(inpaths.size() < raii_final_sketches->size())
-            inpaths.emplace_back(std::to_string(inpaths.size()));
-        inpaths[0] = "0";
-    } else {
-        final_sketches =
-            samesketch ? reinterpret_cast<final_type *>(sketches)
-                       : static_cast<final_type *>(std::malloc(sizeof(*final_sketches) * npaths));
-        OMP_PFOR_DYN
-        for(size_t i = 0; i < npaths; ++i) {
-            const std::string &path(inpaths[i]);
-            auto &sketch = sketches[i];
-            if(presketched_only)  {
+    final_sketches =
+        samesketch ? reinterpret_cast<final_type *>(sketches)
+                   : static_cast<final_type *>(std::malloc(sizeof(*final_sketches) * npaths));
+    OMP_PFOR_DYN
+    for(size_t i = 0; i < npaths; ++i) {
+        const std::string &path(inpaths[i]);
+        auto &sketch = sketches[i];
+        if(presketched_only)  {
+            CONST_IF(samesketch) {
+                sketch.read(path);
+                set_estim_and_jestim(sketch, estim, jestim); // HLL is the only type that needs this, and it's the same
+            } else {
+                new(final_sketches + i) final_type(path.data()); // Read from path
+            }
+        } else {
+            const std::string fpath(make_fname<SketchType>(path.data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix, enct));
+            const bool isf = isfile(fpath);
+            if(cache_sketch && isf) {
+                LOG_DEBUG("Sketch found at %s with size %zu, %u\n", fpath.data(), size_t(1ull << sketch_size), sketch_size);
                 CONST_IF(samesketch) {
-                    sketch.read(path);
-                    set_estim_and_jestim(sketch, estim, jestim); // HLL is the only type that needs this, and it's the same
+                    sketch.read(fpath);
+                    set_estim_and_jestim(sketch, estim, jestim);
                 } else {
-                    new(final_sketches + i) final_type(path.data()); // Read from path
+                    new(final_sketches + i) final_type(fpath);
                 }
             } else {
-                const std::string fpath(make_fname<SketchType>(path.data(), sketch_size, wsz, k, sp.c_, spacing, suffix, prefix, enct));
-                const bool isf = isfile(fpath);
-                if(cache_sketch && isf) {
-                    LOG_DEBUG("Sketch found at %s with size %zu, %u\n", fpath.data(), size_t(1ull << sketch_size), sketch_size);
-                    CONST_IF(samesketch) {
-                        sketch.read(fpath);
-                        set_estim_and_jestim(sketch, estim, jestim);
-                    } else {
-                        new(final_sketches + i) final_type(fpath);
+                const int tid = omp_get_thread_num();
+                Encoder<score::Lex> enc(nullptr, 0, sp, nullptr, canon);
+                if(cms.empty()) {
+                    auto &h = sketch;
+                    switch(enct) {
+                    case BONSAI:
+                        for_each_substr([&](const char *s) {enc.for_each([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, path, FNAME_SEP);
+                        break;
+                    case NTHASH:
+                        for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, path, FNAME_SEP);
+                        break;
+                    case RK: case CYCLIC: for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, path, FNAME_SEP);
+                        break;
                     }
                 } else {
-                    const int tid = omp_get_thread_num();
-                    Encoder<score::Lex> enc(nullptr, 0, sp, nullptr, canon);
-                    if(cms.empty()) {
-                        auto &h = sketch;
-                        switch(enct) {
-                        case BONSAI:
-                            for_each_substr([&](const char *s) {enc.for_each([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, path, FNAME_SEP);
-                            break;
-                        case NTHASH:
-                            for_each_substr([&](const char *s) {enc.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, path, FNAME_SEP);
-                            break;
-                        case RK: case CYCLIC: for_each_substr([&](const char *s) {rolling_hasher.for_each_hash([&](u64 kmer){h.addh(kmer);}, s, &kseqs[tid]);}, path, FNAME_SEP);
-                            break;
-                        }
-                    } else {
-                        CountingSketch &cm = cms.at(tid);
-                        const auto lfunc = [&](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);};
-                        switch(enct) {
-                        case BONSAI:
-                            for_each_substr([&](const char *s) {enc.for_each(lfunc, s, &kseqs[tid]);}, path, FNAME_SEP);
-                        break;
-                        case NTHASH:
-                            for_each_substr([&](const char *s) {enc.for_each_hash(lfunc, s, &kseqs[tid]);}, path, FNAME_SEP);
-                        break;
-                        case RK: case CYCLIC: default:
-                            for_each_substr([&](const char *s) {rolling_hasher.for_each_hash(lfunc, s, &kseqs[tid]);}, path, FNAME_SEP);
-                        break;
-                        }
-                        cm.clear();
+                    CountingSketch &cm = cms.at(tid);
+                    const auto lfunc = [&](u64 kmer){if(cm.addh(kmer) >= mincount) sketch.addh(kmer);};
+                    switch(enct) {
+                    case BONSAI:
+                        for_each_substr([&](const char *s) {enc.for_each(lfunc, s, &kseqs[tid]);}, path, FNAME_SEP);
+                    break;
+                    case NTHASH:
+                        for_each_substr([&](const char *s) {enc.for_each_hash(lfunc, s, &kseqs[tid]);}, path, FNAME_SEP);
+                    break;
+                    case RK: case CYCLIC: default:
+                        for_each_substr([&](const char *s) {rolling_hasher.for_each_hash(lfunc, s, &kseqs[tid]);}, path, FNAME_SEP);
+                    break;
                     }
-                    CONST_IF(!samesketch) new(final_sketches + i) final_type(std::move(sketch));
-                    CONST_IF(samesketch) {
-                        if(cache_sketch && !isf) sketch.write(fpath);
-                    } else if(cache_sketch) final_sketches[i].write(fpath);
+                    cm.clear();
                 }
+                CONST_IF(!samesketch) new(final_sketches + i) final_type(std::move(sketch));
+                CONST_IF(samesketch) {
+                    if(cache_sketch && !isf) sketch.write(fpath);
+                } else if(cache_sketch) final_sketches[i].write(fpath);
             }
-            ++ncomplete; // Atomic
         }
+        ++ncomplete; // Atomic
     }
     OMP_PFOR
     for(size_t i = 0; i < npaths; ++i) {
@@ -268,14 +251,12 @@ void size_sketch_and_emit(std::vector<std::string> &inpaths, std::vector<Countin
     }
     if(ofp != stdout) std::fclose(ofp);
     CONST_IF(!samesketch) {
-        if(!raii_final_sketches) {
-            OMP_PFOR
-            for(size_t i = 0; i < npaths; ++i) {
-                using T = typename std::decay<decltype(final_sketches[0])>::type;
-                final_sketches[i].~T();
-            }
-            std::free(final_sketches);
+        OMP_PFOR
+        for(size_t i = 0; i < npaths; ++i) {
+            using T = typename std::decay<decltype(final_sketches[0])>::type;
+            final_sketches[i].~T();
         }
+        std::free(final_sketches);
     }
     OMP_PFOR
     for(size_t i = 0; i < npaths; ++i) {
