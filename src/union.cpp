@@ -12,7 +12,7 @@ void par_reduce(T *x, size_t n) {
     const unsigned int ln = static_cast<int>(std::ceil(std::log2(n)));
     for(size_t i = 0; i < ln; ++i) {
         const size_t step_size = 1 << i;
-        const size_t sweep_size = (i + 1) << 1;
+        const size_t sweep_size = step_size * 2;
         const size_t nsweeps = (n + (sweep_size - 1)) / sweep_size;
         OMP_PFOR
         for(size_t j = 0; j < nsweeps; ++j) {
